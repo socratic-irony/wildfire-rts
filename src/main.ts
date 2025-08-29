@@ -135,7 +135,7 @@ fireViz.setMode('vertex');
 
 // Roads — cost field + visual + input state
 const roadCost = buildTerrainCost(hm);
-const roadsVis = new RoadsVisual();
+const roadsVis = new RoadsVisual(hm);
 scene.add(roadsVis.group);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
@@ -190,7 +190,7 @@ let roadEndpoints: Array<{ x: number; z: number }> = [];
             }
           };
           const path = aStarPath(costField as any, a, b, { diag: true, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
-          if (path.length) roadsVis.addPath(path, hm.scale, 0.06);
+          if (path.length) roadsVis.addPath(path);
         }
       }
       return;
