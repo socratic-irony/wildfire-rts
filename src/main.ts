@@ -11,6 +11,7 @@ import { applyBiomeVertexColors, computeBiomes } from './terrain/biomes';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
 import { buildChunkedTerrain } from './terrain/chunks';
+import { attachStats } from './ui/debug';
 
 const app = document.getElementById('app')!;
 const scene = createScene();
@@ -48,6 +49,7 @@ const rts = new RTSCameraController(
 );
 
 const loop = new Loop();
+const stats = attachStats(app);
 loop.add((dt) => {
   const keys = new Set(Array.from([])); // placeholder for future direct key handling
   const move = {
@@ -78,6 +80,7 @@ loop.add((dt) => {
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
   renderer.render(scene, rig.camera);
+  stats.update(dt, renderer);
 });
 
 // Toggle grid overlay (G)
