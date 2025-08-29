@@ -1,4 +1,4 @@
-import { Mesh, Object3D, BufferAttribute } from 'three';
+import { Mesh, Object3D, BufferAttribute, Vector3 } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -10,6 +10,7 @@ import { RTSCameraController } from './core/rtsCamera';
 import { applyBiomeVertexColors, computeBiomes } from './terrain/biomes';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
+import { buildChunkedTerrain } from './terrain/chunks';
 
 const app = document.getElementById('app')!;
 const scene = createScene();
@@ -26,19 +27,16 @@ const hm = generateHeightmap(128, 128, 1, {
   octaves: 4,
   persistence: 0.5,
 });
-const terrainGeo = buildTerrainGeometry(hm);
-// Vertex colors by biome (Stage E)
-const colors = new Float32Array(((hm.width + 1) * (hm.height + 1)) * 3);
+// Biomes and material
 const biomes = computeBiomes(hm);
-applyBiomeVertexColors(hm, colors, biomes);
-terrainGeo.setAttribute('color', new BufferAttribute(colors, 3));
 const terrainMat = createTerrainMaterial() as any;
-const terrain = new Mesh(terrainGeo, terrainMat);
-terrain.receiveShadow = true;
-scene.add(terrain);
+
+// Stage G: chunked terrain with basic LOD
+const chunked = buildChunkedTerrain(hm, terrainMat, 32);
+scene.add(chunked.group);
 
 // Stage C: RTS camera controller (replaces Orbit)
-const terrainObj = terrain as Object3D;
+const terrainObj = chunked.group as Object3D;
 const rts = new RTSCameraController(
   renderer.domElement,
   rig.camera,
@@ -76,6 +74,9 @@ loop.add((dt) => {
   const t = performance.now() / 1000;
   forest?.update(t);
   shrubs?.update(t);
+  // Update LOD for terrain chunks
+  const camPos = rig.camera.getWorldPosition(new Vector3());
+  chunked.updateLOD(camPos.x, camPos.z);
   renderer.render(scene, rig.camera);
 });
 
