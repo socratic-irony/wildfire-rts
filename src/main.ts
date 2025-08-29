@@ -1,4 +1,4 @@
-import { Mesh, Object3D } from 'three';
+import { Mesh, Object3D, BufferAttribute } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -7,6 +7,7 @@ import { generateHeightmap } from './terrain/heightmap';
 import { buildTerrainGeometry } from './terrain/mesh';
 import { createTerrainMaterial } from './terrain/material';
 import { RTSCameraController } from './core/rtsCamera';
+import { applyBiomeVertexColors, computeBiomes } from './terrain/biomes';
 
 const app = document.getElementById('app')!;
 const scene = createScene();
@@ -24,6 +25,11 @@ const hm = generateHeightmap(128, 128, 1, {
   persistence: 0.5,
 });
 const terrainGeo = buildTerrainGeometry(hm);
+// Vertex colors by biome (Stage E)
+const colors = new Float32Array(((hm.width + 1) * (hm.height + 1)) * 3);
+const biomes = computeBiomes(hm);
+applyBiomeVertexColors(hm, colors, biomes);
+terrainGeo.setAttribute('color', new BufferAttribute(colors, 3));
 const terrainMat = createTerrainMaterial() as any;
 const terrain = new Mesh(terrainGeo, terrainMat);
 terrain.receiveShadow = true;

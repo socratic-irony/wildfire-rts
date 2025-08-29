@@ -6,6 +6,7 @@ export function createTerrainMaterial() {
     flatShading: true,
     roughness: 0.75,
     metalness: 0.0,
+    vertexColors: true,
   });
   mat.receiveShadow = true;
   // Inject grid overlay via shader hook

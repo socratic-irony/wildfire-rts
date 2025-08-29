@@ -1,4 +1,4 @@
-import { BufferGeometry, Float32BufferAttribute, Mesh } from 'three';
+import { BufferGeometry, Float32BufferAttribute } from 'three';
 import { Heightmap } from './heightmap';
 
 export function buildTerrainGeometry(hm: Heightmap): BufferGeometry {
@@ -42,4 +42,3 @@ export function buildTerrainGeometry(hm: Heightmap): BufferGeometry {
   geo.boundingSphere = null; // let three compute lazily
   return geo;
 }
-
