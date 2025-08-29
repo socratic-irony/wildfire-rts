@@ -16,6 +16,9 @@ import { attachStats } from './ui/debug';
 import { buildFireGrid, ignite as igniteTiles } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
+import { buildTerrainCost } from './roads/cost';
+import { aStarPath } from './roads/astar';
+import { RoadsVisual } from './roads/visual';
 // import { createFireTexture } from './fire/texture';
 
 const app = document.getElementById('app')!;
@@ -130,6 +133,13 @@ const fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);
 fireViz.setMode('vertex');
 
+// Roads — cost field + visual + input state
+const roadCost = buildTerrainCost(hm);
+const roadsVis = new RoadsVisual();
+scene.add(roadsVis.group);
+let roadsEnabled = false;
+let roadEndpoints: Array<{ x: number; z: number }> = [];
+
 // Click to ignite under cursor
 {
   const ray = new Raycaster();
@@ -155,9 +165,40 @@ fireViz.setMode('vertex');
     return true;
   }
   dom.addEventListener('click', (e) => {
-    if (!stats.getIgniteMode()) return;
     getMouseNDC(e);
-    igniteFromNDC(mouse.x, mouse.y);
+    // Roads placement when enabled
+    if (roadsEnabled) {
+      mouse.set(mouse.x, mouse.y);
+      ray.setFromCamera(mouse as any, rig.camera);
+      const hits = ray.intersectObject(chunked.group, true);
+      if (hits.length) {
+        const p = hits[0].point;
+        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
+        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+        roadEndpoints.push({ x: gx, z: gz });
+        if (roadEndpoints.length >= 2) {
+          const [a, b] = [roadEndpoints[roadEndpoints.length - 2], roadEndpoints[roadEndpoints.length - 1]];
+          // Build cost function on the fly
+          const WE = 0.6, WS = 1.2, WV = 0.8; // weights for elevation, slope, valley bonus
+          const costField = {
+            width: roadCost.width,
+            height: roadCost.height,
+            costAt: (x: number, z: number) => {
+              const i = z * roadCost.width + x;
+              const base = 1 + WE * roadCost.elev[i] + WS * roadCost.slope[i] - WV * roadCost.valley[i];
+              return Math.max(0.05, base);
+            }
+          };
+          const path = aStarPath(costField as any, a, b, { diag: true, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
+          if (path.length) roadsVis.addPath(path, hm.scale, 0.06);
+        }
+      }
+      return;
+    }
+    // Ignite when toggle is on
+    if (stats.getIgniteMode()) {
+      igniteFromNDC(mouse.x, mouse.y);
+    }
   });
 
   // Wire Debug UI: Ignite Center + Viz Mode action
@@ -166,6 +207,10 @@ fireViz.setMode('vertex');
       // Screen center is NDC (0,0)
       igniteFromNDC(0, 0);
     },
-    setVizMode: (mode) => fireViz.setMode(mode)
+    setVizMode: (mode) => fireViz.setMode(mode),
+    roads: {
+      toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
+      clear: () => { roadsVis.clear(); roadEndpoints = []; }
+    }
   });
 }

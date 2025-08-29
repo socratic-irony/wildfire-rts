@@ -1,7 +1,7 @@
 export type StatsHandle = {
   update: (dt: number, renderer: import('three').WebGLRenderer) => void;
   getIgniteMode: () => boolean;
-  setActions: (a: { igniteCenter?: () => void; setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void }) => void;
+  setActions: (a: { igniteCenter?: () => void; setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void; roads?: { toggle?: (on: boolean) => void; clear?: () => void } }) => void;
 };
 
 type DebugOpts = {
@@ -30,7 +30,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   let fps = 0;
   let visible = true;
   let igniteMode = false;
-  let actions: { igniteCenter?: () => void; setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void } = {};
+  let actions: { igniteCenter?: () => void; setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void; roads?: { toggle?: (on: boolean) => void; clear?: () => void } } = {};
 
   // Controls row
   const row = document.createElement('div');
@@ -72,6 +72,31 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   select.addEventListener('change', () => actions.setVizMode?.(select.value as any));
   row.appendChild(vizLabel);
   row.appendChild(select);
+  // Roads controls
+  const roadsLabel = document.createElement('span');
+  roadsLabel.textContent = 'Roads:';
+  roadsLabel.style.marginLeft = '8px';
+  roadsLabel.style.marginRight = '6px';
+  roadsLabel.style.color = '#cbd5e1';
+  const roadsToggle = document.createElement('a');
+  roadsToggle.href = '#';
+  roadsToggle.style.cssText = linkStyle;
+  let roadsOn = false;
+  roadsToggle.textContent = 'Off';
+  roadsToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    roadsOn = !roadsOn;
+    roadsToggle.textContent = roadsOn ? 'On' : 'Off';
+    actions.roads?.toggle?.(roadsOn);
+  });
+  const roadsClear = document.createElement('a');
+  roadsClear.href = '#';
+  roadsClear.style.cssText = linkStyle;
+  roadsClear.textContent = 'Clear Roads';
+  roadsClear.addEventListener('click', (e) => { e.preventDefault(); actions.roads?.clear?.(); });
+  row.appendChild(roadsLabel);
+  row.appendChild(roadsToggle);
+  row.appendChild(roadsClear);
   el.appendChild(row);
 
   // Toggle with F1
