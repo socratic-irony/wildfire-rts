@@ -133,19 +133,36 @@ scene.add(overlay.inst);
   const ray = new Raycaster();
   const mouse = new Vector2();
   const dom = renderer.domElement;
-  function getMouseNDC(ev: MouseEvent) {
+  const ndcFromClient = (cx: number, cy: number) => {
     const rect = dom.getBoundingClientRect();
-    mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    mouse.x = ((cx - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((cy - rect.top) / rect.height) * 2 + 1;
+  };
+  function getMouseNDC(ev: MouseEvent) {
+    ndcFromClient(ev.clientX, ev.clientY);
   }
-  dom.addEventListener('click', (e) => {
-    getMouseNDC(e);
+  function igniteFromNDC(nx: number, ny: number) {
+    mouse.set(nx, ny);
     ray.setFromCamera(mouse as any, rig.camera);
     const hits = ray.intersectObject(chunked.group, true);
-    if (!hits.length) return;
+    if (!hits.length) return false;
     const p = hits[0].point;
     const gx = Math.floor(p.x / hm.scale);
     const gz = Math.floor(p.z / hm.scale);
     igniteTiles(fireGrid, [{ x: gx, z: gz }], 0.8);
+    return true;
+  }
+  dom.addEventListener('click', (e) => {
+    if (!stats.getIgniteMode()) return;
+    getMouseNDC(e);
+    igniteFromNDC(mouse.x, mouse.y);
+  });
+
+  // Wire Debug UI: Ignite Center action
+  stats.setActions({
+    igniteCenter: () => {
+      // Screen center is NDC (0,0)
+      igniteFromNDC(0, 0);
+    }
   });
 }

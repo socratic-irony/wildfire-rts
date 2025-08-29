@@ -1,5 +1,7 @@
 export type StatsHandle = {
   update: (dt: number, renderer: import('three').WebGLRenderer) => void;
+  getIgniteMode: () => boolean;
+  setActions: (a: { igniteCenter?: () => void }) => void;
 };
 
 type DebugOpts = {
@@ -19,7 +21,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   el.style.font = '12px/1.2 system-ui, sans-serif';
   el.style.color = '#e5e7eb';
   el.style.whiteSpace = 'pre';
-  el.style.pointerEvents = 'none';
+  el.style.pointerEvents = 'auto';
   el.title = 'F1 to toggle';
   container.appendChild(el);
 
@@ -27,6 +29,33 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   let frames = 0;
   let fps = 0;
   let visible = true;
+  let igniteMode = false;
+  let actions: { igniteCenter?: () => void } = {};
+
+  // Controls row
+  const row = document.createElement('div');
+  row.style.marginBottom = '4px';
+  const linkStyle = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-right:8px;';
+  const igniteToggle = document.createElement('a');
+  igniteToggle.href = '#';
+  igniteToggle.style.cssText = linkStyle;
+  igniteToggle.textContent = 'Ignite: Off';
+  igniteToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    igniteMode = !igniteMode;
+    igniteToggle.textContent = `Ignite: ${igniteMode ? 'On' : 'Off'}`;
+  });
+  const igniteCenter = document.createElement('a');
+  igniteCenter.href = '#';
+  igniteCenter.style.cssText = linkStyle;
+  igniteCenter.textContent = 'Ignite Center';
+  igniteCenter.addEventListener('click', (e) => {
+    e.preventDefault();
+    actions.igniteCenter?.();
+  });
+  row.appendChild(igniteToggle);
+  row.appendChild(igniteCenter);
+  el.appendChild(row);
 
   // Toggle with F1
   window.addEventListener('keydown', (e) => {
@@ -60,14 +89,24 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       const treeCount = opts.forest ? ((opts.forest.leaves as any).count ?? (opts.forest.leaves as any).instanceCount ?? 0) : 0;
       const shrubCount = opts.shrubs ? ((opts.shrubs.inst as any).count ?? (opts.shrubs.inst as any).instanceCount ?? 0) : 0;
 
-      el.textContent =
+      const statsText =
         `FPS ${fps}\n` +
         `Calls ${info.render.calls}  Tris ${info.render.triangles}\n` +
         (opts.chunkGroup ? `Chunks ${chunksVis}/${chunks}  LOD H:${lodHi} L:${lodLo}\n` : '') +
         (opts.forest || opts.shrubs ? `Instances Trees ${treeCount}  Shrubs ${shrubCount}` : '');
+      // Ensure stats lines sit below controls row
+      let lines = el.querySelector('.lines') as HTMLDivElement | null;
+      if (!lines) {
+        lines = document.createElement('div');
+        lines.className = 'lines';
+        el.appendChild(lines);
+      }
+      lines.textContent = statsText;
 
       // reset auto counters each frame
       info.reset();
-    }
+    },
+    getIgniteMode() { return igniteMode; },
+    setActions(a) { actions = a; }
   };
 }
