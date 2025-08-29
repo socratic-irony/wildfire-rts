@@ -24,7 +24,8 @@ const hm = generateHeightmap(128, 128, 1, {
   persistence: 0.5,
 });
 const terrainGeo = buildTerrainGeometry(hm);
-const terrain = new Mesh(terrainGeo, createTerrainMaterial());
+const terrainMat = createTerrainMaterial() as any;
+const terrain = new Mesh(terrainGeo, terrainMat);
 terrain.receiveShadow = true;
 scene.add(terrain);
 
@@ -64,6 +65,16 @@ loop.add((dt) => {
 
   rts.update(dt, move);
   renderer.render(scene, rig.camera);
+});
+
+// Toggle grid overlay (G)
+window.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'g') {
+    const shader = (terrain.material as any).userData?.shader;
+    if (shader) {
+      shader.uniforms.uGridEnabled.value = shader.uniforms.uGridEnabled.value ? 0 : 1;
+    }
+  }
 });
 loop.start();
 
