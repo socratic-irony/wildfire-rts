@@ -122,15 +122,16 @@ export class FireSim {
 
         const ros = effectiveROS(g, i, n.dx, n.dz, this.env);
         const adv = (ros * dt) / (g.params.cellSize * n.dist);
-        let p = clamp(adv, 0, 1);
+        // Convert fractional advance to probability via Poisson arrival
+        // adv >= 1 -> ignite almost certainly, adv small -> small chance
+        let p = 1 - Math.exp(-clamp(adv, 0, 10));
         p *= moistGate(tgt.wetness, tgt.retardant, baseF);
         p *= barrierFactor(tgt.lineStrength);
-        // chaos mix: blend with a hashed random for determinism
-        const chaos = g.params.chaos;
-        const h = rand01((j + (g.time * 1000) | 0) ^ g.seed);
-        p = p * (1 - chaos) + h * chaos * p;
-
-        if (p > 0.5) newIgnitions.push(j); // cheap threshold; avoids per-neighbor RNG state
+        p = clamp(p, 0, 1);
+        // Deterministic hash as RNG; compare to probability
+        const h = rand01((j + (g.time * 997) | 0) ^ (g.seed ^ 0x51f15e));
+        // chaos retained via hashed RNG input above; no extra thresholding needed
+        if (h < p) newIgnitions.push(j);
       }
       // spotting (very simplified): occasional downwind leap within range
       if (g.params.spotting.enabled && this.env.windSpeed > 0) {

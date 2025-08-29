@@ -6,7 +6,9 @@ export function createFireOverlay(hm: Heightmap) {
   const plane = new PlaneGeometry(1, 1);
   plane.rotateX(-Math.PI / 2);
   const mat = new MeshBasicMaterial({ color: new Color('#ff5a1f'), transparent: true, opacity: 0.7, depthWrite: false, blending: AdditiveBlending, side: DoubleSide, vertexColors: true });
-  const inst = new InstancedMesh(plane, mat, 1);
+  // Preallocate full grid capacity so we never overflow when fire spreads
+  const capacity = hm.width * hm.height;
+  const inst = new InstancedMesh(plane, mat, capacity);
   (inst as any).count = 0;
   inst.frustumCulled = false;
 
@@ -16,15 +18,6 @@ export function createFireOverlay(hm: Heightmap) {
 
   const update = (grid: FireGrid) => {
     // Render only Burning and Smoldering tiles to keep instance count low
-    const total = grid.bCount + grid.sCount;
-    if (total !== (inst as any).count) {
-      // Recreate with new capacity if needed
-      if (total > inst.count) {
-        // Type limitation: InstancedMesh.count is readonly in TS types but runtime allows
-        (inst as any).count = total;
-        inst.instanceMatrix.needsUpdate = true;
-      }
-    }
     let idx = 0;
     const half = hm.scale * 0.5;
     const scl = hm.scale * 0.95;

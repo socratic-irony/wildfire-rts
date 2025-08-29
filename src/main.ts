@@ -16,6 +16,7 @@ import { attachStats } from './ui/debug';
 import { buildFireGrid, ignite as igniteTiles } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireOverlay } from './fire/overlay';
+// import { createFireTexture } from './fire/texture';
 
 const app = document.getElementById('app')!;
 const scene = createScene();
@@ -124,6 +125,7 @@ onResize();
 // Stage A-L (fire behavior) — initialize grid + overlay, click to ignite
 const fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
 const fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
+// Fire overlay instances
 const overlay = createFireOverlay(hm);
 const fireOverlay = overlay; // naming for clarity above
 scene.add(overlay.inst);
