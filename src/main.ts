@@ -6,7 +6,8 @@ import { Loop } from './core/loop';
 import { generateHeightmap } from './terrain/heightmap';
 import { buildTerrainGeometry } from './terrain/mesh';
 import { createTerrainMaterial } from './terrain/material';
-import { RTSCameraController } from './core/rtsCamera';
+// import { RTSCameraController } from './core/rtsCamera';
+import { RTSOrbitCamera } from './core/rtsOrbit';
 import { applyBiomeVertexColors, computeBiomes } from './terrain/biomes';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
@@ -38,14 +39,12 @@ scene.add(chunked.group);
 
 // Stage C: RTS camera controller (replaces Orbit)
 const terrainObj = chunked.group as Object3D;
-const rts = new RTSCameraController(
+const orbit = new RTSOrbitCamera(
   renderer.domElement,
   rig.camera,
-  rig.root,
-  rig.yaw,
-  rig.pitch,
   terrainObj,
-  (x, z) => hm.sample(x, z)
+  (x, z) => hm.sample(x, z),
+  new Vector3((hm.width * hm.scale) / 2, 0, (hm.height * hm.scale) / 2)
 );
 
 const loop = new Loop();
@@ -75,7 +74,7 @@ loop.add((dt) => {
   move.up = (window as any).keyDown('w') || (window as any).keyDown('arrowup');
   move.down = (window as any).keyDown('s') || (window as any).keyDown('arrowdown');
 
-  rts.update(dt, move);
+  orbit.update(dt, move);
   // Wind sway updates (Stage F)
   const t = performance.now() / 1000;
   forest?.update(t);
