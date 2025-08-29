@@ -1,5 +1,10 @@
 specs/fire_behavior.md
 
+Status (current)
+
+- Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope/moisture gates, simple spotting, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), tile-based lineStrength barriering, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex-tint fire viz modes, wired to a debug toggle.
+- Not yet: particle flames/smoke, burned-ground decals, perimeter extraction, edge-based lineStrength field, crown fire mode, water/retardant paint UI, wind tuning UI, save/load.
+
 0) Purpose & Scope
 
 Design a performant, tile-based wildfire model that feels plausible (slope/wind-driven, fuel dependent) and is fun to interact with. This v0.1 spec targets gameplay-consistent behavior, not scientific fidelity. It must:
@@ -417,13 +422,13 @@ export const DEFAULT_FIRE_PARAMS: FireParams = {
 ⸻
 
 20) Minimal Working Example (MWE) Checklist
-	•	Grid overlay + terrain already running.
-	•	Fire grid built; click to ignite a tile.
-	•	Wind slider (speed, direction) visibly changes head spread.
-	•	Wet/retardant debug tools paint into the grid.
-	•	Handline paint tool that increases lineStrength along a polyline.
-	•	Perimeter display + contained/not-contained badge.
-	•	Stats: active tiles, area burned (tiles × cell area), mean ROS (computed from perimeter growth).
+	•	[x] Grid overlay + terrain already running.
+	•	[x] Fire grid built; click to ignite a tile.
+	•	[ ] Wind slider (speed, direction) visibly changes head spread (engine supports wind; UI pending).
+	•	[ ] Wet/retardant debug tools paint into the grid (APIs exist; UI pending).
+	•	[ ] Handline paint tool that increases lineStrength along a polyline (API exists: `writeFirelineEdges`; UI pending).
+	•	[ ] Perimeter display + contained/not-contained badge (heuristic exists; perimeter pending).
+	•	[ ] Stats: active tiles, area burned (tiles × cell area), mean ROS (computed from perimeter growth).
 
 ---
 

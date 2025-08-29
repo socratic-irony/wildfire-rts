@@ -1,5 +1,11 @@
 # Wildfire-RTS Prototype Roadmap (Three.js)
 
+Status (current)
+
+- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint, instanced trees and shrubs with light sway, debug UI (FPS, toggles), and a roads prototype (A* over valley-favoring cost) rendered as ground-hugging smoothed ribbons at ~½-tile width.
+- In progress/available toggles: grid on/off, fire visualization modes (overlay/raised/vertex) for the separate fire spec work.
+- Not yet: rocks actor, advanced postprocessing, full biome tuning UI, decal-based road materials, networked path graph tools.
+
 ## 1) Goals & Scope (Prototype → MWE)
 
 **Primary objective:** Stand up a playable 3D diorama with a rolling low-poly terrain, a square gameplay grid, and an RTS-style camera that supports pan/rotate/tilt/zoom. Visual biomes include chaparral (scrub), rock, and low-poly trees. No fire mechanics yet—just world, grid, and camera with performant rendering that anticipates large maps.
@@ -377,12 +383,15 @@ export interface ScatterRule {
 
 ## 17) Deliverables Checklist
 
-* [ ] Vite + TS project with `main.ts` entry and working render loop.
-* [ ] `renderer`, `scene`, `camera`, `loop` modules in `/core`.
-* [ ] `heightmap`, `mesh`, `material`, `grid`, `biomes` modules in `/terrain`.
-* [ ] `trees`, `shrubs`, `rocks` with InstancedMesh in `/actors`.
-* [ ] `debug` UI toggles & stats overlay.
+* [x] Vite + TS project with `main.ts` entry and working render loop.
+* [x] `renderer`, `scene`, `camera`, `loop` modules in `/core`.
+* [x] `heightmap`, `mesh`, `material`, `grid`, `biomes` modules in `/terrain`.
+* [x] `trees`, `shrubs` with InstancedMesh in `/actors`.
+* [ ] `rocks` with InstancedMesh in `/actors`.
+* [x] `debug` UI toggles & stats overlay.
 * [ ] README with controls, settings, and known limits.
+* [x] Chunked terrain with basic LOD and grid aligned to vertices.
+* [x] Roads prototype: A* valley preference + smoothed, ground-hugging ribbon render.
 
 ---
 
