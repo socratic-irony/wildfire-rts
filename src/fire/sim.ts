@@ -132,6 +132,25 @@ export class FireSim {
 
         if (p > 0.5) newIgnitions.push(j); // cheap threshold; avoids per-neighbor RNG state
       }
+      // spotting (very simplified): occasional downwind leap within range
+      if (g.params.spotting.enabled && this.env.windSpeed > 0) {
+        const rate = g.params.spotting.baseRate * g.tiles[i].heat;
+        const pr = 1 - Math.exp(-rate * dt);
+        const r = rand01((i ^ (g.time * 997) | 0) + 0x1234abcd);
+        if (r < pr) {
+          const maxTiles = g.params.spotting.maxDistanceTiles * (1 + 0.2 * this.env.windSpeed);
+          const wx = Math.sin(this.env.windDirRad);
+          const wz = Math.cos(this.env.windDirRad);
+          const dist = Math.min(maxTiles, 2 + Math.floor(r * maxTiles));
+          const tx = Math.round(c.x + wx * dist);
+          const tz = Math.round(c.z + wz * dist);
+          if (tx >= 0 && tz >= 0 && tx < g.width && tz < g.height) {
+            const j = coordToIndex(g, tx, tz);
+            const tgt = g.tiles[j];
+            if (tgt.state === 0 && tgt.fuel !== 'rock' && tgt.fuel !== 'water') newIgnitions.push(j);
+          }
+        }
+      }
     }
 
     // 3) combustion advance
@@ -182,4 +201,3 @@ export class FireSim {
     for (const j of nextSmolder) g.smoldering[g.sCount++] = j;
   }
 }
-
