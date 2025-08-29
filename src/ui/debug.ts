@@ -1,7 +1,7 @@
 export type StatsHandle = {
   update: (dt: number, renderer: import('three').WebGLRenderer) => void;
   getIgniteMode: () => boolean;
-  setActions: (a: { igniteCenter?: () => void }) => void;
+  setActions: (a: { igniteCenter?: () => void; setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void }) => void;
 };
 
 type DebugOpts = {
@@ -30,7 +30,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   let fps = 0;
   let visible = true;
   let igniteMode = false;
-  let actions: { igniteCenter?: () => void } = {};
+  let actions: { igniteCenter?: () => void; setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void } = {};
 
   // Controls row
   const row = document.createElement('div');
@@ -55,6 +55,23 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   });
   row.appendChild(igniteToggle);
   row.appendChild(igniteCenter);
+  // Fire viz mode dropdown
+  const vizLabel = document.createElement('span');
+  vizLabel.textContent = 'Fire Viz:';
+  vizLabel.style.marginRight = '6px';
+  vizLabel.style.marginLeft = '8px';
+  vizLabel.style.color = '#cbd5e1';
+  const select = document.createElement('select');
+  select.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
+  for (const opt of ['overlay','raised','vertex'] as const) {
+    const o = document.createElement('option');
+    o.value = opt; o.text = opt;
+    select.appendChild(o);
+  }
+  select.value = 'vertex';
+  select.addEventListener('change', () => actions.setVizMode?.(select.value as any));
+  row.appendChild(vizLabel);
+  row.appendChild(select);
   el.appendChild(row);
 
   // Toggle with F1

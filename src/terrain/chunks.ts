@@ -89,6 +89,9 @@ export function buildChunkedTerrain(
       const mesh = new Mesh(geoHi, material);
       (mesh as any).userData.geoHi = geoHi;
       (mesh as any).userData.geoLo = geoLo;
+      // preserve base colors for vertex-tint visualization
+      (mesh as any).userData.baseColorsHi = colorsHi.slice();
+      (mesh as any).userData.baseColorsLo = colorsLo.slice();
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       group.add(mesh);
@@ -117,4 +120,3 @@ export function buildChunkedTerrain(
 
   return { group, updateLOD };
 }
-

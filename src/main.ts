@@ -15,7 +15,7 @@ import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
 import { buildFireGrid, ignite as igniteTiles } from './fire/grid';
 import { FireSim } from './fire/sim';
-import { createFireOverlay } from './fire/overlay';
+import { createFireViz } from './fire/viz';
 // import { createFireTexture } from './fire/texture';
 
 const app = document.getElementById('app')!;
@@ -85,9 +85,9 @@ loop.add((dt) => {
   // Update LOD for terrain chunks
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
-  // Simulate fire at fixed steps and update overlay
+  // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
-  fireOverlay.update(fireGrid);
+  fireViz.update(fireGrid, dt);
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
 });
@@ -122,13 +122,13 @@ function onResize() {
 window.addEventListener('resize', onResize);
 onResize();
 
-// Stage A-L (fire behavior) — initialize grid + overlay, click to ignite
+// Stage A-L (fire behavior) — initialize grid + viz, click to ignite
 const fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
 const fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
-// Fire overlay instances
-const overlay = createFireOverlay(hm);
-const fireOverlay = overlay; // naming for clarity above
-scene.add(overlay.inst);
+// Fire visualization controller
+const fireViz = createFireViz(hm, chunked.group);
+fireViz.addToScene(scene as any);
+fireViz.setMode('vertex');
 
 // Click to ignite under cursor
 {
@@ -160,11 +160,12 @@ scene.add(overlay.inst);
     igniteFromNDC(mouse.x, mouse.y);
   });
 
-  // Wire Debug UI: Ignite Center action
+  // Wire Debug UI: Ignite Center + Viz Mode action
   stats.setActions({
     igniteCenter: () => {
       // Screen center is NDC (0,0)
       igniteFromNDC(0, 0);
-    }
+    },
+    setVizMode: (mode) => fireViz.setMode(mode)
   });
 }

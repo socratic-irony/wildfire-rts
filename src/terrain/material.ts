@@ -29,7 +29,7 @@ export function createTerrainMaterial() {
       `#include <common>\n varying vec3 vWorldPos;\n uniform int uGridEnabled;\n uniform float uGridWidth;\n uniform vec3 uGridColor;\n uniform float uGridFade;`
     ).replace(
       '#include <dithering_fragment>',
-      `#include <dithering_fragment>\n if (uGridEnabled == 1) {\n   vec2 g = abs(fract(vWorldPos.xz) - 0.5);\n   float d = min(g.x, g.y);\n   float line = smoothstep(uGridWidth, 0.0, d);\n   float fade = clamp(uGridFade, 0.0, 1.0);\n   vec3 mixColor = mix(gl_FragColor.rgb, uGridColor, line * 0.5);\n   gl_FragColor.rgb = mix(gl_FragColor.rgb, mixColor, fade);\n }`
+      `#include <dithering_fragment>\n if (uGridEnabled == 1) {\n   vec2 f = fract(vWorldPos.xz);\n   vec2 g = min(f, 1.0 - f);\n   float d = min(g.x, g.y);\n   float line = smoothstep(uGridWidth, 0.0, d);\n   float fade = clamp(uGridFade, 0.0, 1.0);\n   vec3 mixColor = mix(gl_FragColor.rgb, uGridColor, line * 0.5);\n   gl_FragColor.rgb = mix(gl_FragColor.rgb, mixColor, fade);\n }`
     );
 
     (mat as any).userData.shader = shader;
