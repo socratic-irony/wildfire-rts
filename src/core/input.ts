@@ -13,4 +13,3 @@ export function attachInput(target: HTMLElement): InputState {
 
   return state;
 }
-
