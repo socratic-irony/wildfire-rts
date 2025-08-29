@@ -8,6 +8,8 @@ import { buildTerrainGeometry } from './terrain/mesh';
 import { createTerrainMaterial } from './terrain/material';
 import { RTSCameraController } from './core/rtsCamera';
 import { applyBiomeVertexColors, computeBiomes } from './terrain/biomes';
+import { createForest } from './actors/trees';
+import { createShrubs } from './actors/shrubs';
 
 const app = document.getElementById('app')!;
 const scene = createScene();
@@ -70,6 +72,10 @@ loop.add((dt) => {
   move.down = (window as any).keyDown('s') || (window as any).keyDown('arrowdown');
 
   rts.update(dt, move);
+  // Wind sway updates (Stage F)
+  const t = performance.now() / 1000;
+  forest?.update(t);
+  shrubs?.update(t);
   renderer.render(scene, rig.camera);
 });
 
@@ -82,6 +88,14 @@ window.addEventListener('keydown', (e) => {
     }
   }
 });
+
+// Stage F: vegetation
+const forest = createForest(hm, biomes);
+scene.add(forest.leaves);
+scene.add(forest.trunks);
+
+const shrubs = createShrubs(hm, biomes);
+scene.add(shrubs.inst);
 loop.start();
 
 function onResize() {
