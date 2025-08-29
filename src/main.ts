@@ -48,7 +48,6 @@ const orbit = new RTSOrbitCamera(
 );
 
 const loop = new Loop();
-const stats = attachStats(app);
 loop.add((dt) => {
   const keys = new Set(Array.from([])); // placeholder for future direct key handling
   const move = {
@@ -89,7 +88,7 @@ loop.add((dt) => {
 // Toggle grid overlay (G)
 window.addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() === 'g') {
-    const shader = (terrain.material as any).userData?.shader;
+    const shader = (terrainMat as any).userData?.shader;
     if (shader) {
       shader.uniforms.uGridEnabled.value = shader.uniforms.uGridEnabled.value ? 0 : 1;
     }
@@ -103,6 +102,9 @@ scene.add(forest.trunks);
 
 const shrubs = createShrubs(hm, biomes);
 scene.add(shrubs.inst);
+
+// Attach stats after actors/chunks are created so we can report counts
+const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs });
 loop.start();
 
 function onResize() {
