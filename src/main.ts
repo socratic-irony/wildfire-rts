@@ -57,6 +57,10 @@ loop.add((dt) => {
     right: (window as any).keyDown?.('d') || false,
     up: (window as any).keyDown?.('w') || false,
     down: (window as any).keyDown?.('s') || false,
+    yawL: (window as any).keyDown?.('q') || false,
+    yawR: (window as any).keyDown?.('e') || false,
+    tiltU: (window as any).keyDown?.('r') || false,
+    tiltD: (window as any).keyDown?.('f') || false,
   };
   // Simple key detection without external libs
   // Attach once
