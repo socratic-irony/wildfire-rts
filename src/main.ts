@@ -1,4 +1,4 @@
-import { Mesh, Object3D, BufferAttribute, Vector3 } from 'three';
+import { Mesh, Object3D, BufferAttribute, Vector3, Raycaster, Vector2 } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -13,6 +13,9 @@ import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
+import { buildFireGrid, ignite as igniteTiles } from './fire/grid';
+import { FireSim } from './fire/sim';
+import { createFireOverlay } from './fire/overlay';
 
 const app = document.getElementById('app')!;
 const scene = createScene();
@@ -81,6 +84,9 @@ loop.add((dt) => {
   // Update LOD for terrain chunks
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
+  // Simulate fire at fixed steps and update overlay
+  fireSim.step(dt);
+  fireOverlay.update(fireGrid);
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
 });
@@ -114,3 +120,32 @@ function onResize() {
 
 window.addEventListener('resize', onResize);
 onResize();
+
+// Stage A-L (fire behavior) — initialize grid + overlay, click to ignite
+const fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
+const fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
+const overlay = createFireOverlay(hm);
+const fireOverlay = overlay; // naming for clarity above
+scene.add(overlay.inst);
+
+// Click to ignite under cursor
+{
+  const ray = new Raycaster();
+  const mouse = new Vector2();
+  const dom = renderer.domElement;
+  function getMouseNDC(ev: MouseEvent) {
+    const rect = dom.getBoundingClientRect();
+    mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+  dom.addEventListener('click', (e) => {
+    getMouseNDC(e);
+    ray.setFromCamera(mouse as any, rig.camera);
+    const hits = ray.intersectObject(chunked.group, true);
+    if (!hits.length) return;
+    const p = hits[0].point;
+    const gx = Math.floor(p.x / hm.scale);
+    const gz = Math.floor(p.z / hm.scale);
+    igniteTiles(fireGrid, [{ x: gx, z: gz }], 0.8);
+  });
+}
