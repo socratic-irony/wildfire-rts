@@ -21,6 +21,7 @@ export type FireParams = {
   timeConstants: {
     tauWet: number;   // wetness decay time constant (s)
     tauRet: number;   // retardant decay (s)
+    tIgnite: number;  // seconds spent in Igniting before Burning
   };
   spotting: {
     enabled: boolean;
@@ -42,8 +43,7 @@ export const DEFAULT_FIRE_PARAMS: FireParams = {
     urban:     { baseROS: 0.04, fuelLoad: 1.0, flameDur: 25, smolderDur: 10, k_m: 0.55, k_s: 0.80, k_w: 0.05 },
   },
   thresholds: { extinguishHeat: 0.12, crownHeat: 0.85 },
-  timeConstants: { tauWet: 60, tauRet: 600 },
+  timeConstants: { tauWet: 60, tauRet: 600, tIgnite: 1.0 },
   spotting: { enabled: true, baseRate: 0.02, maxDistanceTiles: 16 },
   chaos: 0.05,
 };
-

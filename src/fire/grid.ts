@@ -17,6 +17,8 @@ export type Tile = {
   wetness: number;       // 0..1
   retardant: number;     // 0..1
   lineStrength: number;  // 0..1 (tile-based for now)
+  fuelMoisture: number;  // 0..1 (ambient fuel moisture)
+  lastIgnitedAt: number; // seconds (promotion timer)
   fuel: FuelKey;
   slopeTan: number;      // |tan(slope)|
   downX: number;         // downslope direction (unit, xz)
@@ -35,8 +37,10 @@ export type FireGrid = {
   height: number;
   params: FireParams;
   tiles: Tile[];
+  igniting: Uint32Array; // indices of igniting tiles
   burning: Uint32Array;    // indices of burning tiles (sparse window over capacity)
   smoldering: Uint32Array; // indices of smoldering tiles
+  iCount: number;
   bCount: number;
   sCount: number;
   time: number;
@@ -87,6 +91,9 @@ export function buildFireGrid(hm: Heightmap, biomes: BiomeMask, params: Partial<
     for (let x = 0; x < width; x++) {
       const gi = z * cols + x;
       const { tanSlope, downX, downZ } = slopeAt(x, z);
+      const fuel = chooseFuel(gi);
+      // Simple default fuel moisture by fuel
+      const fmoist = fuel === 'forest' ? 0.18 : fuel === 'chaparral' ? 0.15 : fuel === 'grass' ? 0.12 : 1.0;
       tiles[z * width + x] = {
         state: FireState.Unburned,
         heat: 0,
@@ -94,7 +101,9 @@ export function buildFireGrid(hm: Heightmap, biomes: BiomeMask, params: Partial<
         wetness: 0,
         retardant: 0,
         lineStrength: 0,
-        fuel: chooseFuel(gi),
+        fuelMoisture: fmoist,
+        lastIgnitedAt: -1,
+        fuel,
         slopeTan: tanSlope,
         downX, downZ,
       };
@@ -103,10 +112,11 @@ export function buildFireGrid(hm: Heightmap, biomes: BiomeMask, params: Partial<
 
   // Pre-allocate frontier lists (capacity = all tiles)
   const cap = width * height;
+  const igniting = new Uint32Array(cap);
   const burning = new Uint32Array(cap);
   const smoldering = new Uint32Array(cap);
 
-  return { width, height, params: P, tiles, burning, smoldering, bCount: 0, sCount: 0, time: 0, seed: 12345 };
+  return { width, height, params: P, tiles, igniting, burning, smoldering, iCount: 0, bCount: 0, sCount: 0, time: 0, seed: 12345 };
 }
 
 export function coordToIndex(grid: FireGrid, x: number, z: number) {
@@ -126,9 +136,11 @@ export function ignite(grid: FireGrid, cells: Array<{ x: number; z: number }>, i
     const t = grid.tiles[i];
     if (t.fuel === 'rock' || t.fuel === 'water') continue;
     if (t.state === FireState.Unburned || t.state === FireState.Igniting) {
+      // Manual ignition: promote directly to Burning for instant feedback
       t.state = FireState.Burning;
       t.heat = Math.max(t.heat, intensity);
       t.progress = 0.01;
+      t.lastIgnitedAt = grid.time;
       grid.burning[grid.bCount++] = i;
     }
   }
