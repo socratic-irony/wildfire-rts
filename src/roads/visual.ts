@@ -90,6 +90,52 @@ export class RoadsVisual {
     const tangent = new Vector3(best.abx / len, 0, best.abz / len);
     return { pos, normal: n, tangent } as const;
   }
+
+  // Find nearest path index using a coarse scan
+  findNearestPathIndex(wx: number, wz: number) {
+    if (this.paths.length === 0) return -1;
+    let bestIdx = -1, bestD2 = Infinity;
+    for (let p = 0; p < this.paths.length; p++) {
+      const path = this.paths[p];
+      // sample every Nth point for speed
+      const step = Math.max(1, Math.floor(path.length / 64));
+      for (let i = 0; i < path.length; i += step) {
+        const x = path[i].x, z = path[i].y;
+        const dx = wx - x, dz = wz - z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; bestIdx = p; }
+      }
+    }
+    return bestIdx;
+  }
+
+  // Project to a specific path index
+  projectToMidlineOnPath(pathIndex: number, wx: number, wz: number) {
+    if (pathIndex < 0 || pathIndex >= this.paths.length) return this.projectToMidline(wx, wz);
+    const path = this.paths[pathIndex];
+    let best: { px: number; pz: number; abx: number; abz: number } | null = null;
+    let bestD2 = Infinity;
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i];
+      const b = path[i + 1];
+      const apx = wx - a.x, apz = wz - a.y;
+      const abx = b.x - a.x, abz = b.y - a.y;
+      const ab2 = abx * abx + abz * abz || 1e-6;
+      let t = (apx * abx + apz * abz) / ab2; t = Math.max(0, Math.min(1, t));
+      const px = a.x + abx * t;
+      const pz = a.y + abz * t;
+      const dx = wx - px, dz = wz - pz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) { bestD2 = d2; best = { px, pz, abx, abz }; }
+    }
+    if (!best) return null as null;
+    const n = sampleNormal(this.hm, best.px, best.pz);
+    const y = this.hm.sample(best.px, best.pz);
+    const pos = new Vector3(best.px, y, best.pz).addScaledVector(n, this.yOffset);
+    const len = Math.hypot(best.abx, best.abz) || 1;
+    const tangent = new Vector3(best.abx / len, 0, best.abz / len);
+    return { pos, normal: n, tangent } as const;
+  }
 }
 
 function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset: number) {

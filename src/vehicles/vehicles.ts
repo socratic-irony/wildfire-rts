@@ -11,6 +11,7 @@ type Agent = {
   pos: Vector3;
   lastPos: Vector3;
   forward: Vector3; // smoothed heading for yaw
+  roadPathIdx?: number;
   grid: GridPoint; // current nearest grid cell
   path: GridPoint[];
   pathIdx: number;
@@ -31,11 +32,15 @@ export class VehiclesManager {
   private tmpObj = new Object3D();
   private cellSize: number; // hm.scale
 
-  private projectToRoad?: (x: number, z: number) => { pos: Vector3; normal: Vector3; tangent: Vector3 } | null;
-  constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64, projectToRoad?: (x: number, z: number) => { pos: Vector3; normal: Vector3; tangent: Vector3 } | null) {
+  private projectToRoad?: (x: number, z: number, pathIdx?: number) => { pos: Vector3; normal: Vector3; tangent: Vector3 } | null;
+  private findRoadPathIdx?: (x: number, z: number) => number;
+  constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64,
+    projectToRoad?: (x: number, z: number, pathIdx?: number) => { pos: Vector3; normal: Vector3; tangent: Vector3 } | null,
+    findRoadPathIdx?: (x: number, z: number) => number) {
     this.hm = hm; this.terrain = terrain; this.roadMask = roadMask; this.maxAgents = maxAgents;
     this.cellSize = hm.scale;
     this.projectToRoad = projectToRoad;
+    this.findRoadPathIdx = findRoadPathIdx;
     const geo = new BoxGeometry(this.cellSize * 0.6, this.cellSize * 0.3, this.cellSize * 0.9);
     const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1, emissive: new Color(0x0a1a2a), emissiveIntensity: 0.2 });
     this.inst = new InstancedMesh(geo, mat, maxAgents);
@@ -64,6 +69,7 @@ export class VehiclesManager {
     const y2 = this.hm.sample(wx2, wz2);
     const pos2 = new Vector3(wx2, y2 + 0.22, wz2);
     const agent: Agent = { pos: pos2, lastPos: pos2.clone(), forward: new Vector3(0, 0, 1), grid: spawnCell, path: [], pathIdx: 0, speedTilesPerSec: 3.2, autoFollowRoad: true };
+    if (this.findRoadPathIdx) agent.roadPathIdx = this.findRoadPathIdx(pos2.x, pos2.z);
     // Initialize a next step along the road if possible
     const next = this.chooseNextRoadNeighbor(agent.grid, agent.prev);
     if (next) { agent.path = [agent.grid, next]; agent.pathIdx = 0; agent.prev = agent.grid; }
@@ -145,7 +151,7 @@ export class VehiclesManager {
           dir.normalize();
           a.pos.addScaledVector(dir, step);
           // Snap to road midline if available, otherwise adjust to terrain
-          const proj = this.projectToRoad?.(a.pos.x, a.pos.z);
+          const proj = this.projectToRoad?.(a.pos.x, a.pos.z, a.roadPathIdx);
           if (proj) {
             a.pos.copy(proj.pos);
           } else {
@@ -164,7 +170,7 @@ export class VehiclesManager {
     const a = this.agents[i];
     this.tmpObj.position.copy(a.pos);
     // Orientation aligned to road (preferred) or terrain
-    const roadProj = this.projectToRoad?.(a.pos.x, a.pos.z);
+    const roadProj = this.projectToRoad?.(a.pos.x, a.pos.z, a.roadPathIdx);
     const up = roadProj ? roadProj.normal : this.terrainNormal(a.pos.x, a.pos.z);
     // Desired forward: prefer road tangent; else motion vector; else keep previous
     const desired = roadProj ? roadProj.tangent.clone() : new Vector3().subVectors(a.pos, a.lastPos);

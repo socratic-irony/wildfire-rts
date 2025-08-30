@@ -145,7 +145,14 @@ let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 
 // Vehicles — manager uses terrain cost and road mask
-const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, (x, z) => roadsVis.projectToMidline(x, z));
+const vehicles = new VehiclesManager(
+  hm,
+  roadCost,
+  roadMask,
+  64,
+  (x, z, idx) => idx != null ? roadsVis.projectToMidlineOnPath(idx, x, z) : roadsVis.projectToMidline(x, z),
+  (x, z) => roadsVis.findNearestPathIndex(x, z)
+);
 scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
 
