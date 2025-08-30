@@ -109,13 +109,34 @@ export class RoadsVisual {
     return bestIdx;
   }
 
-  // Project to a specific path index
-  projectToMidlineOnPath(pathIndex: number, wx: number, wz: number) {
+  // Project to a specific path index (optionally with a segment hint to limit search)
+  projectToMidlineOnPath(pathIndex: number, wx: number, wz: number, hintSeg?: number, window = 96) {
     if (pathIndex < 0 || pathIndex >= this.paths.length) return this.projectToMidline(wx, wz);
     const path = this.paths[pathIndex];
-    let best: { px: number; pz: number; abx: number; abz: number } | null = null;
+    let best: { px: number; pz: number; abx: number; abz: number; i: number } | null = null;
     let bestD2 = Infinity;
-    for (let i = 0; i < path.length - 1; i++) {
+    let iStart = 0, iEnd = path.length - 2;
+    if (hintSeg != null && path.length > 2) {
+      iStart = Math.max(0, Math.min(path.length - 2, hintSeg - window));
+      iEnd = Math.max(iStart, Math.min(path.length - 2, hintSeg + window));
+    } else if (path.length > 128) {
+      // coarse pass to find a neighborhood quickly
+      const step = Math.max(1, Math.floor((path.length - 1) / 64));
+      let coarseIdx = 0;
+      for (let i = 0; i < path.length - 1; i += step) {
+        const a = path[i]; const b = path[i + 1];
+        const apx = wx - a.x, apz = wz - a.y; const abx = b.x - a.x, abz = b.y - a.y;
+        const ab2 = abx * abx + abz * abz || 1e-6;
+        let t = (apx * abx + apz * abz) / ab2; t = Math.max(0, Math.min(1, t));
+        const px = a.x + abx * t; const pz = a.y + abz * t;
+        const dx = wx - px, dz = wz - pz; const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; best = { px, pz, abx, abz, i }; coarseIdx = i; }
+      }
+      iStart = Math.max(0, coarseIdx - window);
+      iEnd = Math.min(path.length - 2, coarseIdx + window);
+      best = null; bestD2 = Infinity;
+    }
+    for (let i = iStart; i <= iEnd; i++) {
       const a = path[i];
       const b = path[i + 1];
       const apx = wx - a.x, apz = wz - a.y;
@@ -126,7 +147,7 @@ export class RoadsVisual {
       const pz = a.y + abz * t;
       const dx = wx - px, dz = wz - pz;
       const d2 = dx * dx + dz * dz;
-      if (d2 < bestD2) { bestD2 = d2; best = { px, pz, abx, abz }; }
+      if (d2 < bestD2) { bestD2 = d2; best = { px, pz, abx, abz, i }; }
     }
     if (!best) return null as null;
     const n = sampleNormal(this.hm, best.px, best.pz);
@@ -134,7 +155,7 @@ export class RoadsVisual {
     const pos = new Vector3(best.px, y, best.pz).addScaledVector(n, this.yOffset);
     const len = Math.hypot(best.abx, best.abz) || 1;
     const tangent = new Vector3(best.abx / len, 0, best.abz / len);
-    return { pos, normal: n, tangent } as const;
+    return { pos, normal: n, tangent, segIndex: best.i } as const;
   }
 }
 

@@ -150,7 +150,7 @@ const vehicles = new VehiclesManager(
   roadCost,
   roadMask,
   64,
-  (x, z, idx) => idx != null ? roadsVis.projectToMidlineOnPath(idx, x, z) : roadsVis.projectToMidline(x, z),
+  (x, z, idx, seg) => idx != null ? (roadsVis.projectToMidlineOnPath as any)(idx, x, z, seg) : roadsVis.projectToMidline(x, z),
   (x, z) => roadsVis.findNearestPathIndex(x, z)
 );
 scene.add(vehicles.group);

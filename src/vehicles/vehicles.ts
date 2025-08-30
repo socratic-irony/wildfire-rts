@@ -12,6 +12,7 @@ type Agent = {
   lastPos: Vector3;
   forward: Vector3; // smoothed heading for yaw
   roadPathIdx?: number;
+  roadSegIdx?: number;
   grid: GridPoint; // current nearest grid cell
   path: GridPoint[];
   pathIdx: number;
@@ -151,9 +152,10 @@ export class VehiclesManager {
           dir.normalize();
           a.pos.addScaledVector(dir, step);
           // Snap to road midline if available, otherwise adjust to terrain
-          const proj = this.projectToRoad?.(a.pos.x, a.pos.z, a.roadPathIdx);
-          if (proj) {
+          const proj = this.projectToRoad?.(a.pos.x, a.pos.z, a.roadPathIdx, a.roadSegIdx) as any;
+          if (proj && proj.pos) {
             a.pos.copy(proj.pos);
+            if ((proj as any).segIndex != null) a.roadSegIdx = (proj as any).segIndex;
           } else {
             a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18;
           }
@@ -170,10 +172,10 @@ export class VehiclesManager {
     const a = this.agents[i];
     this.tmpObj.position.copy(a.pos);
     // Orientation aligned to road (preferred) or terrain
-    const roadProj = this.projectToRoad?.(a.pos.x, a.pos.z, a.roadPathIdx);
+    const roadProj = this.projectToRoad?.(a.pos.x, a.pos.z, a.roadPathIdx, a.roadSegIdx) as any;
     const up = roadProj ? roadProj.normal : this.terrainNormal(a.pos.x, a.pos.z);
     // Desired forward: prefer road tangent; else motion vector; else keep previous
-    const desired = roadProj ? roadProj.tangent.clone() : new Vector3().subVectors(a.pos, a.lastPos);
+    const desired = roadProj && roadProj.tangent ? roadProj.tangent.clone() : new Vector3().subVectors(a.pos, a.lastPos);
     if (desired.lengthSq() > 1e-6) desired.normalize(); else desired.copy(a.forward);
     // Smooth yaw changes
     a.forward.lerp(desired, 0.35);
