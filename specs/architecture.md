@@ -1,10 +1,17 @@
 # Architecture & Backend Spec (v0.1)
 
-Purpose
+ Purpose
 
 - Provide a quick, high-signal map of the repository for new contributors and tooling (incl. LLMs).
 - Capture the core runtime model, modules, data flow, and extension points.
 - List guiding principles and conventions to keep behavior predictable and performant.
+
+Agent Adherence (Required)
+
+- Treat this document as the source of truth for repository structure, abstractions, and performance practices.
+- Before coding, skim this file end‑to‑end and the domain spec(s) you will touch.
+- If an implementation needs to deviate, update this spec first (or in the same commit) and explain why.
+- Do not land changes that alter module responsibilities, hot‑path patterns, or data shapes without aligning the spec.
 
 Repository Topology
 
@@ -128,4 +135,3 @@ Glossary
 - world units: meters (1 tile = `heightmap.scale`).
 - grid cell: integer tile coordinates used by fire/roads/vehicles.
 - normal-offset: elevation along surface normal to layer visuals just above terrain.
-

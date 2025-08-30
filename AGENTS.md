@@ -47,3 +47,11 @@
 
 ## Architecture Overview
 - Core composes renderer/scene/camera/input/loop; terrain builds a chunked mesh; actors use instancing; UI exposes debug toggles. Follow SPEC.md stages A→G when implementing.
+
+## LLM Agent Guidance (Spec‑First)
+- Read and follow `specs/architecture.md` before making any change. Treat it as the authoritative source for structure, data flow, and performance principles.
+- Read the domain spec(s) you are touching (e.g., `specs/fire_behavior.md`, `specs/vehicles.md`). Do not introduce patterns that conflict with these.
+- If code needs to diverge from a spec, propose a spec change first (or in the same commit) and document rationale. Do not leave undocumented deltas.
+- Every commit must update the relevant spec sections (Status, API, Outstanding Work) to reflect the code. Commits without spec updates should be avoided.
+- PRs must include: which spec sections were updated, any assumptions, and any remaining gaps for follow‑ups.
+- Prefer minimal, reversible changes that align with existing abstractions and avoid per‑frame allocations in hot paths.
