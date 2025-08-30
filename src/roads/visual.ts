@@ -3,8 +3,8 @@ import type { Heightmap } from '../terrain/heightmap';
 
 export class RoadsVisual {
   public group = new Group();
-  private mat = new MeshStandardMaterial({ color: 0x666666, roughness: 0.95, metalness: 0.0, vertexColors: true });
-  private yOffset = 0.02;
+  private mat = new MeshStandardMaterial({ color: 0x666666, roughness: 0.95, metalness: 0.0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  private yOffset = 0.05;
   private hm: Heightmap;
   constructor(hm: Heightmap) { this.hm = hm; }
 
@@ -18,7 +18,7 @@ export class RoadsVisual {
     const scale = this.hm.scale;
     const centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
     const simplified = simplifyRDP(centers, scale * 0.2);
-    const smooth = catmullRomResample(simplified, 8);
+    const smooth = catmullRomResample(simplified, 16);
     const width = 0.5 * scale; // approx half tile width
     const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset);
     const geo = new BufferGeometry();
@@ -39,6 +39,7 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
   const colors: number[] = [];
   const indices: number[] = [];
   const lefts: Vector3[] = [];
+  const mids: Vector3[] = [];
   const rights: Vector3[] = [];
 
   for (let i = 0; i < path.length; i++) {
@@ -50,33 +51,42 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
     const len = Math.hypot(tx, tz) || 1;
     const nx = -tz / len; // left normal (xz plane)
     const nz = tx / len;
-    // left/right world positions
+    // left/center/right world positions
     const lx = p.x + nx * half;
     const lz = p.y + nz * half;
+    const cx = p.x;
+    const cz = p.y;
     const rx = p.x - nx * half;
     const rz = p.y - nz * half;
     const ly = hm.sample(lx, lz) + yOffset;
+    const cy = hm.sample(cx, cz) + yOffset;
     const ry = hm.sample(rx, rz) + yOffset;
     lefts.push(new Vector3(lx, ly, lz));
+    mids.push(new Vector3(cx, cy, cz));
     rights.push(new Vector3(rx, ry, rz));
   }
 
-  // build vertices/colors
+  // build vertices/colors (L, M, R per sample)
   for (let i = 0; i < path.length; i++) {
-    const L = lefts[i], R = rights[i];
-    positions.push(L.x, L.y, L.z, R.x, R.y, R.z);
-    // color gradient: edges slightly lighter, center darker -> we can't set center directly, so set edges lighter and let shading handle middle
-    const edgeL = [0.72, 0.72, 0.72];
-    const edgeR = [0.72, 0.72, 0.72];
-    colors.push(...edgeL, ...edgeR);
+    const L = lefts[i], M = mids[i], R = rights[i];
+    positions.push(L.x, L.y, L.z, M.x, M.y, M.z, R.x, R.y, R.z);
+    // slightly lighter edges and a darker center strip
+    const edge = [0.76, 0.76, 0.76];
+    const mid = [0.64, 0.64, 0.64];
+    colors.push(...edge, ...mid, ...edge);
   }
-  // indices
+  // indices: stitch between (L,M,R) at i and i+1 -> four triangles (two quads)
   for (let i = 0; i < path.length - 1; i++) {
-    const i0 = i * 2;
-    const i1 = i * 2 + 1;
-    const i2 = (i + 1) * 2;
-    const i3 = (i + 1) * 2 + 1;
-    indices.push(i0, i2, i1, i1, i2, i3);
+    const iL = i * 3;
+    const iM = i * 3 + 1;
+    const iR = i * 3 + 2;
+    const jL = (i + 1) * 3;
+    const jM = (i + 1) * 3 + 1;
+    const jR = (i + 1) * 3 + 2;
+    // left quad
+    indices.push(iL, jL, iM, iM, jL, jM);
+    // right quad
+    indices.push(iM, jM, iR, iR, jM, jR);
   }
   return { positions, colors, indices };
 }
