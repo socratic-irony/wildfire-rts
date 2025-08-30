@@ -5,7 +5,7 @@ export class RoadsVisual {
   public group = new Group();
   private mat = new MeshStandardMaterial({ color: 0x666666, roughness: 0.95, metalness: 0.0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   private shoulderMat = new MeshBasicMaterial({ color: 0x6e563e, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  private stripeMat = new MeshBasicMaterial({ color: 0xcfd3d6, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  private stripeMat = new MeshBasicMaterial({ color: 0xcfd3d6, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, vertexColors: true });
   private yOffset = 0.05;
   private hm: Heightmap;
   constructor(hm: Heightmap) { this.hm = hm; }
@@ -277,31 +277,33 @@ function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number
   const idx: number[] = [];
   const col: number[] = [];
   const halfW = stripeWidth * 0.5;
-  let acc = 0; // accumulated distance along path
+  const cycle = dashLen + gapLen;
+  let acc = 0; // accumulated distance along path in world units
   let last = path[0];
   let vert = 0;
   for (let i = 1; i < path.length; i++) {
     const cur = path[i];
-    let segLen = Math.hypot(cur.x - last.x, cur.y - last.y);
-    let start = 0;
-    while (start < segLen) {
-      const remain = segLen - start;
-      const phase = (acc / (dashLen + gapLen)) % 1;
-      // if in gap region, skip this piece
-      const inDash = phase < dashLen / (dashLen + gapLen);
-      const step = Math.min(remain, inDash ? dashLen - phase * (dashLen + gapLen) : gapLen - (phase - dashLen / (dashLen + gapLen)) * (dashLen + gapLen));
+    const segLen = Math.hypot(cur.x - last.x, cur.y - last.y);
+    if (segLen <= 1e-6) { last = cur; continue; }
+    let progressed = 0;
+    while (progressed < segLen - 1e-6) {
+      const phaseDist = acc % cycle;
+      const inDash = phaseDist < dashLen;
+      const remainingInPhase = (inDash ? dashLen - phaseDist : cycle - phaseDist);
+      let step = Math.min(segLen - progressed, remainingInPhase);
+      if (step <= 1e-6) { // guard against numerical lock
+        const eps = Math.min(1e-4, segLen - progressed);
+        step = eps;
+      }
       if (inDash) {
-        const t0 = start / segLen;
-        const t1 = (start + step) / segLen;
-        // points along segment
+        const t0 = progressed / segLen;
+        const t1 = (progressed + step) / segLen;
         const ax = last.x + (cur.x - last.x) * t0;
         const az = last.y + (cur.y - last.y) * t0;
         const bx = last.x + (cur.x - last.x) * t1;
         const bz = last.y + (cur.y - last.y) * t1;
-        // tangent & normal (xz plane)
         const tx = bx - ax, tz = bz - az; const tlen = Math.hypot(tx, tz) || 1;
         const nx = -tz / tlen, nz = tx / tlen;
-        // left/right of stripe
         const lax = ax + nx * halfW, laz = az + nz * halfW;
         const lbx = bx + nx * halfW, lbz = bz + nz * halfW;
         const rax = ax - nx * halfW, raz = az - nz * halfW;
@@ -318,15 +320,12 @@ function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number
         const LB = new Vector3(lbx, lBy, lbz).addScaledVector(nlB, yOffset);
         const RA = new Vector3(rax, rAy, raz).addScaledVector(nrA, yOffset);
         const RB = new Vector3(rbx, rBy, rbz).addScaledVector(nrB, yOffset);
-        // push vertices (LA, RA, LB, RB)
         pos.push(LA.x, LA.y, LA.z, RA.x, RA.y, RA.z, LB.x, LB.y, LB.z, RB.x, RB.y, RB.z);
-        // two triangles
         idx.push(vert + 0, vert + 2, vert + 1, vert + 1, vert + 2, vert + 3);
-        // colors (uniform grey)
         for (let k = 0; k < 4; k++) col.push(0.85, 0.87, 0.90);
         vert += 4;
       }
-      start += step;
+      progressed += step;
       acc += step;
     }
     last = cur;
