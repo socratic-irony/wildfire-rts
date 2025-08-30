@@ -1,9 +1,11 @@
-import { BufferAttribute, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Vector2, Vector3 } from 'three';
+import { BufferAttribute, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector2, Vector3 } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 
 export class RoadsVisual {
   public group = new Group();
   private mat = new MeshStandardMaterial({ color: 0x666666, roughness: 0.95, metalness: 0.0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  private shoulderMat = new MeshBasicMaterial({ color: 0x6e563e, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  private stripeMat = new MeshBasicMaterial({ color: 0xcfd3d6, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
   private yOffset = 0.05;
   private hm: Heightmap;
   constructor(hm: Heightmap) { this.hm = hm; }
@@ -20,16 +22,41 @@ export class RoadsVisual {
     const simplified = simplifyRDP(centers, scale * 0.2);
     const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.35, sagEps: scale * 0.04 });
     const width = 0.5 * scale; // approx half tile width
-    const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset);
-    const geo = new BufferGeometry();
-    geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
-    geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    const mesh = new Mesh(geo, this.mat);
-    mesh.renderOrder = 6;
-    mesh.receiveShadow = true;
-    this.group.add(mesh);
+    // Main road surface
+    {
+      const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset);
+      const geo = new BufferGeometry();
+      geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+      geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      const mesh = new Mesh(geo, this.mat);
+      mesh.renderOrder = 6;
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+    }
+    // Shoulders: faint dusty brown bands outside the road
+    {
+      const shoulder = Math.max(0.25 * scale, 0.3 * width);
+      const { positions, colors, indices } = buildShoulderBands(smooth, width, shoulder, this.hm, this.yOffset * 0.8);
+      const geo = new BufferGeometry();
+      geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+      geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
+      geo.setIndex(indices);
+      const mesh = new Mesh(geo, this.shoulderMat);
+      mesh.renderOrder = 7;
+      this.group.add(mesh);
+    }
+    // Center stripe: dashed gray line along midline
+    {
+      const stripeWidth = 0.12 * scale;
+      const dash = 1.2 * scale;
+      const gap = 0.8 * scale;
+      const geo = buildCenterDashed(smooth, stripeWidth, dash, gap, this.hm, this.yOffset + 0.02);
+      const mesh = new Mesh(geo, this.stripeMat);
+      mesh.renderOrder = 8;
+      this.group.add(mesh);
+    }
   }
 }
 
@@ -189,4 +216,123 @@ function sampleNormal(hm: Heightmap, wx: number, wz: number) {
   const n = new Vector3(-Hx, 1, -Hz);
   n.normalize();
   return n;
+}
+
+// Build faint shoulder bands outside the road surface
+function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm: Heightmap, yOffset: number) {
+  const half = width * 0.5;
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  const OL: Vector3[] = [], L: Vector3[] = [], R: Vector3[] = [], OR: Vector3[] = [];
+  for (let i = 0; i < path.length; i++) {
+    const p = path[i];
+    const pPrev = path[Math.max(0, i - 1)];
+    const pNext = path[Math.min(path.length - 1, i + 1)];
+    const tx = pNext.x - pPrev.x;
+    const tz = pNext.y - pPrev.y;
+    const len = Math.hypot(tx, tz) || 1;
+    const nx = -tz / len, nz = tx / len;
+    const lx = p.x + nx * half;
+    const lz = p.y + nz * half;
+    const rx = p.x - nx * half;
+    const rz = p.y - nz * half;
+    const olx = p.x + nx * (half + shoulder);
+    const olz = p.y + nz * (half + shoulder);
+    const orx = p.x - nx * (half + shoulder);
+    const orz = p.y - nz * (half + shoulder);
+    const nl = sampleNormal(hm, lx, lz);
+    const nr = sampleNormal(hm, rx, rz);
+    const nol = sampleNormal(hm, olx, olz);
+    const nor = sampleNormal(hm, orx, orz);
+    L.push(new Vector3(lx, hm.sample(lx, lz), lz).addScaledVector(nl, yOffset));
+    R.push(new Vector3(rx, hm.sample(rx, rz), rz).addScaledVector(nr, yOffset));
+    OL.push(new Vector3(olx, hm.sample(olx, olz), olz).addScaledVector(nol, yOffset));
+    OR.push(new Vector3(orx, hm.sample(orx, orz), orz).addScaledVector(nor, yOffset));
+  }
+  for (let i = 0; i < path.length; i++) {
+    const a = OL[i], b = L[i], c = R[i], d = OR[i];
+    // vertices order: OL, L, R, OR
+    positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
+    // color gradient: outer darker brown, inner slightly lighter
+    const outer = [0.41, 0.33, 0.25];
+    const inner = [0.53, 0.44, 0.35];
+    colors.push(...outer, ...inner, ...inner, ...outer);
+  }
+  for (let i = 0; i < path.length - 1; i++) {
+    const base = i * 4;
+    const next = (i + 1) * 4;
+    // left shoulder quad (OL-L)
+    indices.push(base + 0, next + 0, base + 1, base + 1, next + 0, next + 1);
+    // right shoulder quad (R-OR)
+    indices.push(base + 2, next + 2, base + 3, base + 3, next + 2, next + 3);
+  }
+  return { positions, colors, indices };
+}
+
+// Build a dashed center stripe along the midline
+function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number, gapLen: number, hm: Heightmap, yOffset: number) {
+  const geo = new BufferGeometry();
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const col: number[] = [];
+  const halfW = stripeWidth * 0.5;
+  let acc = 0; // accumulated distance along path
+  let last = path[0];
+  let vert = 0;
+  for (let i = 1; i < path.length; i++) {
+    const cur = path[i];
+    let segLen = Math.hypot(cur.x - last.x, cur.y - last.y);
+    let start = 0;
+    while (start < segLen) {
+      const remain = segLen - start;
+      const phase = (acc / (dashLen + gapLen)) % 1;
+      // if in gap region, skip this piece
+      const inDash = phase < dashLen / (dashLen + gapLen);
+      const step = Math.min(remain, inDash ? dashLen - phase * (dashLen + gapLen) : gapLen - (phase - dashLen / (dashLen + gapLen)) * (dashLen + gapLen));
+      if (inDash) {
+        const t0 = start / segLen;
+        const t1 = (start + step) / segLen;
+        // points along segment
+        const ax = last.x + (cur.x - last.x) * t0;
+        const az = last.y + (cur.y - last.y) * t0;
+        const bx = last.x + (cur.x - last.x) * t1;
+        const bz = last.y + (cur.y - last.y) * t1;
+        // tangent & normal (xz plane)
+        const tx = bx - ax, tz = bz - az; const tlen = Math.hypot(tx, tz) || 1;
+        const nx = -tz / tlen, nz = tx / tlen;
+        // left/right of stripe
+        const lax = ax + nx * halfW, laz = az + nz * halfW;
+        const lbx = bx + nx * halfW, lbz = bz + nz * halfW;
+        const rax = ax - nx * halfW, raz = az - nz * halfW;
+        const rbx = bx - nx * halfW, rbz = bz - nz * halfW;
+        const nlA = sampleNormal(hm, lax, laz);
+        const nlB = sampleNormal(hm, lbx, lbz);
+        const nrA = sampleNormal(hm, rax, raz);
+        const nrB = sampleNormal(hm, rbx, rbz);
+        const lAy = hm.sample(lax, laz);
+        const lBy = hm.sample(lbx, lbz);
+        const rAy = hm.sample(rax, raz);
+        const rBy = hm.sample(rbx, rbz);
+        const LA = new Vector3(lax, lAy, laz).addScaledVector(nlA, yOffset);
+        const LB = new Vector3(lbx, lBy, lbz).addScaledVector(nlB, yOffset);
+        const RA = new Vector3(rax, rAy, raz).addScaledVector(nrA, yOffset);
+        const RB = new Vector3(rbx, rBy, rbz).addScaledVector(nrB, yOffset);
+        // push vertices (LA, RA, LB, RB)
+        pos.push(LA.x, LA.y, LA.z, RA.x, RA.y, RA.z, LB.x, LB.y, LB.z, RB.x, RB.y, RB.z);
+        // two triangles
+        idx.push(vert + 0, vert + 2, vert + 1, vert + 1, vert + 2, vert + 3);
+        // colors (uniform grey)
+        for (let k = 0; k < 4; k++) col.push(0.85, 0.87, 0.90);
+        vert += 4;
+      }
+      start += step;
+      acc += step;
+    }
+    last = cur;
+  }
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  return geo;
 }
