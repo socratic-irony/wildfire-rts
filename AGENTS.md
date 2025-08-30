@@ -34,6 +34,12 @@
 - PRs: include description, linked issues/stages, screenshots or short video/GIF for visual changes (FPS/draw‑call note helps).
 - Checks: ensure `npm run build` passes; run tests/linters if configured.
 
+### Spec Hygiene (Required)
+- Before every commit, update the relevant spec(s) in `specs/` to reflect current reality:
+  - Clearly note what is working vs. not yet implemented (Status/Outstanding Work sections).
+  - Align API/behavior descriptions with the code you changed.
+- Do not commit code changes without bringing the corresponding spec(s) up to date.
+
 ## Security & Configuration Tips
 - Keep assets lightweight; avoid committing large binaries. Prefer procedural assets per SPEC.
 - Node version: use an LTS (record in `.nvmrc` if added).
