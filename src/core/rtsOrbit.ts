@@ -13,7 +13,7 @@ export class RTSOrbitCamera {
   // Spherical state
   private yaw = Math.PI * 0.25; // around Y
   private pitch = 0.9;          // 0..~1.3 (radians from horizon)
-  private distance = 40;
+  private distance = 40; // derived from altitude + pitch; kept for smoothing
   private minDist = 6;
   private maxDist = 180;
   private minPitch = 0.2;
@@ -21,6 +21,15 @@ export class RTSOrbitCamera {
 
   private panSpeed = 25; // units/sec at distance ~40
   private rotSpeed = 0.005;
+  private zoomFactor = 0.025; // multiplicative zoom step per wheel notch (lower = less sensitive)
+
+  // Altitude control (absolute world Y, not terrain-relative)
+  private altitude = 40; // current camera world Y
+  private minAlt = 12;
+  private maxAlt = 120;
+  private defaultYaw = Math.PI * 0.25;
+  private defaultPitch = 0.9;
+  private defaultAlt = 40;
 
   private dragging = false;
   private lastX = 0;
@@ -39,6 +48,7 @@ export class RTSOrbitCamera {
     window.addEventListener('pointerup', this.onUp);
     dom.addEventListener('pointermove', this.onMove);
     dom.addEventListener('wheel', this.onWheel, { passive: false });
+    window.addEventListener('keydown', this.onKey);
   }
 
   private setPivot(x: number, z: number) {
@@ -65,8 +75,20 @@ export class RTSOrbitCamera {
     this.getMouseNDC(e);
     const hit = this.raycastToTerrain();
     if (hit) this.setPivot(hit.x, hit.z);
-    this.distance *= e.deltaY < 0 ? 0.9 : 1.1;
-    this.distance = Math.min(this.maxDist, Math.max(this.minDist, this.distance));
+    // Zoom via altitude within a constrained band (less sensitive)
+    const factor = e.deltaY < 0 ? (1 - this.zoomFactor) : (1 + this.zoomFactor);
+    this.altitude *= factor;
+    this.altitude = Math.max(this.minAlt, Math.min(this.maxAlt, this.altitude));
+  };
+
+  private onKey = (e: KeyboardEvent) => {
+    if (e.code === 'Space') {
+      // Reset to default angle and altitude
+      this.yaw = this.defaultYaw;
+      this.pitch = this.defaultPitch;
+      this.altitude = Math.max(this.minAlt, Math.min(this.maxAlt, this.defaultAlt));
+      e.preventDefault();
+    }
   };
 
   private getMouseNDC(ev: PointerEvent | WheelEvent) {
@@ -90,20 +112,30 @@ export class RTSOrbitCamera {
     if (move.up) v.addScaledVector(f, -1);
     if (move.down) v.addScaledVector(f, 1);
     if (v.lengthSq() > 0) {
-      const speed = this.panSpeed * (0.5 + this.distance / 40);
+      const speed = this.panSpeed * (0.4 + this.altitude / 60);
       v.normalize().multiplyScalar(speed * dt);
       this.pivot.add(v);
+      // Keep pivot anchored to ground for lookAt, but camera altitude remains absolute
       this.pivot.y = this.sample(this.pivot.x, this.pivot.z);
     }
 
     // Camera position from spherical around pivot
+    // Derive distance from altitude to maintain constant world Y regardless of terrain height
+    const minClear = 1.0;
+    const groundY = this.pivot.y;
+    if (this.altitude < groundY + minClear) this.altitude = groundY + minClear;
+    const sinP = Math.sin(this.pitch);
+    const safeSin = Math.max(0.1, sinP);
+    this.distance = (this.altitude - groundY) / safeSin;
+    this.distance = Math.min(this.maxDist, Math.max(this.minDist, this.distance));
     const cp = new Vector3(
       Math.sin(this.yaw) * Math.cos(this.pitch) * this.distance,
       Math.sin(this.pitch) * this.distance,
       Math.cos(this.yaw) * Math.cos(this.pitch) * this.distance
     );
     this.camera.position.copy(this.pivot).add(cp);
+    // Force absolute altitude; small correction if rounding imprecision
+    this.camera.position.y = this.altitude;
     this.camera.lookAt(this.pivot);
   }
 }
-

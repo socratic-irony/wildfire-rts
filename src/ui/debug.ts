@@ -1,7 +1,12 @@
 export type StatsHandle = {
   update: (dt: number, renderer: import('three').WebGLRenderer) => void;
   getIgniteMode: () => boolean;
-  setActions: (a: { igniteCenter?: () => void; setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void; roads?: { toggle?: (on: boolean) => void; clear?: () => void } }) => void;
+  setActions: (a: {
+    igniteCenter?: () => void;
+    setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
+    roads?: { toggle?: (on: boolean) => void; clear?: () => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
+  }) => void;
 };
 
 type DebugOpts = {
@@ -30,7 +35,12 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   let fps = 0;
   let visible = true;
   let igniteMode = false;
-  let actions: { igniteCenter?: () => void; setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void; roads?: { toggle?: (on: boolean) => void; clear?: () => void } } = {};
+  let actions: {
+    igniteCenter?: () => void;
+    setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
+    roads?: { toggle?: (on: boolean) => void; clear?: () => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
+  } = {};
 
   // Controls row
   const row = document.createElement('div');
@@ -97,6 +107,38 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   row.appendChild(roadsLabel);
   row.appendChild(roadsToggle);
   row.appendChild(roadsClear);
+
+  // Vehicles controls
+  const vehLabel = document.createElement('span');
+  vehLabel.textContent = 'Vehicles:';
+  vehLabel.style.marginLeft = '8px';
+  vehLabel.style.marginRight = '6px';
+  vehLabel.style.color = '#cbd5e1';
+  const vehSpawn = document.createElement('a');
+  vehSpawn.href = '#';
+  vehSpawn.style.cssText = linkStyle;
+  vehSpawn.textContent = 'Spawn';
+  vehSpawn.addEventListener('click', (e) => { e.preventDefault(); actions.vehicles?.spawn?.(); });
+  const vehMove = document.createElement('a');
+  vehMove.href = '#';
+  vehMove.style.cssText = linkStyle;
+  let vehMoveOn = false;
+  vehMove.textContent = 'Move: Off';
+  vehMove.addEventListener('click', (e) => {
+    e.preventDefault();
+    vehMoveOn = !vehMoveOn;
+    vehMove.textContent = `Move: ${vehMoveOn ? 'On' : 'Off'}`;
+    actions.vehicles?.moveModeToggle?.(vehMoveOn);
+  });
+  const vehClear = document.createElement('a');
+  vehClear.href = '#';
+  vehClear.style.cssText = linkStyle;
+  vehClear.textContent = 'Clear';
+  vehClear.addEventListener('click', (e) => { e.preventDefault(); actions.vehicles?.clear?.(); });
+  row.appendChild(vehLabel);
+  row.appendChild(vehSpawn);
+  row.appendChild(vehMove);
+  row.appendChild(vehClear);
   el.appendChild(row);
 
   // Toggle with F1

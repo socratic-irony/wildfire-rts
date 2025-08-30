@@ -19,6 +19,8 @@ import { createFireViz } from './fire/viz';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
+import { applyRoadMaskToFireGrid, createRoadMask, rasterizePolyline } from './roads/state';
+import { VehiclesManager } from './vehicles/vehicles';
 // import { createFireTexture } from './fire/texture';
 
 const app = document.getElementById('app')!;
@@ -91,6 +93,7 @@ loop.add((dt) => {
   // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
   fireViz.update(fireGrid, dt);
+  vehicles.update(dt);
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
 });
@@ -137,8 +140,14 @@ fireViz.setMode('vertex');
 const roadCost = buildTerrainCost(hm);
 const roadsVis = new RoadsVisual(hm);
 scene.add(roadsVis.group);
+const roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
+
+// Vehicles — manager uses terrain cost and road mask
+const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64);
+scene.add(vehicles.group);
+let vehiclesMoveEnabled = false;
 
 // Click to ignite under cursor
 {
@@ -190,8 +199,25 @@ let roadEndpoints: Array<{ x: number; z: number }> = [];
             }
           };
           const path = aStarPath(costField as any, a, b, { diag: true, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
-          if (path.length) roadsVis.addPath(path);
+          if (path.length) {
+            roadsVis.addPath(path);
+            rasterizePolyline(roadMask, path, 0.9);
+            applyRoadMaskToFireGrid(fireGrid, roadMask);
+          }
         }
+      }
+      return;
+    }
+    // Vehicle movement when enabled
+    if (vehiclesMoveEnabled) {
+      mouse.set(mouse.x, mouse.y);
+      ray.setFromCamera(mouse as any, rig.camera);
+      const hits = ray.intersectObject(chunked.group, true);
+      if (hits.length) {
+        const p = hits[0].point;
+        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
+        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+        vehicles.setDestinationAll(gx, gz);
       }
       return;
     }
@@ -211,6 +237,16 @@ let roadEndpoints: Array<{ x: number; z: number }> = [];
     roads: {
       toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
       clear: () => { roadsVis.clear(); roadEndpoints = []; }
+    },
+    vehicles: {
+      spawn: () => {
+        const camPos = rig.camera.getWorldPosition(new Vector3());
+        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
+        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
+        vehicles.spawnAt(gx, gz);
+      },
+      moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
+      clear: () => vehicles.clear(),
     }
   });
 }
