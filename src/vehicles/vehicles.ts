@@ -9,6 +9,8 @@ type GridPoint = { x: number; z: number };
 
 type Agent = {
   pos: Vector3;
+  lastPos: Vector3;
+  forward: Vector3; // smoothed heading for yaw
   grid: GridPoint; // current nearest grid cell
   path: GridPoint[];
   pathIdx: number;
@@ -61,7 +63,7 @@ export class VehiclesManager {
     const wz2 = (spawnCell.z + 0.5) * this.cellSize;
     const y2 = this.hm.sample(wx2, wz2);
     const pos2 = new Vector3(wx2, y2 + 0.22, wz2);
-    const agent: Agent = { pos: pos2, grid: spawnCell, path: [], pathIdx: 0, speedTilesPerSec: 3.2, autoFollowRoad: true };
+    const agent: Agent = { pos: pos2, lastPos: pos2.clone(), forward: new Vector3(0, 0, 1), grid: spawnCell, path: [], pathIdx: 0, speedTilesPerSec: 3.2, autoFollowRoad: true };
     // Initialize a next step along the road if possible
     const next = this.chooseNextRoadNeighbor(agent.grid, agent.prev);
     if (next) { agent.path = [agent.grid, next]; agent.pathIdx = 0; agent.prev = agent.grid; }
@@ -151,6 +153,8 @@ export class VehiclesManager {
           }
         }
       }
+      // Update lastPos after movement
+      a.lastPos.copy(a.pos);
       this.syncInstance(i);
     }
     this.inst.instanceMatrix.needsUpdate = true;
@@ -162,14 +166,13 @@ export class VehiclesManager {
     // Orientation aligned to road (preferred) or terrain
     const roadProj = this.projectToRoad?.(a.pos.x, a.pos.z);
     const up = roadProj ? roadProj.normal : this.terrainNormal(a.pos.x, a.pos.z);
-    let fwd = roadProj ? roadProj.tangent.clone() : new Vector3(0, 0, 1);
-    if (!roadProj && a.path.length - 1 > a.pathIdx) {
-      const cur = a.path[a.pathIdx];
-      const nxt = a.path[a.pathIdx + 1];
-      const dx = (nxt.x - cur.x) * this.cellSize;
-      const dz = (nxt.z - cur.z) * this.cellSize;
-      fwd.set(dx, 0, dz).normalize();
-    }
+    // Desired forward: prefer road tangent; else motion vector; else keep previous
+    const desired = roadProj ? roadProj.tangent.clone() : new Vector3().subVectors(a.pos, a.lastPos);
+    if (desired.lengthSq() > 1e-6) desired.normalize(); else desired.copy(a.forward);
+    // Smooth yaw changes
+    a.forward.lerp(desired, 0.35);
+    if (a.forward.lengthSq() < 1e-6) a.forward.set(0, 0, 1);
+    const fwd = new Vector3(a.forward.x, 0, a.forward.z).normalize();
     // Project forward onto terrain plane
     const right = new Vector3().crossVectors(fwd, up);
     if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
