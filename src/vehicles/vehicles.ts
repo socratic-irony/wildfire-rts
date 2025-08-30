@@ -29,9 +29,11 @@ export class VehiclesManager {
   private tmpObj = new Object3D();
   private cellSize: number; // hm.scale
 
-  constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64) {
+  private projectToRoad?: (x: number, z: number) => { pos: Vector3; normal: Vector3; tangent: Vector3 } | null;
+  constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64, projectToRoad?: (x: number, z: number) => { pos: Vector3; normal: Vector3; tangent: Vector3 } | null) {
     this.hm = hm; this.terrain = terrain; this.roadMask = roadMask; this.maxAgents = maxAgents;
     this.cellSize = hm.scale;
+    this.projectToRoad = projectToRoad;
     const geo = new BoxGeometry(this.cellSize * 0.6, this.cellSize * 0.3, this.cellSize * 0.9);
     const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1, emissive: new Color(0x0a1a2a), emissiveIntensity: 0.2 });
     this.inst = new InstancedMesh(geo, mat, maxAgents);
@@ -140,7 +142,13 @@ export class VehiclesManager {
         } else {
           dir.normalize();
           a.pos.addScaledVector(dir, step);
-          a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18;
+          // Snap to road midline if available, otherwise adjust to terrain
+          const proj = this.projectToRoad?.(a.pos.x, a.pos.z);
+          if (proj) {
+            a.pos.copy(proj.pos);
+          } else {
+            a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18;
+          }
         }
       }
       this.syncInstance(i);
@@ -151,10 +159,11 @@ export class VehiclesManager {
   private syncInstance(i: number) {
     const a = this.agents[i];
     this.tmpObj.position.copy(a.pos);
-    // Build oriented basis aligned to terrain normal and movement direction
-    const up = this.terrainNormal(a.pos.x, a.pos.z);
-    let fwd = new Vector3(0, 0, 1);
-    if (a.path.length - 1 > a.pathIdx) {
+    // Orientation aligned to road (preferred) or terrain
+    const roadProj = this.projectToRoad?.(a.pos.x, a.pos.z);
+    const up = roadProj ? roadProj.normal : this.terrainNormal(a.pos.x, a.pos.z);
+    let fwd = roadProj ? roadProj.tangent.clone() : new Vector3(0, 0, 1);
+    if (!roadProj && a.path.length - 1 > a.pathIdx) {
       const cur = a.path[a.pathIdx];
       const nxt = a.path[a.pathIdx + 1];
       const dx = (nxt.x - cur.x) * this.cellSize;

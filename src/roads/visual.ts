@@ -8,6 +8,7 @@ export class RoadsVisual {
   private stripeMat = new MeshBasicMaterial({ color: 0xcfd3d6, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, vertexColors: true });
   private yOffset = 0.05;
   private hm: Heightmap;
+  private paths: Vector2[][] = [];
   constructor(hm: Heightmap) { this.hm = hm; }
 
   clear() {
@@ -22,6 +23,8 @@ export class RoadsVisual {
     const simplified = simplifyRDP(centers, scale * 0.2);
     const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.35, sagEps: scale * 0.04 });
     const width = 0.5 * scale; // approx half tile width
+    // Store smoothed midline for projection queries
+    this.paths.push(smooth.map(p => p.clone()));
     // Main road surface
     {
       const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset);
@@ -57,6 +60,35 @@ export class RoadsVisual {
       mesh.renderOrder = 8;
       this.group.add(mesh);
     }
+  }
+
+  // Project a world XZ point to the nearest point on any road midline and return pos/normal/tangent
+  projectToMidline(wx: number, wz: number) {
+    if (this.paths.length === 0) return null as null;
+    let best: { px: number; pz: number; abx: number; abz: number } | null = null;
+    let bestD2 = Infinity;
+    for (const path of this.paths) {
+      for (let i = 0; i < path.length - 1; i++) {
+        const a = path[i];
+        const b = path[i + 1];
+        const apx = wx - a.x, apz = wz - a.y; // Vector2: y holds z
+        const abx = b.x - a.x, abz = b.y - a.y;
+        const ab2 = abx * abx + abz * abz || 1e-6;
+        let t = (apx * abx + apz * abz) / ab2; t = Math.max(0, Math.min(1, t));
+        const px = a.x + abx * t;
+        const pz = a.y + abz * t;
+        const dx = wx - px, dz = wz - pz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; best = { px, pz, abx, abz }; }
+      }
+    }
+    if (!best) return null as null;
+    const n = sampleNormal(this.hm, best.px, best.pz);
+    const y = this.hm.sample(best.px, best.pz);
+    const pos = new Vector3(best.px, y, best.pz).addScaledVector(n, this.yOffset);
+    const len = Math.hypot(best.abx, best.abz) || 1;
+    const tangent = new Vector3(best.abx / len, 0, best.abz / len);
+    return { pos, normal: n, tangent } as const;
   }
 }
 
