@@ -2,16 +2,19 @@ import { Group, Mesh, Object3D } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 import type { FireGrid } from './grid';
 import { createFireOverlay } from './overlay';
+import { createFirePerimeter } from './perimeter';
 
 export type FireVizMode = 'overlay' | 'raised' | 'vertex';
 
 export function createFireViz(hm: Heightmap, chunkGroup: Group) {
   // Overlay instance shared for overlay/raised
   const overlay = createFireOverlay(hm);
+  // Perimeter outline overlay (thin red edges around active fire)
+  const perimeter = createFirePerimeter(hm);
   let mode: FireVizMode = 'overlay';
   let acc = 0; // for throttling vertex updates
 
-  const addToScene = (root: Object3D) => { (root as any).add(overlay.inst); };
+  const addToScene = (root: Object3D) => { (root as any).add(overlay.inst); (root as any).add(perimeter.inst); };
 
   const setMode = (m: FireVizMode) => {
     mode = m;
@@ -64,10 +67,11 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
         // tint by state (more pronounced)
         if (t.state === 2 /* Burning */) {
           const heat = t.heat;
-          const tr = 1.0;                     // vivid orange/yellow
-          const tg = 0.35 + 0.55 * heat;      // 0.35..0.90
-          const tb = 0.05 + 0.22 * heat;      // 0.05..0.27
-          const a = 0.85 * (0.50 + 0.50 * heat); // stronger blend overall
+          // Shift toward distinct red/orange (less yellow/green)
+          const tr = 1.0;                     // strong red base
+          const tg = 0.18 + 0.22 * heat;      // 0.18..0.40
+          const tb = 0.02 + 0.10 * heat;      // 0.02..0.12
+          const a = 0.95 * (0.60 + 0.40 * heat); // more assertive blend
           r = r0 * (1 - a) + tr * a;
           g = g0 * (1 - a) + tg * a;
           b = b0 * (1 - a) + tb * a;
@@ -99,6 +103,8 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
         acc = 0;
       }
     }
+    // Always update perimeter outline for readability across modes
+    perimeter.update(grid);
   };
 
   return { overlay, setMode, update, addToScene, getMode: () => mode } as const;

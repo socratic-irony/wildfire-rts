@@ -5,7 +5,7 @@ import { FireGrid, FireState, indexToCoord } from './grid';
 export function createFireOverlay(hm: Heightmap, opts?: { offsetY?: number; depthTest?: boolean; renderOrder?: number }) {
   const plane = new PlaneGeometry(1, 1);
   plane.rotateX(-Math.PI / 2);
-  const mat = new MeshBasicMaterial({ color: new Color('#ff5a1f'), transparent: true, opacity: 0.7, depthWrite: false, blending: AdditiveBlending, side: DoubleSide, vertexColors: true });
+  const mat = new MeshBasicMaterial({ color: new Color('#ff2f1a'), transparent: true, opacity: 0.75, depthWrite: false, blending: AdditiveBlending, side: DoubleSide, vertexColors: true });
   if (opts && typeof opts.depthTest === 'boolean') mat.depthTest = opts.depthTest;
   // Preallocate full grid capacity so we never overflow when fire spreads
   const capacity = hm.width * hm.height;
@@ -37,7 +37,7 @@ export function createFireOverlay(hm: Heightmap, opts?: { offsetY?: number; dept
       tmp.updateMatrix();
       m.copy(tmp.matrix);
       inst.setMatrixAt(idx++, m);
-      const col = new Color().setHSL(0.05 + 0.05 * grid.tiles[ci].heat, 1.0, 0.5);
+      const col = new Color().setHSL(0.01 + 0.02 * grid.tiles[ci].heat, 1.0, 0.46);
       inst.setColorAt(idx - 1, col);
     }
     for (let k = 0; k < grid.sCount; k++) {
@@ -53,7 +53,7 @@ export function createFireOverlay(hm: Heightmap, opts?: { offsetY?: number; dept
       tmp.updateMatrix();
       m.copy(tmp.matrix);
       inst.setMatrixAt(idx++, m);
-      const col = new Color().setHSL(0.08, 0.8, 0.35);
+      const col = new Color().setHSL(0.02, 0.7, 0.33);
       inst.setColorAt(idx - 1, col);
     }
     (inst as any).count = idx;
