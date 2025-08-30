@@ -18,7 +18,7 @@ export class RoadsVisual {
     const scale = this.hm.scale;
     const centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
     const simplified = simplifyRDP(centers, scale * 0.2);
-    const smooth = catmullRomResample(simplified, 16);
+    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.35, sagEps: scale * 0.04 });
     const width = 0.5 * scale; // approx half tile width
     const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset);
     const geo = new BufferGeometry();
@@ -41,6 +41,9 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
   const lefts: Vector3[] = [];
   const mids: Vector3[] = [];
   const rights: Vector3[] = [];
+  const nls: Vector3[] = [];
+  const nms: Vector3[] = [];
+  const nrs: Vector3[] = [];
 
   for (let i = 0; i < path.length; i++) {
     const p = path[i];
@@ -58,12 +61,16 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
     const cz = p.y;
     const rx = p.x - nx * half;
     const rz = p.y - nz * half;
-    const ly = hm.sample(lx, lz) + yOffset;
-    const cy = hm.sample(cx, cz) + yOffset;
-    const ry = hm.sample(rx, rz) + yOffset;
-    lefts.push(new Vector3(lx, ly, lz));
-    mids.push(new Vector3(cx, cy, cz));
-    rights.push(new Vector3(rx, ry, rz));
+    const ly0 = hm.sample(lx, lz);
+    const cy0 = hm.sample(cx, cz);
+    const ry0 = hm.sample(rx, rz);
+    const nl = sampleNormal(hm, lx, lz);
+    const nm = sampleNormal(hm, cx, cz);
+    const nr = sampleNormal(hm, rx, rz);
+    lefts.push(new Vector3(lx, ly0, lz).addScaledVector(nl, yOffset));
+    mids.push(new Vector3(cx, cy0, cz).addScaledVector(nm, yOffset));
+    rights.push(new Vector3(rx, ry0, rz).addScaledVector(nr, yOffset));
+    nls.push(nl); nms.push(nm); nrs.push(nr);
   }
 
   // build vertices/colors (L, M, R per sample)
@@ -122,20 +129,64 @@ function simplifyRDP(pts: Vector2[], eps: number): Vector2[] {
 }
 
 // Catmull-Rom resampling for smoother curves
-function catmullRomResample(pts: Vector2[], samplesPerSeg = 8): Vector2[] {
+// Catmull-Rom adaptive resampling using midpoint sag error and max segment length
+function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; sagEps: number }): Vector2[] {
   if (pts.length <= 2) return pts.slice();
   const out: Vector2[] = [];
   const P = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+
+  const spline = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: number) => {
+    const t2 = t * t, t3 = t2 * t;
+    const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+    const z = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+    return new Vector2(x, z);
+  };
+
+  const subdivide = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) => {
+    const a = p1.clone();
+    const b = p2.clone();
+    const stack: Array<{ t0: number; t1: number; A: Vector2; B: Vector2 }> = [{ t0: 0, t1: 1, A: a, B: b }];
+    const segs: Vector2[] = [];
+    while (stack.length) {
+      const { t0, t1, A, B } = stack.pop()!;
+      const midT = (t0 + t1) * 0.5;
+      const M = spline(p0, p1, p2, p3, midT);
+      // linear midpoint between A and B
+      const Lx = (A.x + B.x) * 0.5;
+      const Lz = (A.y + B.y) * 0.5; // careful: Vector2.y is our z coordinate
+      const sag = Math.hypot(M.x - Lx, M.y - Lz);
+      const segLen = Math.hypot(B.x - A.x, B.y - A.y);
+      if (sag > opts.sagEps || segLen > opts.maxSegLen) {
+        // split
+        const leftMid = spline(p0, p1, p2, p3, (t0 + midT) * 0.5);
+        const rightMid = spline(p0, p1, p2, p3, (midT + t1) * 0.5);
+        stack.push({ t0: midT, t1, A: M, B });
+        stack.push({ t0, t1: midT, A, B: M });
+      } else {
+        segs.push(B);
+      }
+    }
+    return segs;
+  };
+
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
-    for (let s = 0; s < samplesPerSeg; s++) {
-      const t = s / samplesPerSeg;
-      const t2 = t * t, t3 = t2 * t;
-      const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
-      const z = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
-      out.push(new Vector2(x, z));
-    }
+    if (i === 0) out.push(p1.clone());
+    const seg = subdivide(p0, p1, p2, p3);
+    for (const s of seg) out.push(s);
   }
-  out.push(pts[pts.length - 1].clone());
   return out;
+}
+
+function sampleNormal(hm: Heightmap, wx: number, wz: number) {
+  const eps = hm.scale * 0.35; // finite difference step in world units
+  const hL = hm.sample(wx - eps, wz);
+  const hR = hm.sample(wx + eps, wz);
+  const hD = hm.sample(wx, wz - eps);
+  const hU = hm.sample(wx, wz + eps);
+  const Hx = (hR - hL) / (2 * eps);
+  const Hz = (hU - hD) / (2 * eps);
+  const n = new Vector3(-Hx, 1, -Hz);
+  n.normalize();
+  return n;
 }
