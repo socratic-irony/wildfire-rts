@@ -3,7 +3,7 @@ export type GridPoint = { x: number; z: number };
 export type CostField = {
   width: number;
   height: number;
-  costAt: (x: number, z: number, prevDir?: { dx: number; dz: number }) => number;
+  costAt: (x: number, z: number, stepDir: { dx: number; dz: number }, prevDir?: { dx: number; dz: number }) => number;
 };
 
 export type AStarOpts = {
@@ -49,7 +49,7 @@ export function aStarPath(field: CostField, start: GridPoint, goal: GridPoint, o
       if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
       const nk = toKey(nx, nz);
       const step = Math.hypot(dx, dz);
-      const c = field.costAt(nx, nz, { dx: pdx, dz: pdz });
+      const c = field.costAt(nx, nz, { dx, dz }, { dx: pdx, dz: pdz });
       if (!isFinite(c)) continue;
       const ng = g[cur] + step * c;
       if (ng < g[nk]) {
@@ -84,4 +84,3 @@ class MinHeap<T extends number> {
   private down(i: number) { const a = this.data; const cmp = this.cmp; while (true) { let l = i * 2 + 1, r = l + 1, m = i; if (l < a.length && cmp(a[l], a[m]) < 0) m = l; if (r < a.length && cmp(a[r], a[m]) < 0) m = r; if (m === i) break; this.swap(i, m); i = m; } }
   private swap(i: number, j: number) { const t = this.data[i]; this.data[i] = this.data[j]; this.data[j] = t; this.loc.set(this.data[i], i); this.loc.set(this.data[j], j); }
 }
-

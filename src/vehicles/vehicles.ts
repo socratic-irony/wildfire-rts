@@ -103,7 +103,7 @@ export class VehiclesManager {
     const field = {
       width: W,
       height: H,
-      costAt: (x: number, z: number) => {
+      costAt: (x: number, z: number, _step?: { dx: number; dz: number }, _prev?: { dx: number; dz: number }) => {
         // Strictly constrain to road tiles
         return this.roadMask.mask[z * W + x] === 1 ? 1 : Infinity;
       }

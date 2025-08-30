@@ -21,7 +21,7 @@ export class RoadsVisual {
     const scale = this.hm.scale;
     const centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
     const simplified = simplifyRDP(centers, scale * 0.2);
-    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.35, sagEps: scale * 0.04 });
+    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: scale * 0.02 });
     const width = 0.5 * scale; // approx half tile width
     // Store smoothed midline for projection queries
     this.paths.push(smooth.map(p => p.clone()));

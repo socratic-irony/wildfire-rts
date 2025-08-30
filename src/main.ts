@@ -188,14 +188,29 @@ let vehiclesMoveEnabled = false;
         if (roadEndpoints.length >= 2) {
           const [a, b] = [roadEndpoints[roadEndpoints.length - 2], roadEndpoints[roadEndpoints.length - 1]];
           // Build cost function on the fly
-          const WE = 0.6, WS = 1.2, WV = 0.8; // weights for elevation, slope, valley bonus
+          const WE = 0.6, WS = 2.0, WV = 0.8; // weights for elevation, slope, valley bonus (more slope penalty)
+          const SLOPE_MAX_TAN = 0.7; // ~35 degrees; block steeper
+          const CURV_W = 1.6;       // curvature/turning penalty
           const costField = {
             width: roadCost.width,
             height: roadCost.height,
-            costAt: (x: number, z: number) => {
+            costAt: (x: number, z: number, stepDir: { dx: number; dz: number }, prevDir?: { dx: number; dz: number }) => {
               const i = z * roadCost.width + x;
               const base = 1 + WE * roadCost.elev[i] + WS * roadCost.slope[i] - WV * roadCost.valley[i];
-              return Math.max(0.05, base);
+              // Hard block steep terrain
+              if (roadCost.slope[i] > SLOPE_MAX_TAN) return Infinity;
+              // Curvature penalty: prefer straighter continuation if prevDir is provided
+              let curv = 0;
+              if (prevDir && (prevDir.dx !== 0 || prevDir.dz !== 0)) {
+                const pvLen = Math.hypot(prevDir.dx, prevDir.dz) || 1;
+                const stLen = Math.hypot(stepDir.dx, stepDir.dz) || 1;
+                const pdx = prevDir.dx / pvLen, pdz = prevDir.dz / pvLen;
+                const sdx = stepDir.dx / stLen, sdz = stepDir.dz / stLen;
+                const dot = Math.max(-1, Math.min(1, pdx * sdx + pdz * sdz));
+                // Penalize turns; 0 for straight, up to CURV_W for 180°
+                curv = CURV_W * (1 - Math.max(0, dot));
+              }
+              return Math.max(0.05, base + curv);
             }
           };
           const path = aStarPath(costField as any, a, b, { diag: true, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
