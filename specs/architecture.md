@@ -26,7 +26,7 @@ Repository Topology
   - `heightmap.ts`: procedural map generator + bilinear `sample(wx,wz)` API.
   - `mesh.ts`, `material.ts`: low-poly tri mesh + flat-shaded material with grid overlay support.
   - `biomes.ts`: biome masks (rock/forest/chaparral) + vertex tinting.
-  - `chunks.ts`: chunked LOD terrain with visibility toggle and base/hi geometry.
+  - `chunks.ts`: chunked LOD terrain with visibility toggle and base/hi geometry; per-chunk edge skirts to hide LOD cracks; bounding spheres for distance tests.
 - Fire System: `src/fire/`
   - `grid.ts`: grid state (tiles, indices), ignition helpers, suppression hooks, containment heuristic.
   - `params.ts`: tuning constants and fuel tables.
