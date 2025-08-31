@@ -108,19 +108,19 @@ loop.add((dt) => {
       if (!groups.has(p)) groups.set(p, []);
       groups.get(p)!.push(i);
     }
-    for (const [p, idxs] of groups) {
+    for (const [, idxs] of groups) {
       idxs.sort((a, b) => followers[a].s - followers[b].s);
-      for (let k = 0; k < idxs.length; k++) {
+      for (let k = idxs.length - 1; k >= 0; k--) {
         const i = idxs[k];
-        if (k < idxs.length - 1) {
+        if (k === idxs.length - 1) {
+          followers[i].setLeader(undefined, undefined);
+        } else {
           const lead = idxs[k + 1];
           followers[i].setLeader(followers[lead].s, followers[lead].v);
-        } else {
-          followers[i].setLeader(undefined, undefined);
         }
+        followers[i].update(dt);
       }
     }
-    for (const f of followers) f.update(dt);
   }
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
