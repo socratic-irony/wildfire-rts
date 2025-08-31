@@ -6,6 +6,7 @@ export type StatsHandle = {
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
     vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
+    preset?: { set?: (variant: 'loop' | 'figure8') => void };
   }) => void;
 };
 
@@ -40,6 +41,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
     vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
+    preset?: { set?: (variant: 'loop' | 'figure8') => void };
   } = {};
 
   // Controls row
@@ -107,6 +109,32 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   row.appendChild(roadsLabel);
   row.appendChild(roadsToggle);
   row.appendChild(roadsClear);
+
+  // Map preset selector (added dynamically if provided by caller)
+  let presetInjected = false;
+  const maybeInjectPreset = () => {
+    if (presetInjected || !actions.preset?.set) return;
+    const presetLabel = document.createElement('span');
+    presetLabel.textContent = 'Map:';
+    presetLabel.style.marginLeft = '8px';
+    presetLabel.style.marginRight = '6px';
+    presetLabel.style.color = '#cbd5e1';
+    const presetSelect = document.createElement('select');
+    presetSelect.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
+    const presetOpts = [
+      { v: 'loop', t: 'Loop' },
+      { v: 'figure8', t: 'Figure-8' },
+    ] as const;
+    for (const o of presetOpts) {
+      const opt = document.createElement('option');
+      opt.value = o.v; opt.text = o.t; presetSelect.appendChild(opt);
+    }
+    presetSelect.value = 'loop';
+    presetSelect.addEventListener('change', () => actions.preset?.set?.(presetSelect.value as any));
+    row.appendChild(presetLabel);
+    row.appendChild(presetSelect);
+    presetInjected = true;
+  };
 
   // Vehicles controls
   const vehLabel = document.createElement('span');
@@ -191,6 +219,6 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       info.reset();
     },
     getIgniteMode() { return igniteMode; },
-    setActions(a) { actions = a; }
+    setActions(a) { actions = a; maybeInjectPreset(); }
   };
 }

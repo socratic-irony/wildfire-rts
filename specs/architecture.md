@@ -16,6 +16,7 @@ Agent Adherence (Required)
 Repository Topology
 
 - Entry: `src/main.ts` wires all systems (terrain, camera, fire, roads, vehicles, UI) and owns the frame loop.
+- Testbed: `vehicles-test.html` + `src/vehicles_test.ts` — a minimal, isolated page for vehicle/road experiments on a small flat map with preset road layouts (loop / figure‑8). Does not affect the main app.
 - Core: `src/core/`
   - `renderer.ts`: WebGL renderer factory and resize logic.
   - `scene.ts`: Three.js scene creation; minimal global lights.
@@ -31,7 +32,8 @@ Repository Topology
   - `grid.ts`: grid state (tiles, indices), ignition helpers, suppression hooks, containment heuristic.
   - `params.ts`: tuning constants and fuel tables.
   - `sim.ts`: fixed-step fire simulation with accumulator; slope/wind ROS; ignition/wetness/retardant; smoldering.
-  - `viz.ts`, `overlay.ts`, `perimeter.ts`: visualization (overlay quads, vertex tint; thin perimeter outline).
+  - `viz.ts`, `overlay.ts`, `perimeter.ts`: visualization (overlay quads, vertex tint; thin perimeter outline). Also exports `computePerimeter(grid)` for analytics/UI.
+  - `stats.ts`: compute active counts, burned tiles/area, and perimeter length (`computeFireStats`).
 - Roads: `src/roads/`
   - `cost.ts`: per-tile elevation/slope/valley fields for road A* cost.
   - `astar.ts`: grid A* (4/8-neigh), cost callback, with diag support.
@@ -51,6 +53,7 @@ Runtime Model
   4) Build road cost field, visualization group, and road mask.
   5) Create vehicles manager and add to scene.
   6) Install debug UI and input handlers for ignite, road draw, and vehicle modes.
+  - Branch `features/vehicles`: after wiring, seed a rectangular road loop on a small (32×32) mostly-flat test map and auto-spawn a few vehicles on the loop for immediate interaction.
 - Frame loop (`Loop`):
   - Per-frame: update camera controller; LOD updates; `FireSim.step(dt)` with fixed sub-steps; `fireViz.update(grid, dt)`; `vehicles.update(dt)`; render; stats.
   - Fixed fire dt: 0.25 s with 6-step cap per frame.
@@ -63,7 +66,7 @@ Key Abstractions & Data
   - FireGrid: `{ width,height,params,tiles[], burning[], smoldering[], bCount,sCount,time,seed }`.
   - Tile: AoS object including `state,heat,progress,wetness,retardant,lineStrength,fuel,slopeTan,downX,downZ` (fuelMoisture early adoption planned).
   - FireSim: neighbor ignition via ROS and Poisson arrival; spotting (simple); combustion progressions; early extinguish; moisture decay.
-  - FireViz: overlay instances and vertex tint; perimeter overlay hugging terrain.
+  - FireViz: overlay instances and vertex tint; perimeter overlay hugging terrain; analytics via `computePerimeter` + `computeFireStats`.
 - Roads
   - CostField: elevation/slope/valley; slope-block threshold; turn penalty in `main.ts` when planning player roads.
   - Visual: adaptive midline resampling; 3-lane (L/M/R) cross-section; normal-offset; shoulders; dashed stripe.
@@ -124,7 +127,7 @@ LLM Orientation Checklist
 
 Open Opportunities / Next Items
 
-- Fire: perimeter extraction API; edge-based line strength; crown behavior; UI paint tools.
+- Fire: edge-based line strength; crown behavior; UI paint tools; wire stats into UI.
 - Roads: adaptive planning using curvature + slope fields; optional lane metadata; intersections routing.
 - Vehicles: safe road midline projector with spatial index; yaw smoothing; spacing/collision; speed model by grade/curvature.
 - Persistence: save/load scenarios (terrain seed, fire seed, roads, vehicles).
