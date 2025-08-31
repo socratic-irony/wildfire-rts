@@ -149,9 +149,10 @@ let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
 
 type FollowMode = 'grid' | 'frenet';
-let followMode: FollowMode = 'grid';
+let followMode: FollowMode = 'frenet';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
+vehicles.group.visible = (followMode === 'grid');
 
 function rebuildPath2Ds() {
   const raw = roadsVis.getMidlinesXZ();
@@ -287,7 +288,6 @@ function spawnFollowerAtCamera() {
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => { vehicles.clear(); clearFollowers(); },
-      setYawMode: (m) => vehicles.setYawMode(m),
       toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
       setFollowMode: (m: FollowMode) => {
         followMode = m;

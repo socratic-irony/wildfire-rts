@@ -184,7 +184,7 @@ const roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 type FollowMode = 'grid' | 'frenet';
-let followMode: FollowMode = 'grid';
+let followMode: FollowMode = 'frenet';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
 
@@ -243,6 +243,8 @@ scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
+// Default to Frenet: hide grid vehicles by default
+vehicles.group.visible = (followMode === 'grid');
 
 // Click to ignite under cursor
 {
@@ -363,7 +365,6 @@ let yawDiv: HTMLDivElement | null = null;
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => { vehicles.clear(); clearFollowers(); },
-      setYawMode: (m) => vehicles.setYawMode(m),
       toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
       setFollowMode: (m: FollowMode) => {
         followMode = m;

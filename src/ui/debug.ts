@@ -5,7 +5,7 @@ export type StatsHandle = {
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; setYawMode?: (m: 'grid' | 'midline' | 'velocity' | 'lookahead') => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
   }) => void;
 };
@@ -41,7 +41,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; setYawMode?: (m: 'grid' | 'midline' | 'velocity' | 'lookahead') => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
   } = {};
 
@@ -164,23 +164,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   vehClear.style.cssText = linkStyle;
   vehClear.textContent = 'Clear';
   vehClear.addEventListener('click', (e) => { e.preventDefault(); actions.vehicles?.clear?.(); });
-  // Vehicle yaw/turn mode selector
-  const vehModeLabel = document.createElement('span');
-  vehModeLabel.textContent = 'Turn:';
-  vehModeLabel.style.marginLeft = '8px';
-  vehModeLabel.style.marginRight = '6px';
-  vehModeLabel.style.color = '#cbd5e1';
-  const vehModeSelect = document.createElement('select');
-  vehModeSelect.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
-  const vehModes: Array<{v:'grid'|'midline'|'velocity'|'lookahead', t:string}> = [
-    { v: 'grid', t: 'Grid' },
-    { v: 'midline', t: 'Midline' },
-    { v: 'velocity', t: 'Velocity' },
-    { v: 'lookahead', t: 'Lookahead' }
-  ];
-  for (const m of vehModes) { const o = document.createElement('option'); o.value = m.v; o.text = m.t; vehModeSelect.appendChild(o); }
-  vehModeSelect.value = 'midline';
-  vehModeSelect.addEventListener('change', () => actions.vehicles?.setYawMode?.(vehModeSelect.value as any));
+  // (Turn mode removed; Frenet handles yaw)
   // Follow mode selector
   const followLabel = document.createElement('span');
   followLabel.textContent = 'Follow:';
@@ -193,7 +177,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     const o = document.createElement('option');
     o.value = opt; o.text = opt; followSelect.appendChild(o);
   }
-  followSelect.value = 'grid';
+  followSelect.value = 'frenet';
   followSelect.addEventListener('change', () => actions.vehicles?.setFollowMode?.(followSelect.value as any));
   // Yaw smoothing toggle
   const yawSmooth = document.createElement('a');
@@ -223,8 +207,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     actions.vehicles?.toggleYawDebug?.(yawOn);
   });
   row.appendChild(yawDbg);
-  row.appendChild(vehModeLabel);
-  row.appendChild(vehModeSelect);
+  // (Turn selector removed)
   row.appendChild(followLabel);
   row.appendChild(followSelect);
   row.appendChild(yawSmooth);
