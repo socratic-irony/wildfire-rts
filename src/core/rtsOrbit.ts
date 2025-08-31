@@ -15,10 +15,10 @@ export class RTSOrbitCamera {
   private pitch = 0.9;          // 0..~1.3 (radians from horizon)
   // Horizontal radius (XZ) from pivot to camera; zoom changes this, not altitude
   private distance = 40; // interpreted as horizontal radius (not full 3D distance)
-  private minDist = 6;
+  private minDist = 2;
   private maxDist = 220;
-  private minPitch = 0.6; // narrower tilt range (~34°)
-  private maxPitch = 1.05; // (~60°)
+  private minPitch = 0.3; // allow lower grazing angles (~17°)
+  private maxPitch = 1.1; // slightly higher tilt (~63°)
 
   private panSpeed = 25; // units/sec (constant; not height-sensitive)
   private rotSpeed = 0.005;
@@ -88,6 +88,16 @@ export class RTSOrbitCamera {
       this.pitch = this.defaultPitch;
       this.altitude = this.defaultAlt;
       this.distance = this.defaultDist;
+      this.pivot.y = this.altitude - Math.tan(this.pitch) * this.distance;
+      e.preventDefault();
+    }
+    // Adjust fixed camera altitude
+    if (e.code === 'BracketLeft') { // [
+      this.altitude = Math.max(2, this.altitude - 4);
+      this.pivot.y = this.altitude - Math.tan(this.pitch) * this.distance;
+      e.preventDefault();
+    } else if (e.code === 'BracketRight') { // ]
+      this.altitude = Math.min(400, this.altitude + 4);
       this.pivot.y = this.altitude - Math.tan(this.pitch) * this.distance;
       e.preventDefault();
     }

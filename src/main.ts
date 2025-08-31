@@ -95,6 +95,9 @@ loop.add((dt) => {
   fireSim.step(dt);
   fireViz.update(fireGrid, dt);
   vehicles.update(dt);
+  if (yawDebugOn && yawDiv) {
+    yawDiv.textContent = vehicles.getDebugText(0);
+  }
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
 });
@@ -106,6 +109,31 @@ window.addEventListener('keydown', (e) => {
     if (shader) {
       shader.uniforms.uGridEnabled.value = shader.uniforms.uGridEnabled.value ? 0 : 1;
     }
+  }
+  if (e.key.toLowerCase() === 'y') {
+    yawDebugOn = !yawDebugOn;
+    vehicles.setYawDebug(yawDebugOn);
+    if (yawDebugOn) {
+      if (!yawDiv) {
+        yawDiv = document.createElement('div');
+        yawDiv.style.position = 'absolute';
+        yawDiv.style.left = '12px';
+        yawDiv.style.bottom = '12px';
+        yawDiv.style.padding = '6px 8px';
+        yawDiv.style.background = 'rgba(0,0,0,0.5)';
+        yawDiv.style.color = '#e5e7eb';
+        yawDiv.style.whiteSpace = 'pre';
+        yawDiv.style.font = '12px/1.2 system-ui, sans-serif';
+        app.appendChild(yawDiv);
+      }
+    } else {
+      if (yawDiv && yawDiv.parentElement) { yawDiv.parentElement.removeChild(yawDiv); }
+      yawDiv = null;
+    }
+  }
+  if (e.key.toLowerCase() === 'l') {
+    // One-shot dump to console for easy copy/paste
+    console.log(vehicles.getDebugText(0));
   }
 });
 
@@ -151,9 +179,11 @@ let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 
 // Vehicles — manager uses terrain cost and road mask
-const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64);
+const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
 scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
+let yawDebugOn = false;
+let yawDiv: HTMLDivElement | null = null;
 
 // Click to ignite under cursor
 {
@@ -268,6 +298,29 @@ let vehiclesMoveEnabled = false;
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => vehicles.clear(),
+      setYawMode: (m) => vehicles.setYawMode(m),
+      toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
+      toggleYawDebug: (on) => {
+        yawDebugOn = on;
+        vehicles.setYawDebug(on);
+        if (on) {
+          if (!yawDiv) {
+            yawDiv = document.createElement('div');
+            yawDiv.style.position = 'absolute';
+            yawDiv.style.left = '12px';
+            yawDiv.style.bottom = '12px';
+            yawDiv.style.padding = '6px 8px';
+            yawDiv.style.background = 'rgba(0,0,0,0.5)';
+            yawDiv.style.color = '#e5e7eb';
+            yawDiv.style.whiteSpace = 'pre';
+            yawDiv.style.font = '12px/1.2 system-ui, sans-serif';
+            app.appendChild(yawDiv);
+          }
+        } else {
+          if (yawDiv && yawDiv.parentElement) { yawDiv.parentElement.removeChild(yawDiv); }
+          yawDiv = null;
+        }
+      },
     }
   });
 }

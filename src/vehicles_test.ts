@@ -74,6 +74,9 @@ loop.add((dt) => {
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
   vehicles.update(dt);
+  if (yawDebugOn && yawDiv) {
+    yawDiv.textContent = vehicles.getDebugText(0);
+  }
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
 });
@@ -83,6 +86,30 @@ window.addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() === 'g') {
     const shader = (terrainMat as any).userData?.shader;
     if (shader) shader.uniforms.uGridEnabled.value = shader.uniforms.uGridEnabled.value ? 0 : 1;
+  }
+  if (e.key.toLowerCase() === 'y') {
+    yawDebugOn = !yawDebugOn;
+    vehicles.setYawDebug(yawDebugOn);
+    if (yawDebugOn) {
+      if (!yawDiv) {
+        yawDiv = document.createElement('div');
+        yawDiv.style.position = 'absolute';
+        yawDiv.style.left = '12px';
+        yawDiv.style.bottom = '12px';
+        yawDiv.style.padding = '6px 8px';
+        yawDiv.style.background = 'rgba(0,0,0,0.5)';
+        yawDiv.style.color = '#e5e7eb';
+        yawDiv.style.whiteSpace = 'pre';
+        yawDiv.style.font = '12px/1.2 system-ui, sans-serif';
+        app.appendChild(yawDiv);
+      }
+    } else {
+      if (yawDiv && yawDiv.parentElement) { yawDiv.parentElement.removeChild(yawDiv); }
+      yawDiv = null;
+    }
+  }
+  if (e.key.toLowerCase() === 'l') {
+    console.log(vehicles.getDebugText(0));
   }
 });
 
@@ -111,9 +138,11 @@ const roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 
-const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64);
+const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
 scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
+let yawDebugOn = false;
+let yawDiv: HTMLDivElement | null = null;
 
 // Click handling for roads and vehicles
 {
@@ -189,6 +218,29 @@ let vehiclesMoveEnabled = false;
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => vehicles.clear(),
+      setYawMode: (m) => vehicles.setYawMode(m),
+      toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
+      toggleYawDebug: (on) => {
+        yawDebugOn = on;
+        vehicles.setYawDebug(on);
+        if (on) {
+          if (!yawDiv) {
+            yawDiv = document.createElement('div');
+            yawDiv.style.position = 'absolute';
+            yawDiv.style.left = '12px';
+            yawDiv.style.bottom = '12px';
+            yawDiv.style.padding = '6px 8px';
+            yawDiv.style.background = 'rgba(0,0,0,0.5)';
+            yawDiv.style.color = '#e5e7eb';
+            yawDiv.style.whiteSpace = 'pre';
+            yawDiv.style.font = '12px/1.2 system-ui, sans-serif';
+            app.appendChild(yawDiv);
+          }
+        } else {
+          if (yawDiv && yawDiv.parentElement) { yawDiv.parentElement.removeChild(yawDiv); }
+          yawDiv = null;
+        }
+      },
     },
     preset: { set: (v) => seedVariant(v) }
   });

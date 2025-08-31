@@ -5,7 +5,7 @@ export type StatsHandle = {
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; setYawMode?: (m: 'grid' | 'midline' | 'velocity' | 'lookahead') => void; toggleYawDebug?: (on: boolean) => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
   }) => void;
 };
@@ -41,7 +41,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; setYawMode?: (m: 'grid' | 'midline' | 'velocity' | 'lookahead') => void; toggleYawDebug?: (on: boolean) => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
   } = {};
 
@@ -164,10 +164,54 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   vehClear.style.cssText = linkStyle;
   vehClear.textContent = 'Clear';
   vehClear.addEventListener('click', (e) => { e.preventDefault(); actions.vehicles?.clear?.(); });
+  // Vehicle yaw/turn mode selector
+  const vehModeLabel = document.createElement('span');
+  vehModeLabel.textContent = 'Turn:';
+  vehModeLabel.style.marginLeft = '8px';
+  vehModeLabel.style.marginRight = '6px';
+  vehModeLabel.style.color = '#cbd5e1';
+  const vehModeSelect = document.createElement('select');
+  vehModeSelect.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
+  const vehModes: Array<{v:'grid'|'midline'|'velocity'|'lookahead', t:string}> = [
+    { v: 'grid', t: 'Grid' },
+    { v: 'midline', t: 'Midline' },
+    { v: 'velocity', t: 'Velocity' },
+    { v: 'lookahead', t: 'Lookahead' }
+  ];
+  for (const m of vehModes) { const o = document.createElement('option'); o.value = m.v; o.text = m.t; vehModeSelect.appendChild(o); }
+  vehModeSelect.value = 'midline';
+  vehModeSelect.addEventListener('change', () => actions.vehicles?.setYawMode?.(vehModeSelect.value as any));
+  // Yaw smoothing toggle
+  const yawSmooth = document.createElement('a');
+  yawSmooth.href = '#';
+  yawSmooth.style.cssText = linkStyle;
+  let yawSmoothOn = true;
+  yawSmooth.textContent = 'Yaw Smooth: On';
+  yawSmooth.addEventListener('click', (e) => {
+    e.preventDefault();
+    yawSmoothOn = !yawSmoothOn;
+    yawSmooth.textContent = `Yaw Smooth: ${yawSmoothOn ? 'On' : 'Off'}`;
+    actions.vehicles?.toggleYawSmoothing?.(yawSmoothOn);
+  });
   row.appendChild(vehLabel);
   row.appendChild(vehSpawn);
   row.appendChild(vehMove);
   row.appendChild(vehClear);
+  const yawDbg = document.createElement('a');
+  yawDbg.href = '#';
+  yawDbg.style.cssText = linkStyle;
+  let yawOn = false;
+  yawDbg.textContent = 'Yaw Debug: Off';
+  yawDbg.addEventListener('click', (e) => {
+    e.preventDefault();
+    yawOn = !yawOn;
+    yawDbg.textContent = `Yaw Debug: ${yawOn ? 'On' : 'Off'}`;
+    actions.vehicles?.toggleYawDebug?.(yawOn);
+  });
+  row.appendChild(yawDbg);
+  row.appendChild(vehModeLabel);
+  row.appendChild(vehModeSelect);
+  row.appendChild(yawSmooth);
   el.appendChild(row);
 
   // Toggle with F1
