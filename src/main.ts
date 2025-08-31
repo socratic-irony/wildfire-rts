@@ -8,7 +8,7 @@ import { buildTerrainGeometry } from './terrain/mesh';
 import { createTerrainMaterial } from './terrain/material';
 // import { RTSCameraController } from './core/rtsCamera';
 import { RTSOrbitCamera } from './core/rtsOrbit';
-import { applyBiomeVertexColors, computeBiomes } from './terrain/biomes';
+import { computeBiomesTuned, type BiomeMask } from './terrain/biomes';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
 import { createRocks } from './actors/rocks';
@@ -31,30 +31,99 @@ scene.add(rig.root);
 
 const renderer = createRenderer(app);
 
-// Stage B: Terrain heightmap + mesh (temporary orbit controls)
-const hm = generateHeightmap(128, 128, 1, {
-  seed: 42,
-  frequency: 2.0,
-  amplitude: 8,
-  octaves: 4,
-  persistence: 0.5,
-});
-// Biomes and material
-const biomes = computeBiomes(hm);
+type WorldConfig = {
+  width: number; height: number; scale: number;
+  noise: { seed: number | string; frequency: number; amplitude: number; octaves: number; persistence: number };
+  moisture: { frequency: number; seed: number | string };
+  biomes: { forestMoistureMin: number; rockSlopeDeg: number; rockHighHeight: number; rockHighSlopeDeg: number; forestSlopeMax: number };
+  densities: { tree: number; broadleafRatio: number; shrub: number; rock: number };
+};
+
+let config: WorldConfig = {
+  width: 128, height: 128, scale: 1,
+  noise: { seed: 42, frequency: 2.0, amplitude: 8, octaves: 4, persistence: 0.5 },
+  moisture: { seed: 'moist', frequency: 1.5 },
+  biomes: { forestMoistureMin: 0.55, rockSlopeDeg: 35, rockHighHeight: 6, rockHighSlopeDeg: 25, forestSlopeMax: 22 },
+  densities: { tree: 0.30, broadleafRatio: 0.4, shrub: 0.15, rock: 0.08 },
+};
+
 const terrainMat = createTerrainMaterial() as any;
 
-// Stage G: chunked terrain with basic LOD
-const chunked = buildChunkedTerrain(hm, terrainMat, 32);
-scene.add(chunked.group);
+type World = {
+  hm: ReturnType<typeof generateHeightmap>;
+  biomes: BiomeMask;
+  chunked: ReturnType<typeof buildChunkedTerrain>;
+  forest: ReturnType<typeof createForest>;
+  shrubs: ReturnType<typeof createShrubs>;
+  rocks: ReturnType<typeof createRocks>;
+  fireGrid: ReturnType<typeof buildFireGrid>;
+  fireSim: FireSim;
+  fireViz: ReturnType<typeof createFireViz>;
+  roadsVis: RoadsVisual;
+  roadMask: ReturnType<typeof createRoadMask>;
+  roadCost: ReturnType<typeof buildTerrainCost>;
+  vehicles: VehiclesManager;
+};
+
+let world: World;
+
+function buildWorld() {
+  // Heightmap
+  const hm = generateHeightmap(config.width, config.height, config.scale, config.noise);
+  // Biomes
+  const biomes = computeBiomesTuned(hm, {
+    forestMoistureMin: config.biomes.forestMoistureMin,
+    rockSlopeDeg: config.biomes.rockSlopeDeg,
+    rockHighHeight: config.biomes.rockHighHeight,
+    rockHighSlopeDeg: config.biomes.rockHighSlopeDeg,
+    forestSlopeMax: config.biomes.forestSlopeMax,
+  }, { frequency: config.moisture.frequency, seed: config.moisture.seed as any });
+
+  // Chunks
+  const chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
+  scene.add(chunked.group);
+
+  // Actors
+  const forest = createForest(hm, biomes, { density: config.densities.tree, broadleafRatio: config.densities.broadleafRatio });
+  scene.add(forest.leaves); scene.add(forest.trunks);
+  if (forest.broadLeaves) scene.add(forest.broadLeaves);
+  if (forest.broadTrunks) scene.add(forest.broadTrunks);
+
+  const shrubs = createShrubs(hm, biomes, { density: config.densities.shrub });
+  scene.add(shrubs.inst);
+
+  const rocks = createRocks(hm, biomes, { density: config.densities.rock });
+  scene.add(rocks.inst);
+
+  // Fire
+  const fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
+  const fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
+  const fireViz = createFireViz(hm, chunked.group);
+  fireViz.addToScene(scene as any);
+  fireViz.setMode('vertex');
+
+  // Roads / vehicles
+  const roadCost = buildTerrainCost(hm);
+  const roadsVis = new RoadsVisual(hm);
+  scene.add(roadsVis.group);
+  const roadMask = createRoadMask(hm.width, hm.height);
+  const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64);
+  scene.add(vehicles.group);
+
+  world = { hm, biomes, chunked, forest, shrubs, rocks, fireGrid, fireSim, fireViz, roadsVis, roadMask, roadCost, vehicles };
+}
+
+// Initial world
+buildWorld();
 
 // Stage C: RTS camera controller (replaces Orbit)
-const terrainObj = chunked.group as Object3D;
+const terrainObj = world.chunked.group as Object3D;
 const orbit = new RTSOrbitCamera(
   renderer.domElement,
   rig.camera,
   terrainObj,
-  (x, z) => hm.sample(x, z),
-  new Vector3((hm.width * hm.scale) / 2, 0, (hm.height * hm.scale) / 2)
+  (x, z) => world.hm.sample(x, z),
+  new Vector3((world.hm.width * world.hm.scale) / 2, 0, (world.hm.height * world.hm.scale) / 2)
 );
 
 const loop = new Loop();
@@ -86,15 +155,15 @@ loop.add((dt) => {
   orbit.update(dt, move);
   // Wind sway updates (Stage F)
   const t = performance.now() / 1000;
-  forest?.update(t);
-  shrubs?.update(t);
+  world.forest?.update(t);
+  world.shrubs?.update(t);
   // Update LOD for terrain chunks
   const camPos = rig.camera.getWorldPosition(new Vector3());
-  chunked.updateLOD(camPos.x, camPos.z);
+  world.chunked.updateLOD(camPos.x, camPos.z);
   // Simulate fire at fixed steps and update visualization
-  fireSim.step(dt);
-  fireViz.update(fireGrid, dt);
-  vehicles.update(dt);
+  world.fireSim.step(dt);
+  world.fireViz.update(world.fireGrid, dt);
+  world.vehicles.update(dt);
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
 });
@@ -109,21 +178,8 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Stage F: vegetation
-const forest = createForest(hm, biomes);
-scene.add(forest.leaves);
-scene.add(forest.trunks);
-if (forest.broadLeaves) scene.add(forest.broadLeaves);
-if (forest.broadTrunks) scene.add(forest.broadTrunks);
-
-const shrubs = createShrubs(hm, biomes);
-scene.add(shrubs.inst);
-
-const rocks = createRocks(hm, biomes);
-scene.add(rocks.inst);
-
 // Attach stats after actors/chunks are created so we can report counts
-const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs, rocks });
+const stats = attachStats(app, { chunkGroup: world.chunked.group, forest: world.forest, shrubs: world.shrubs, rocks: world.rocks });
 loop.start();
 
 function onResize() {
@@ -134,25 +190,11 @@ function onResize() {
 window.addEventListener('resize', onResize);
 onResize();
 
-// Stage A-L (fire behavior) — initialize grid + viz, click to ignite
-const fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
-const fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
-// Fire visualization controller
-const fireViz = createFireViz(hm, chunked.group);
-fireViz.addToScene(scene as any);
-fireViz.setMode('vertex');
-
 // Roads — cost field + visual + input state
-const roadCost = buildTerrainCost(hm);
-const roadsVis = new RoadsVisual(hm);
-scene.add(roadsVis.group);
-const roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 
-// Vehicles — manager uses terrain cost and road mask
-const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64);
-scene.add(vehicles.group);
+// Vehicles move mode
 let vehiclesMoveEnabled = false;
 
 // Click to ignite under cursor
@@ -171,12 +213,12 @@ let vehiclesMoveEnabled = false;
   function igniteFromNDC(nx: number, ny: number) {
     mouse.set(nx, ny);
     ray.setFromCamera(mouse as any, rig.camera);
-    const hits = ray.intersectObject(chunked.group, true);
+    const hits = ray.intersectObject(world.chunked.group, true);
     if (!hits.length) return false;
     const p = hits[0].point;
-    const gx = Math.floor(p.x / hm.scale);
-    const gz = Math.floor(p.z / hm.scale);
-    igniteTiles(fireGrid, [{ x: gx, z: gz }], 0.8);
+    const gx = Math.floor(p.x / world.hm.scale);
+    const gz = Math.floor(p.z / world.hm.scale);
+    igniteTiles(world.fireGrid, [{ x: gx, z: gz }], 0.8);
     return true;
   }
   dom.addEventListener('click', (e) => {
@@ -185,11 +227,11 @@ let vehiclesMoveEnabled = false;
     if (roadsEnabled) {
       mouse.set(mouse.x, mouse.y);
       ray.setFromCamera(mouse as any, rig.camera);
-      const hits = ray.intersectObject(chunked.group, true);
+      const hits = ray.intersectObject(world.chunked.group, true);
       if (hits.length) {
         const p = hits[0].point;
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+        const gx = Math.max(0, Math.min(world.hm.width - 1, Math.round(p.x / world.hm.scale)));
+        const gz = Math.max(0, Math.min(world.hm.height - 1, Math.round(p.z / world.hm.scale)));
         roadEndpoints.push({ x: gx, z: gz });
         if (roadEndpoints.length >= 2) {
           const [a, b] = [roadEndpoints[roadEndpoints.length - 2], roadEndpoints[roadEndpoints.length - 1]];
@@ -198,13 +240,13 @@ let vehiclesMoveEnabled = false;
           const SLOPE_MAX_TAN = 0.7; // ~35 degrees; block steeper
           const CURV_W = 1.6;       // curvature/turning penalty
           const costField = {
-            width: roadCost.width,
-            height: roadCost.height,
+            width: world.roadCost.width,
+            height: world.roadCost.height,
             costAt: (x: number, z: number, stepDir: { dx: number; dz: number }, prevDir?: { dx: number; dz: number }) => {
-              const i = z * roadCost.width + x;
-              const base = 1 + WE * roadCost.elev[i] + WS * roadCost.slope[i] - WV * roadCost.valley[i];
+              const i = z * world.roadCost.width + x;
+              const base = 1 + WE * world.roadCost.elev[i] + WS * world.roadCost.slope[i] - WV * world.roadCost.valley[i];
               // Hard block steep terrain
-              if (roadCost.slope[i] > SLOPE_MAX_TAN) return Infinity;
+              if (world.roadCost.slope[i] > SLOPE_MAX_TAN) return Infinity;
               // Curvature penalty: prefer straighter continuation if prevDir is provided
               let curv = 0;
               if (prevDir && (prevDir.dx !== 0 || prevDir.dz !== 0)) {
@@ -219,11 +261,11 @@ let vehiclesMoveEnabled = false;
               return Math.max(0.05, base + curv);
             }
           };
-          const path = aStarPath(costField as any, a, b, { diag: true, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
+          const path = aStarPath(costField as any, a, b, { diag: true, heuristic: 'euclid', maxIter: world.roadCost.width * world.roadCost.height * 6 });
           if (path.length) {
-            roadsVis.addPath(path);
-            rasterizePolyline(roadMask, path, 0.9);
-            applyRoadMaskToFireGrid(fireGrid, roadMask);
+            world.roadsVis.addPath(path);
+            rasterizePolyline(world.roadMask, path, 0.9);
+            applyRoadMaskToFireGrid(world.fireGrid, world.roadMask);
           }
         }
       }
@@ -233,12 +275,12 @@ let vehiclesMoveEnabled = false;
     if (vehiclesMoveEnabled) {
       mouse.set(mouse.x, mouse.y);
       ray.setFromCamera(mouse as any, rig.camera);
-      const hits = ray.intersectObject(chunked.group, true);
+      const hits = ray.intersectObject(world.chunked.group, true);
       if (hits.length) {
         const p = hits[0].point;
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
-        vehicles.setDestinationAll(gx, gz);
+        const gx = Math.max(0, Math.min(world.hm.width - 1, Math.round(p.x / world.hm.scale)));
+        const gz = Math.max(0, Math.min(world.hm.height - 1, Math.round(p.z / world.hm.scale)));
+        world.vehicles.setDestinationAll(gx, gz);
       }
       return;
     }
@@ -254,20 +296,52 @@ let vehiclesMoveEnabled = false;
       // Screen center is NDC (0,0)
       igniteFromNDC(0, 0);
     },
-    setVizMode: (mode) => fireViz.setMode(mode),
+    setVizMode: (mode) => world.fireViz.setMode(mode),
     roads: {
       toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
-      clear: () => { roadsVis.clear(); roadEndpoints = []; }
+      clear: () => { world.roadsVis.clear(); roadEndpoints = []; }
     },
     vehicles: {
       spawn: () => {
         const camPos = rig.camera.getWorldPosition(new Vector3());
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
-        vehicles.spawnAt(gx, gz);
+        const gx = Math.max(0, Math.min(world.hm.width - 1, Math.round(camPos.x / world.hm.scale)));
+        const gz = Math.max(0, Math.min(world.hm.height - 1, Math.round(camPos.z / world.hm.scale)));
+        world.vehicles.spawnAt(gx, gz);
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
-      clear: () => vehicles.clear(),
+      clear: () => world.vehicles.clear(),
+    },
+    config: {
+      get: () => JSON.parse(JSON.stringify(config)),
+      set: (partial: any) => {
+        // Deep merge for known sections
+        config = {
+          ...config,
+          ...('width' in partial ? { width: partial.width, height: partial.height ?? partial.width } : {}),
+          noise: { ...config.noise, ...(partial.noise || {}) },
+          moisture: { ...config.moisture, ...(partial.moisture || {}) },
+          biomes: { ...config.biomes, ...(partial.biomes || {}) },
+          densities: { ...config.densities, ...(partial.densities || {}) },
+        };
+      },
+      regenerate: () => {
+        // Remove existing world objects from scene
+        scene.remove(world.chunked.group);
+        scene.remove(world.roadsVis.group);
+        scene.remove(world.vehicles.group);
+        world.fireViz.removeFromScene(scene as any);
+        // Remove actors
+        scene.remove(world.forest.leaves);
+        scene.remove(world.forest.trunks);
+        if (world.forest.broadLeaves) scene.remove(world.forest.broadLeaves);
+        if (world.forest.broadTrunks) scene.remove(world.forest.broadTrunks);
+        scene.remove(world.shrubs.inst);
+        scene.remove(world.rocks.inst);
+        // rebuild
+        buildWorld();
+        // Update stats references
+        stats.setRefs?.({ chunkGroup: world.chunked.group, forest: world.forest, shrubs: world.shrubs, rocks: world.rocks });
+      }
     }
   });
 }

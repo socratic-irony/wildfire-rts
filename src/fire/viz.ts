@@ -15,6 +15,7 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
   let acc = 0; // for throttling vertex updates
 
   const addToScene = (root: Object3D) => { (root as any).add(overlay.inst); (root as any).add(perimeter.inst); };
+  const removeFromScene = (root: Object3D) => { (root as any).remove(overlay.inst); (root as any).remove(perimeter.inst); };
 
   const setMode = (m: FireVizMode) => {
     mode = m;
@@ -107,5 +108,5 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
     perimeter.update(grid);
   };
 
-  return { overlay, setMode, update, addToScene, getMode: () => mode } as const;
+  return { overlay, setMode, update, addToScene, getMode: () => mode, removeFromScene } as const;
 }

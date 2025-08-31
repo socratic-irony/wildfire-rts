@@ -12,6 +12,11 @@ import {
 import { Heightmap } from '../terrain/heightmap';
 import { BiomeMask } from '../terrain/biomes';
 
+type ForestOpts = {
+  density?: number;         // probability per 2x2 tile in forest biome
+  broadleafRatio?: number;  // 0..1 chance of broadleaf vs conifer
+};
+
 function seededRng(seed: number) {
   let s = seed >>> 0;
   return () => {
@@ -20,7 +25,7 @@ function seededRng(seed: number) {
   };
 }
 
-export function createForest(hm: Heightmap, biomes: BiomeMask) {
+export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts = {}) {
   // Conifer: 2-stack cone leaves + cylinder trunk
   const conLeafGeo = new ConeGeometry(0.6, 1.6, 6, 1);
   const conTrunkGeo = new CylinderGeometry(0.15, 0.2, 0.6, 6, 1);
@@ -63,16 +68,18 @@ export function createForest(hm: Heightmap, biomes: BiomeMask) {
   const rows = hm.height;
   const conifers: { x: number; z: number; y: number; rot: number; scale: number }[] = [];
   const broad: { x: number; z: number; y: number; rot: number; scale: number }[] = [];
+  const density = opts.density ?? 0.30;
+  const broadleafRatio = opts.broadleafRatio ?? 0.4; // default 60/40 conifer/broad
   for (let z = 1; z < rows; z += 2) {
     for (let x = 1; x < cols; x += 2) {
       const i = z * (cols + 1) + x;
       if (!biomes.forest[i]) continue;
-      if (rng() < 0.30) {
+      if (rng() < density) {
         const wx = (x + (rng() - 0.5) * 0.6) * hm.scale;
         const wz = (z + (rng() - 0.5) * 0.6) * hm.scale;
         const wy = hm.sample(wx, wz);
-        // Species split ~60/40 conifer/broadleaf
-        if (rng() < 0.6) conifers.push({ x: wx, z: wz, y: wy, rot: rng() * Math.PI * 2, scale: 0.85 + rng() * 0.6 });
+        // Species split using ratio
+        if (rng() >= broadleafRatio) conifers.push({ x: wx, z: wz, y: wy, rot: rng() * Math.PI * 2, scale: 0.85 + rng() * 0.6 });
         else broad.push({ x: wx, z: wz, y: wy, rot: rng() * Math.PI * 2, scale: 0.9 + rng() * 0.7 });
       }
     }

@@ -10,7 +10,7 @@ function seededRng(seed: number) {
   };
 }
 
-export function createShrubs(hm: Heightmap, biomes: BiomeMask) {
+export function createShrubs(hm: Heightmap, biomes: BiomeMask, opts: { density?: number } = {}) {
   const geo = new DodecahedronGeometry(0.35, 0);
   const mat = new MeshStandardMaterial({ color: new Color('#6FA06F'), flatShading: true, roughness: 0.9 });
   mat.onBeforeCompile = (s: Shader) => {
@@ -29,11 +29,12 @@ export function createShrubs(hm: Heightmap, biomes: BiomeMask) {
   const cols = hm.width;
   const rows = hm.height;
   const positions: { x: number; z: number; y: number; rot: number; scale: number }[] = [];
+  const density = opts.density ?? 0.15;
   for (let z = 1; z < rows; z += 1) {
     for (let x = 1; x < cols; x += 1) {
       const i = z * (cols + 1) + x;
       if (!biomes.chaparral[i]) continue;
-      if (rng() < 0.15) {
+      if (rng() < density) {
         const wx = (x + (rng() - 0.5) * 0.8) * hm.scale;
         const wz = (z + (rng() - 0.5) * 0.8) * hm.scale;
         const wy = hm.sample(wx, wz);
@@ -64,4 +65,3 @@ export function createShrubs(hm: Heightmap, biomes: BiomeMask) {
 
   return { inst, update };
 }
-

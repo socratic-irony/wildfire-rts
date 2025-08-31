@@ -7,7 +7,13 @@ export type StatsHandle = {
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
     vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
+    config?: {
+      get?: () => any;
+      set?: (partial: any) => void;
+      regenerate?: () => void;
+    };
   }) => void;
+  setRefs?: (opts: DebugOpts) => void;
 };
 
 type DebugOpts = {
@@ -43,6 +49,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
     vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
+    config?: { get?: () => any; set?: (partial: any) => void; regenerate?: () => void };
   } = {};
 
   // Controls row
@@ -170,6 +177,101 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   row.appendChild(vehClear);
   el.appendChild(row);
 
+  // Sliders panel
+  const panel = document.createElement('div');
+  panel.style.marginTop = '6px';
+  panel.style.paddingTop = '6px';
+  panel.style.borderTop = '1px solid #374151';
+  const mkLabel = (text: string) => { const s = document.createElement('div'); s.textContent = text; s.style.color = '#cbd5e1'; s.style.margin = '6px 0 2px'; return s; };
+  const mkRange = (id: string, min: number, max: number, step: number, val: number) => {
+    const wrap = document.createElement('div');
+    const input = document.createElement('input');
+    input.type = 'range'; input.min = String(min); input.max = String(max); input.step = String(step); input.value = String(val);
+    input.style.width = '180px'; input.style.verticalAlign = 'middle'; input.id = id;
+    const span = document.createElement('span'); span.style.marginLeft = '8px'; span.textContent = String(val);
+    input.addEventListener('input', () => { span.textContent = input.value; });
+    wrap.appendChild(input); wrap.appendChild(span);
+    return { wrap, input };
+  };
+  const mkText = (id: string, val: string) => {
+    const wrap = document.createElement('div');
+    const input = document.createElement('input');
+    input.type = 'text'; input.value = val; input.id = id;
+    input.style.cssText = 'width:120px;background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 4px;';
+    wrap.appendChild(input);
+    return { wrap, input };
+  };
+  const cfg = () => actions.config?.get?.() ?? {};
+
+  // Terrain size (regenerate required)
+  panel.appendChild(mkLabel('Terrain Size'));
+  const size = mkRange('terrainSize', 64, 512, 32, cfg().width ?? 128);
+  panel.appendChild(size.wrap);
+
+  // Noise controls
+  panel.appendChild(mkLabel('Noise: frequency / amplitude'));
+  const freq = mkRange('noiseFreq', 0.2, 6.0, 0.1, cfg().noise?.frequency ?? 2.0);
+  const amp = mkRange('noiseAmp', 1, 20, 1, cfg().noise?.amplitude ?? 8);
+  panel.appendChild(freq.wrap); panel.appendChild(amp.wrap);
+  // Noise seed
+  panel.appendChild(mkLabel('Noise Seed'));
+  const noiseSeed = mkText('noiseSeed', String(cfg().noise?.seed ?? '42'));
+  const nsRand = document.createElement('a'); nsRand.href = '#'; nsRand.textContent = 'Randomize'; nsRand.style.cssText = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-left:8px;';
+  nsRand.onclick = (e) => { e.preventDefault(); noiseSeed.input.value = Math.random().toString(36).slice(2, 8); };
+  const nsRow = document.createElement('div'); nsRow.appendChild(noiseSeed.wrap); nsRow.appendChild(nsRand); panel.appendChild(nsRow);
+
+  // Biome moisture threshold
+  panel.appendChild(mkLabel('Forest Moisture Min'));
+  const fmoist = mkRange('forestMoist', 0.0, 1.0, 0.01, cfg().biomes?.forestMoistureMin ?? 0.55);
+  panel.appendChild(fmoist.wrap);
+  // Moisture seed
+  panel.appendChild(mkLabel('Moisture Seed'));
+  const moistSeed = mkText('moistSeed', String(cfg().moisture?.seed ?? 'moist'));
+  const msRand = document.createElement('a'); msRand.href = '#'; msRand.textContent = 'Randomize'; msRand.style.cssText = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-left:8px;';
+  msRand.onclick = (e) => { e.preventDefault(); moistSeed.input.value = Math.random().toString(36).slice(2, 8); };
+  const msRow = document.createElement('div'); msRow.appendChild(moistSeed.wrap); msRow.appendChild(msRand); panel.appendChild(msRow);
+
+  // Densities
+  panel.appendChild(mkLabel('Densities: trees / shrubs / rocks'));
+  const dTrees = mkRange('densTrees', 0.0, 0.6, 0.01, cfg().densities?.tree ?? 0.30);
+  const dShrubs = mkRange('densShrubs', 0.0, 0.4, 0.01, cfg().densities?.shrub ?? 0.15);
+  const dRocks = mkRange('densRocks', 0.0, 0.2, 0.01, cfg().densities?.rock ?? 0.08);
+  panel.appendChild(dTrees.wrap); panel.appendChild(dShrubs.wrap); panel.appendChild(dRocks.wrap);
+
+  // Broadleaf ratio
+  panel.appendChild(mkLabel('Broadleaf Ratio'));
+  const broadRatio = mkRange('broadRatio', 0.0, 1.0, 0.01, cfg().densities?.broadleafRatio ?? 0.4);
+  panel.appendChild(broadRatio.wrap);
+
+  // Apply + Regenerate buttons
+  const btnRow = document.createElement('div');
+  btnRow.style.marginTop = '6px';
+  const applyBtn = document.createElement('button');
+  applyBtn.textContent = 'Apply (no regen)';
+  applyBtn.style.cssText = 'margin-right:8px;background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 6px;cursor:pointer;';
+  const regenBtn = document.createElement('button');
+  regenBtn.textContent = 'Regenerate Terrain';
+  regenBtn.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 6px;cursor:pointer;';
+  const readVals = () => ({
+    width: Number(size.input.value), height: Number(size.input.value),
+    noise: { frequency: Number(freq.input.value), amplitude: Number(amp.input.value), seed: noiseSeed.input.value },
+    moisture: { seed: moistSeed.input.value },
+    biomes: { forestMoistureMin: Number(fmoist.input.value) },
+    densities: { tree: Number(dTrees.input.value), shrub: Number(dShrubs.input.value), rock: Number(dRocks.input.value), broadleafRatio: Number(broadRatio.input.value) }
+  });
+  applyBtn.onclick = () => actions.config?.set?.(readVals());
+  regenBtn.onclick = () => { actions.config?.set?.(readVals()); actions.config?.regenerate?.(); };
+  // Randomize both seeds helper
+  const randBoth = document.createElement('button');
+  randBoth.textContent = 'Randomize Seeds + Regen';
+  randBoth.style.cssText = 'margin-left:8px;background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 6px;cursor:pointer;';
+  randBoth.onclick = () => { noiseSeed.input.value = Math.random().toString(36).slice(2, 8); moistSeed.input.value = Math.random().toString(36).slice(2, 8); actions.config?.set?.(readVals()); actions.config?.regenerate?.(); };
+  btnRow.appendChild(applyBtn); btnRow.appendChild(regenBtn);
+  btnRow.appendChild(randBoth);
+  panel.appendChild(btnRow);
+
+  el.appendChild(panel);
+
   // Toggle with F1
   window.addEventListener('keydown', (e) => {
     if (e.key === 'F1' || e.key === 'f1') {
@@ -223,6 +325,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       info.reset();
     },
     getIgniteMode() { return igniteMode; },
-    setActions(a) { actions = a; maybeInjectPreset(); }
+    setActions(a) { actions = a; maybeInjectPreset(); },
+    setRefs(o) { opts = o; }
   };
 }

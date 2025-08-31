@@ -1,6 +1,6 @@
 import { BufferAttribute, BufferGeometry, Group, Material, Mesh } from 'three';
 import { Heightmap } from './heightmap';
-import { applyBiomeVertexColors, computeBiomes } from './biomes';
+import { applyBiomeVertexColors, computeBiomes, type BiomeMask } from './biomes';
 
 function buildChunkGeometry(
   hm: Heightmap,
@@ -143,10 +143,11 @@ function buildChunkGeometry(
 export function buildChunkedTerrain(
   hm: Heightmap,
   material: Material,
-  chunkSize = 32
+  chunkSize = 32,
+  biomesOverride?: BiomeMask
 ) {
   const group = new Group();
-  const biomes = computeBiomes(hm);
+  const biomes = biomesOverride ?? computeBiomes(hm);
 
   const makeColors = (x0: number, z0: number, size: number, step: number) => {
     const cols = Math.floor(Math.min(size, hm.width - x0) / step) + 1;

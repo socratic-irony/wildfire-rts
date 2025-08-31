@@ -6,6 +6,14 @@ export type BiomeMask = {
   chaparral: Uint8Array;
 };
 
+export type BiomeThresholds = {
+  rockSlopeDeg: number;        // slope above which becomes rock
+  rockHighHeight: number;      // height considered "high"
+  rockHighSlopeDeg: number;    // slope above which high areas become rock
+  forestMoistureMin: number;   // minimum moisture for forest
+  forestSlopeMax: number;      // slope above which forest is disallowed
+};
+
 export function computeSlopeMap(hm: Heightmap): Float32Array {
   const cols = hm.width + 1;
   const rows = hm.height + 1;
@@ -65,6 +73,56 @@ export function computeBiomes(hm: Heightmap, moistureCfg?: Partial<NoiseConfig>)
   return { rock, forest, chaparral };
 }
 
+// Tunable variant with explicit thresholds; preserves original as default.
+export function computeBiomesTuned(
+  hm: Heightmap,
+  thresholds: Partial<BiomeThresholds> = {},
+  moistureCfg?: Partial<NoiseConfig>
+): BiomeMask {
+  const cols = hm.width + 1;
+  const rows = hm.height + 1;
+  const N = cols * rows;
+  const rock = new Uint8Array(N);
+  const forest = new Uint8Array(N);
+  const chaparral = new Uint8Array(N);
+
+  const slope = computeSlopeMap(hm);
+  const moist = generateHeightmap(hm.width, hm.height, hm.scale, {
+    seed: (moistureCfg?.seed ?? 'moist') as any,
+    frequency: moistureCfg?.frequency ?? 1.5,
+    amplitude: 1,
+    octaves: 3,
+    persistence: 0.5,
+  });
+
+  const t: BiomeThresholds = {
+    rockSlopeDeg: thresholds.rockSlopeDeg ?? 35,
+    rockHighHeight: thresholds.rockHighHeight ?? 6,
+    rockHighSlopeDeg: thresholds.rockHighSlopeDeg ?? 25,
+    forestMoistureMin: thresholds.forestMoistureMin ?? 0.55,
+    forestSlopeMax: thresholds.forestSlopeMax ?? 22,
+  };
+
+  for (let i = 0; i < N; i++) {
+    const s = slope[i] || 0;
+    const h = hm.data[i] || 0;
+    const m = moist.data[i] * 0.5 + 0.5; // [-1,1] -> [0,1]
+    const high = h > t.rockHighHeight;
+    const steep = s > t.rockSlopeDeg;
+    if (steep || (high && s > t.rockHighSlopeDeg)) {
+      rock[i] = 1;
+      continue;
+    }
+    if (m > t.forestMoistureMin && s < t.forestSlopeMax) {
+      forest[i] = 1;
+    } else {
+      chaparral[i] = 1;
+    }
+  }
+
+  return { rock, forest, chaparral };
+}
+
 export function applyBiomeVertexColors(hm: Heightmap, colors: Float32Array, biomes: BiomeMask) {
   const N = (hm.width + 1) * (hm.height + 1);
   for (let i = 0; i < N; i++) {
@@ -84,4 +142,3 @@ export function applyBiomeVertexColors(hm: Heightmap, colors: Float32Array, biom
     colors[i * 3 + 2] = B;
   }
 }
-
