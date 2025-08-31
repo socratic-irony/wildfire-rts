@@ -21,17 +21,26 @@ export class PathFollower {
   object: Object3D;
   s = 0;
   v = 0;
+  // leader coupling (optional)
+  private leaderS: number | undefined;
+  private leaderV: number | undefined;
   // tuning
   Lmin = 3; Lmax = 14; kLook = 0.7;
   accel = 8; brake = 12;
   aLatMax = 5; vMaxClamp = 16; arriveDist = 6;
   laneOffset = 0;
+  minGap = 2.0; timeHeadway = 1.0; // following gap params
   // smoothing
   prevQuat = new Quaternion();
 
   constructor(path: Path2D, hm: Heightmap, object: Object3D, s0 = 0) {
     this.path = path; this.hm = hm; this.object = object; this.s = s0;
     this.snapToPath();
+  }
+
+  setLeader(leaderS?: number, leaderV?: number) {
+    this.leaderS = leaderS;
+    this.leaderV = leaderV;
   }
 
   private groundFrame(tanXZ: V2, n: Vector3) {
@@ -76,7 +85,13 @@ export class PathFollower {
     const kappa = Math.abs(this.path.curvature(this.s));
     const vCurve = Math.sqrt(Math.max(0.1, this.aLatMax / Math.max(kappa, 1e-3)));
     const vArrive = (this.path.length - this.s < this.arriveDist) ? 2 : this.vMaxClamp;
-    const vTarget = Math.min(this.vMaxClamp, vCurve, vArrive);
+    let vTarget = Math.min(this.vMaxClamp, vCurve, vArrive);
+    // Leader following: cap target speed based on gap
+    if (this.leaderS != null && this.leaderS > this.s) {
+      const gapS = this.leaderS - this.s;
+      const followSpeed = Math.max(0, (gapS - this.minGap) / Math.max(0.3, this.timeHeadway));
+      vTarget = Math.min(vTarget, followSpeed);
+    }
     // accel/brake
     const dv = vTarget - this.v;
     const maxUp = this.accel * dt, maxDown = this.brake * dt;
@@ -84,7 +99,10 @@ export class PathFollower {
     this.v += dvClamped;
 
     // advance along path
-    const ds = Math.max(0, this.v * Math.cos(headingErr)) * dt;
+    let ds = Math.max(0, this.v * Math.cos(headingErr)) * dt;
+    if (this.leaderS != null && this.leaderS > this.s) {
+      ds = Math.min(ds, Math.max(0, this.leaderS - this.s - this.minGap));
+    }
     this.s = Math.min(this.path.length, this.s + ds);
 
     // update pose at new s
@@ -104,4 +122,3 @@ export class PathFollower {
     this.object.matrix.setPosition(newPos);
   }
 }
-

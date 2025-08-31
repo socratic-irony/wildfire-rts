@@ -79,6 +79,25 @@ loop.add((dt) => {
     vehicles.update(dt);
     if (yawDebugOn && yawDiv) yawDiv.textContent = vehicles.getDebugText(0);
   } else {
+    // Leader assignment per path
+    const groups = new Map<Path2D, number[]>();
+    for (let i = 0; i < followers.length; i++) {
+      const p = followers[i].path as Path2D;
+      if (!groups.has(p)) groups.set(p, []);
+      groups.get(p)!.push(i);
+    }
+    for (const [p, idxs] of groups) {
+      idxs.sort((a, b) => followers[a].s - followers[b].s);
+      for (let k = 0; k < idxs.length; k++) {
+        const i = idxs[k];
+        if (k < idxs.length - 1) {
+          const lead = idxs[k + 1];
+          followers[i].setLeader(followers[lead].s, followers[lead].v);
+        } else {
+          followers[i].setLeader(undefined, undefined);
+        }
+      }
+    }
     for (const f of followers) f.update(dt);
   }
   renderer.render(scene, rig.camera);
