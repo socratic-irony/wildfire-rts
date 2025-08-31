@@ -1,4 +1,4 @@
-import { Object3D, Raycaster, Vector2, Vector3 } from 'three';
+import { Object3D, Raycaster, Vector2, Vector3, Mesh, BoxGeometry, MeshStandardMaterial, Color } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -171,7 +171,13 @@ function spawnFollowerAtCamera() {
     const proj = path2ds[i].project(start);
     if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
   }
+  // Visible follower: simple box like grid vehicles
   const obj = new Object3D();
+  const geo = new BoxGeometry(hm.scale * 0.6, hm.scale * 0.3, hm.scale * 0.9);
+  const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
+  const mesh = new Mesh(geo, mat);
+  mesh.castShadow = true;
+  obj.add(mesh);
   scene.add(obj);
   const follower = new PathFollower(path2ds[bestIdx], hm, obj, bestS);
   followers.push(follower);
