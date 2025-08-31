@@ -2,6 +2,3 @@ node_modules
 dist
 .DS_Store
 screenshots/
-# Ignore large binary models by default; keep already-tracked exceptions
-src/assets/models/*.glb
-!src/assets/models/bulldozer.glb
