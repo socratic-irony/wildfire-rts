@@ -3,6 +3,7 @@
 Status (current)
 
 - Implemented: instanced vehicles with a simple grid-follow model constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction), spawn near nearest road, road-only A* for explicit destinations, and an auto-follow mode that advances along connected road tiles. UI hooks to spawn/move/clear. Vehicles render reliably after rollback to terrain-only alignment.
+- Update: baseline road-follow now prefers 4-neighbor (N/E/S/W) turns, considering diagonals only when needed, for clearer cornering. Added a small heading “weathervane” debug marker per agent for quick orientation diagnostics.
 - Road visuals: adaptive smoothed ribbon that hugs terrain via normal offset, dusty shoulders, dashed center stripe; polygon offset to avoid z-fighting.
 - Road building: cost field includes slope penalty and hard block for steep tiles; turn penalty biases A* to reduce sharp curves; rasterized road mask integrates with fire grid.
 - Reverted (pending rework): projecting vehicle position/orientation directly to road midline each frame (caused freezes under some conditions).

@@ -26,7 +26,9 @@ export class VehiclesManager {
   private maxAgents: number;
   private agents: Agent[] = [];
   private inst: InstancedMesh;
+  private instVane: InstancedMesh;
   private tmpObj = new Object3D();
+  private tmpObj2 = new Object3D();
   private cellSize: number; // hm.scale
 
   constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64) {
@@ -41,6 +43,16 @@ export class VehiclesManager {
     this.inst.castShadow = true;
     this.inst.receiveShadow = false;
     this.group.add(this.inst);
+
+    // Heading indicator (weathervane) above vehicle for debugging orientation
+    const vaneGeo = new BoxGeometry(this.cellSize * 0.12, this.cellSize * 0.28, this.cellSize * 0.12);
+    const vaneMat = new MeshStandardMaterial({ color: new Color(0xff4444), roughness: 0.8, metalness: 0.0, emissive: new Color(0x220000), emissiveIntensity: 0.3 });
+    this.instVane = new InstancedMesh(vaneGeo, vaneMat, maxAgents);
+    this.instVane.instanceMatrix.setUsage(35048);
+    this.instVane.frustumCulled = false;
+    this.instVane.castShadow = false;
+    this.instVane.receiveShadow = false;
+    this.group.add(this.instVane);
   }
 
   get count() { return this.agents.length; }
@@ -146,6 +158,7 @@ export class VehiclesManager {
       this.syncInstance(i);
     }
     this.inst.instanceMatrix.needsUpdate = true;
+    this.instVane.instanceMatrix.needsUpdate = true;
   }
 
   private syncInstance(i: number) {
@@ -173,6 +186,14 @@ export class VehiclesManager {
     this.tmpObj.updateMatrix();
     this.inst.setMatrixAt(i, this.tmpObj.matrix as Matrix4);
     this.inst.count = Math.max(this.inst.count as any as number, i + 1) as any;
+
+    // Vane: place a small marker above the vehicle, aligned with same rotation
+    this.tmpObj2.position.copy(a.pos).addScaledVector(up, this.cellSize * 0.35);
+    this.tmpObj2.quaternion.copy(this.tmpObj.quaternion);
+    this.tmpObj2.scale.set(0.6, 1.0, 0.6);
+    this.tmpObj2.updateMatrix();
+    this.instVane.setMatrixAt(i, this.tmpObj2.matrix as Matrix4);
+    this.instVane.count = Math.max(this.instVane.count as any as number, i + 1) as any;
   }
 
   private terrainNormal(wx: number, wz: number): Vector3 {
@@ -191,15 +212,18 @@ export class VehiclesManager {
   private chooseNextRoadNeighbor(cur: GridPoint, prev?: GridPoint): GridPoint | undefined {
     const W = this.terrain.width, H = this.terrain.height;
     const x = cur.x, z = cur.z;
-    const neigh: GridPoint[] = [];
+    const neigh4: GridPoint[] = [];
+    const neigh8: GridPoint[] = [];
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dz) continue;
       const nx = x + dx, nz = z + dz;
       if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
-      if (this.roadMask.mask[nz * W + nx] === 1) {
-        if (!prev || nx !== prev.x || nz !== prev.z) neigh.push({ x: nx, z: nz });
-      }
+      if (this.roadMask.mask[nz * W + nx] !== 1) continue;
+      if (prev && nx === prev.x && nz === prev.z) continue;
+      const isDiag = dx !== 0 && dz !== 0;
+      (isDiag ? neigh8 : neigh4).push({ x: nx, z: nz });
     }
+    const neigh = neigh4.length ? neigh4 : neigh8;
     if (!neigh.length) {
       // dead end: allow going back if prev exists
       if (prev) return { x: prev.x, z: prev.z };
