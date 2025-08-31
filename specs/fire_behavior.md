@@ -2,19 +2,19 @@ specs/fire_behavior.md
 
 Status (current)
 
-- Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope and moisture damping, simple spotting, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), tile-based `lineStrength` barriering, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex‑tint fire viz modes, wired to a debug toggle.
-- Not yet (high level): perimeter extraction and display, edge‑based firelines, crown fire mode, particle flames/smoke, burned‑ground decals, water/retardant/handline paint UI, wind tuning UI, save/load.
+- Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope and moisture damping, simple spotting, Igniting→Burning promotion timer, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), tile-based `lineStrength` barriering, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex‑tint fire viz modes, thin perimeter outline render. Analytics: perimeter extraction (`computePerimeter`) and `computeFireStats` (active counts, burned tiles/area, perimeter length).
+- Not yet (high level): edge‑based firelines, crown fire mode, particle flames/smoke, burned‑ground decals, water/retardant/handline paint UI, wind tuning UI, save/load.
 
 Outstanding Work (v0.1 audit)
 
 - Core engine:
-  - Igniting stage: timed Igniting → Burning transition and `lastIgnitedAt` field (ignitions currently go straight to Burning).
+  - Igniting stage: tuned timings/UX (baseline implemented with `tIgnite` and `lastIgnitedAt`).
   - Early extinguish: rule to push Burning → Smoldering when `heat < thresholds.extinguishHeat` and isolated.
   - Moisture gating: hard gate on ignition when effective moisture is very high (e.g., `fuelMoistureEff < 0.9`) — currently only soft damping.
   - Fuel moisture & humidity: per‑tile `fuelMoisture` and slow drift toward `Env.humidity` not applied.
   - Line barriers: edge‑based line field (separate from tile `lineStrength`) and crown‑threshold bypass behavior.
   - Crown fire: behavior switches tied to `thresholds.crownHeat`.
-  - Perimeter: extraction function and API (`computePerimeter`).
+  - Perimeter: visualization polish (thickness, color ramp) and optional smoothing; UI counters wired to stats.
   - Data layout: current AoS objects; optional SoA typed arrays if/when perf dictates.
 - Spread/probability:
   - Head/elliptical bias based on wind/slope azimuth (current model uses Poisson from fractional advance without an extra head bias).
@@ -28,7 +28,7 @@ Outstanding Work (v0.1 audit)
   - Perimeter line visualization.
 - UI/Debug:
   - Wind controls (speed/direction sliders), water/retardant/handline paint tools.
-  - Stats: burning count, area burned, perimeter length, mean ROS; contained/not‑contained badge.
+  - Stats UI: expose burning count, area burned, perimeter length, mean ROS; contained/not‑contained badge (backend exists).
   - Overlays: slope/wind vectors, wetness/retardant.
 - Serialization:
   - Save/load of sparse tile deltas and env/params (`FireSave`).
@@ -307,6 +307,13 @@ function simulate(grid: FireGrid, env: Env, dt: number): void;
 function applyWaterAoE(grid: FireGrid, center:Vec2, radius:number, intensity:number): void;
 function applyRetardantLine(grid: FireGrid, polyline: Vec2[], width:number, strength:number): void;
 function writeFirelineEdges(grid: FireGrid, edgePath: Edge[], strength:number): void;
+
+// Perimeter & Stats
+function computePerimeter(grid: FireGrid): Polyline[]; // grid-space polyline(s) on half-integer edges
+function computeFireStats(grid: FireGrid): {
+  burning:number; smoldering:number; active:number; burnedTiles:number;
+  burnedAreaWorld:number; perimeterTile:number; perimeterWorld:number; polylines: Polyline[];
+};
 
 // Queries for UI/logic
 function isContained(grid: FireGrid): boolean;

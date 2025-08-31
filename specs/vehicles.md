@@ -6,6 +6,10 @@ Status (current)
 - Road visuals: adaptive smoothed ribbon that hugs terrain via normal offset, dusty shoulders, dashed center stripe; polygon offset to avoid z-fighting.
 - Road building: cost field includes slope penalty and hard block for steep tiles; turn penalty biases A* to reduce sharp curves; rasterized road mask integrates with fire grid.
 - Reverted (pending rework): projecting vehicle position/orientation directly to road midline each frame (caused freezes under some conditions).
+- Testbed page: `vehicles-test.html` runs `src/vehicles_test.ts` with a 32×32 mostly-flat terrain and preset roads:
+  - Variants: rectangular loop and figure‑8 (switchable in the debug UI).
+  - Behavior: vehicles auto-spawn on the road, immediately moving; yaw aligns with segment direction; pitch/roll align to terrain normal.
+  - Purpose: quick manual validation without touching the main app wiring.
 
 Goals
 
@@ -111,4 +115,3 @@ Roadmap (next)
 3) Basic spacing/avoidance and speed modulation by grade/curvature.
 4) Save/load of vehicles and roads; debug overlay with counts/timings.
 5) Unit abilities (water/retardant) integrated with fire grid.
-

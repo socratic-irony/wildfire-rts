@@ -2,6 +2,8 @@ import { AdditiveBlending, Color, DoubleSide, InstancedMesh, Matrix4, MeshBasicM
 import { Heightmap } from '../terrain/heightmap';
 import { FireGrid, FireState, coordToIndex, indexToCoord } from './grid';
 
+export type Polyline = Array<{ x: number; z: number }>;
+
 // Renders thin red edge quads around the perimeter of Burning ∪ Smoldering tiles
 export function createFirePerimeter(hm: Heightmap, opts?: { offsetY?: number; widthScale?: number; renderOrder?: number; segments?: number }) {
   const SEG = Math.max(2, Math.floor(opts?.segments ?? 8));
@@ -123,4 +125,98 @@ export function createFirePerimeter(hm: Heightmap, opts?: { offsetY?: number; wi
 
   const setOffsetY = (y: number) => { yOffset = y; };
   return { inst, update, setOffsetY } as const;
+}
+
+// Extracts one or more perimeter polylines around the set of active tiles (Burning ∪ Smoldering).
+// Returns points in grid-space coordinates on half-integer edges (e.g., x=3.5 corresponds to the edge between tiles 3 and 4).
+export function computePerimeter(grid: FireGrid): Polyline[] {
+  const W = grid.width;
+  const H = grid.height;
+
+  // Helper: active tile predicate
+  function isActive(x: number, z: number) {
+    if (x < 0 || z < 0 || x >= W || z >= H) return false;
+    const t = grid.tiles[coordToIndex(grid, x, z)];
+    return t.state === FireState.Burning || t.state === FireState.Smoldering;
+  }
+
+  // Represent edge endpoints as integer coordinates in a 2x grid to avoid float keys.
+  // A tile center (x,z) becomes (2x,2z). Edge points live at half integers => integer coords here.
+  const key = (xi: number, zi: number) => (zi << 20) | (xi & ((1 << 20) - 1));
+
+  // Collect boundary edges for each active tile where neighbor is not active.
+  const edges = new Map<number, number[]>(); // pointKey -> list of neighbor pointKeys
+  function addEdge(x0: number, z0: number, x1: number, z1: number) {
+    const xi0 = Math.round(x0 * 2);
+    const zi0 = Math.round(z0 * 2);
+    const xi1 = Math.round(x1 * 2);
+    const zi1 = Math.round(z1 * 2);
+    const k0 = key(xi0, zi0);
+    const k1 = key(xi1, zi1);
+    let a = edges.get(k0); if (!a) edges.set(k0, (a = [])); a.push(k1);
+    let b = edges.get(k1); if (!b) edges.set(k1, (b = [])); b.push(k0);
+  }
+
+  for (let z = 0; z < H; z++) {
+    for (let x = 0; x < W; x++) {
+      if (!isActive(x, z)) continue;
+      const cx = x + 0.5;
+      const cz = z + 0.5;
+      // Top edge (z-)
+      if (!isActive(x, z - 1)) addEdge(x - 0.5 + 1, z - 0.5 + 1, x + 0.5 + 1, z - 0.5 + 1); // shift by +1 to keep indices >=0
+      // Bottom edge (z+)
+      if (!isActive(x, z + 1)) addEdge(x - 0.5 + 1, z + 0.5 + 1, x + 0.5 + 1, z + 0.5 + 1);
+      // Left edge (x-)
+      if (!isActive(x - 1, z)) addEdge(x - 0.5 + 1, z - 0.5 + 1, x - 0.5 + 1, z + 0.5 + 1);
+      // Right edge (x+)
+      if (!isActive(x + 1, z)) addEdge(x + 0.5 + 1, z - 0.5 + 1, x + 0.5 + 1, z + 0.5 + 1);
+      // cx,cz unused but kept for conceptual reference
+      void cx; void cz;
+    }
+  }
+
+  // Stitch edges into polylines by walking adjacency.
+  const polylines: Polyline[] = [];
+  const visited = new Set<number>();
+
+  function toPoint(k: number) {
+    const xi = k & ((1 << 20) - 1);
+    const zi = k >> 20;
+    return { x: xi / 2 - 1, z: zi / 2 - 1 };
+  }
+
+  // Pick next neighbor that isn't the immediate predecessor if possible
+  function nextNeighbor(curr: number, prev: number | null): number | null {
+    const nbrs = edges.get(curr) || [];
+    if (nbrs.length === 0) return null;
+    if (nbrs.length === 1) return nbrs[0] ?? null;
+    if (prev == null) return nbrs[0] ?? null;
+    return nbrs[0] === prev ? (nbrs[1] ?? null) : nbrs[0];
+  }
+
+  for (const start of edges.keys()) {
+    if (visited.has(start)) continue;
+    const nbrs = edges.get(start) || [];
+    if (nbrs.length === 0) { visited.add(start); continue; }
+    // Walk until we return to start or hit an endpoint
+    const path: number[] = [start];
+    visited.add(start);
+    let prev: number | null = null;
+    let curr: number = start;
+    while (true) {
+      const next = nextNeighbor(curr, prev);
+      if (next == null) break;
+      if (next === start) { path.push(next); break; }
+      if (visited.has(next)) { path.push(next); break; }
+      path.push(next);
+      visited.add(next);
+      prev = curr;
+      curr = next;
+    }
+    // Convert to polyline points
+    const poly: Polyline = path.map(toPoint);
+    if (poly.length >= 2) polylines.push(poly);
+  }
+
+  return polylines;
 }
