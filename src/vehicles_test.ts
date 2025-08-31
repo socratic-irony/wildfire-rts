@@ -13,6 +13,8 @@ import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
 import { createRoadMask, rasterizePolyline, clearRoadMask } from './roads/state';
 import { VehiclesManager } from './vehicles/vehicles';
+import { Path2D } from './paths/path2d';
+import { PathFollower } from './vehicles/frenet';
 import { RTSOrbitCamera } from './core/rtsOrbit';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
@@ -73,9 +75,11 @@ loop.add((dt) => {
   shrubs?.update(t);
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
-  vehicles.update(dt);
-  if (yawDebugOn && yawDiv) {
-    yawDiv.textContent = vehicles.getDebugText(0);
+  if (followMode === 'grid') {
+    vehicles.update(dt);
+    if (yawDebugOn && yawDiv) yawDiv.textContent = vehicles.getDebugText(0);
+  } else {
+    for (const f of followers) f.update(dt);
   }
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
@@ -144,6 +148,35 @@ let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
 
+type FollowMode = 'grid' | 'frenet';
+let followMode: FollowMode = 'grid';
+let path2ds: Path2D[] = [];
+let followers: PathFollower[] = [];
+
+function rebuildPath2Ds() {
+  path2ds = roadsVis.getMidlinesXZ().map(pts => new Path2D(pts));
+}
+
+function clearFollowers() {
+  for (const f of followers) scene.remove(f.object);
+  followers = [];
+}
+
+function spawnFollowerAtCamera() {
+  if (!path2ds.length) return;
+  const camPos = rig.camera.getWorldPosition(new Vector3());
+  const start = { x: camPos.x, z: camPos.z };
+  let bestIdx = 0, bestDist = Infinity, bestS = 0;
+  for (let i = 0; i < path2ds.length; i++) {
+    const proj = path2ds[i].project(start);
+    if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
+  }
+  const obj = new Object3D();
+  scene.add(obj);
+  const follower = new PathFollower(path2ds[bestIdx], hm, obj, bestS);
+  followers.push(follower);
+}
+
 // Click handling for roads and vehicles
 {
   const ray = new Raycaster();
@@ -193,11 +226,12 @@ let yawDiv: HTMLDivElement | null = null;
         if (path.length) {
           roadsVis.addPath(path);
           rasterizePolyline(roadMask, path, 0.9);
+          rebuildPath2Ds();
         }
       }
       return;
     }
-    if (vehiclesMoveEnabled) {
+    if (vehiclesMoveEnabled && followMode === 'grid') {
       vehicles.setDestinationAll(gx, gz);
       return;
     }
@@ -211,15 +245,30 @@ let yawDiv: HTMLDivElement | null = null;
     },
     vehicles: {
       spawn: () => {
-        const camPos = rig.camera.getWorldPosition(new Vector3());
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
-        vehicles.spawnAt(gx, gz);
+        if (followMode === 'grid') {
+          const camPos = rig.camera.getWorldPosition(new Vector3());
+          const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
+          const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
+          vehicles.spawnAt(gx, gz);
+        } else {
+          spawnFollowerAtCamera();
+        }
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
-      clear: () => vehicles.clear(),
+      clear: () => { vehicles.clear(); clearFollowers(); },
       setYawMode: (m) => vehicles.setYawMode(m),
       toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
+      setFollowMode: (m: FollowMode) => {
+        followMode = m;
+        if (followMode === 'grid') {
+          vehicles.group.visible = true;
+          followers.forEach(f => f.object.visible = false);
+        } else {
+          vehicles.group.visible = false;
+          rebuildPath2Ds();
+          followers.forEach(f => f.object.visible = true);
+        }
+      },
       toggleYawDebug: (on) => {
         yawDebugOn = on;
         vehicles.setYawDebug(on);
@@ -266,6 +315,7 @@ function seedVariant(variant: Variant) {
   roadsVis.clear();
   clearRoadMask(roadMask);
   vehicles.clear();
+  clearFollowers();
   const pad = 6;
   if (variant === 'loop') {
     const loopPath = buildRectLoop(pad, pad, hm.width - 1 - pad, hm.height - 1 - pad);
@@ -301,6 +351,7 @@ function seedVariant(variant: Variant) {
     ];
     for (const s of spawns) vehicles.spawnAt(s.x, s.z);
   }
+  rebuildPath2Ds();
 }
 
 // Default preset

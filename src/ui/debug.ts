@@ -5,7 +5,7 @@ export type StatsHandle = {
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; setYawMode?: (m: 'grid' | 'midline' | 'velocity' | 'lookahead') => void; toggleYawDebug?: (on: boolean) => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; setYawMode?: (m: 'grid' | 'midline' | 'velocity' | 'lookahead') => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
   }) => void;
 };
@@ -41,7 +41,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; setYawMode?: (m: 'grid' | 'midline' | 'velocity' | 'lookahead') => void; toggleYawDebug?: (on: boolean) => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; setYawMode?: (m: 'grid' | 'midline' | 'velocity' | 'lookahead') => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
   } = {};
 
@@ -181,6 +181,20 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   for (const m of vehModes) { const o = document.createElement('option'); o.value = m.v; o.text = m.t; vehModeSelect.appendChild(o); }
   vehModeSelect.value = 'midline';
   vehModeSelect.addEventListener('change', () => actions.vehicles?.setYawMode?.(vehModeSelect.value as any));
+  // Follow mode selector
+  const followLabel = document.createElement('span');
+  followLabel.textContent = 'Follow:';
+  followLabel.style.marginLeft = '8px';
+  followLabel.style.marginRight = '6px';
+  followLabel.style.color = '#cbd5e1';
+  const followSelect = document.createElement('select');
+  followSelect.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
+  for (const opt of ['grid','frenet'] as const) {
+    const o = document.createElement('option');
+    o.value = opt; o.text = opt; followSelect.appendChild(o);
+  }
+  followSelect.value = 'grid';
+  followSelect.addEventListener('change', () => actions.vehicles?.setFollowMode?.(followSelect.value as any));
   // Yaw smoothing toggle
   const yawSmooth = document.createElement('a');
   yawSmooth.href = '#';
@@ -211,6 +225,8 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   row.appendChild(yawDbg);
   row.appendChild(vehModeLabel);
   row.appendChild(vehModeSelect);
+  row.appendChild(followLabel);
+  row.appendChild(followSelect);
   row.appendChild(yawSmooth);
   el.appendChild(row);
 
