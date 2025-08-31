@@ -11,6 +11,7 @@ import { RTSOrbitCamera } from './core/rtsOrbit';
 import { applyBiomeVertexColors, computeBiomes } from './terrain/biomes';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
+import { createRocks } from './actors/rocks';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
 import { buildFireGrid, ignite as igniteTiles } from './fire/grid';
@@ -112,12 +113,17 @@ window.addEventListener('keydown', (e) => {
 const forest = createForest(hm, biomes);
 scene.add(forest.leaves);
 scene.add(forest.trunks);
+if (forest.broadLeaves) scene.add(forest.broadLeaves);
+if (forest.broadTrunks) scene.add(forest.broadTrunks);
 
 const shrubs = createShrubs(hm, biomes);
 scene.add(shrubs.inst);
 
+const rocks = createRocks(hm, biomes);
+scene.add(rocks.inst);
+
 // Attach stats after actors/chunks are created so we can report counts
-const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs });
+const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs, rocks });
 loop.start();
 
 function onResize() {

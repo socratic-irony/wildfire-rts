@@ -12,8 +12,9 @@ export type StatsHandle = {
 
 type DebugOpts = {
   chunkGroup?: import('three').Group;
-  forest?: { leaves: import('three').InstancedMesh; trunks: import('three').InstancedMesh };
+  forest?: { leaves: import('three').InstancedMesh; trunks: import('three').InstancedMesh; broadLeaves?: import('three').InstancedMesh; broadTrunks?: import('three').InstancedMesh };
   shrubs?: { inst: import('three').InstancedMesh };
+  rocks?: { inst: import('three').InstancedMesh };
 };
 
 export function attachStats(container: HTMLElement, opts: DebugOpts = {}): StatsHandle {
@@ -198,14 +199,17 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       }
 
       // Instance counts (if available)
-      const treeCount = opts.forest ? ((opts.forest.leaves as any).count ?? (opts.forest.leaves as any).instanceCount ?? 0) : 0;
+      const treeConifer = opts.forest ? ((opts.forest.leaves as any).count ?? (opts.forest.leaves as any).instanceCount ?? 0) : 0;
+      const treeBroad = opts.forest?.broadLeaves ? (((opts.forest.broadLeaves as any).count ?? (opts.forest.broadLeaves as any).instanceCount) ?? 0) : 0;
+      const treeCount = treeConifer + treeBroad;
       const shrubCount = opts.shrubs ? ((opts.shrubs.inst as any).count ?? (opts.shrubs.inst as any).instanceCount ?? 0) : 0;
+      const rockCount = opts.rocks ? ((opts.rocks.inst as any).count ?? (opts.rocks.inst as any).instanceCount ?? 0) : 0;
 
       const statsText =
         `FPS ${fps}\n` +
         `Calls ${info.render.calls}  Tris ${info.render.triangles}\n` +
         (opts.chunkGroup ? `Chunks ${chunksVis}/${chunks}  LOD H:${lodHi} L:${lodLo}\n` : '') +
-        (opts.forest || opts.shrubs ? `Instances Trees ${treeCount}  Shrubs ${shrubCount}` : '');
+        (opts.forest || opts.shrubs || opts.rocks ? `Instances Trees ${treeCount}${treeBroad?` (broad ${treeBroad})`:''}  Shrubs ${shrubCount}  Rocks ${rockCount}` : '');
       // Ensure stats lines sit below controls row
       let lines = el.querySelector('.lines') as HTMLDivElement | null;
       if (!lines) {

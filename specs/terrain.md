@@ -2,9 +2,9 @@
 
 Status (current)
 
-- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint, instanced trees and shrubs with light sway, debug UI (FPS, toggles), and a roads prototype (A* over valley-favoring cost) rendered as ground-hugging smoothed ribbons at ~½-tile width.
+- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint, instanced trees (conifer + broadleaf variants) and shrubs with light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (A* over valley-favoring cost) rendered as ground-hugging smoothed ribbons at ~½-tile width.
 - In progress/available toggles: grid on/off, fire visualization modes (overlay/raised/vertex) for the separate fire spec work.
-- Not yet: rocks actor, advanced postprocessing, full biome tuning UI, decal-based road materials, networked path graph tools.
+- Not yet: advanced postprocessing, full biome tuning UI, decal-based road materials, networked path graph tools.
 
 ## 1) Goals & Scope (Prototype → MWE)
 
@@ -161,16 +161,16 @@ Start with **shader projection** for clarity/perf; make toggleable.
 
 **Models (procedural, low-poly)**
 
-* **Conifer**: stack 2–3 truncated cones (leaves) + hex prism trunk. Vertex count target < 120.
-* **Broadleaf**: 1–2 low-poly spheres/icosa + short trunk.
-* **Shrub**: 3–5 intersecting low-poly “leaf clumps.”
-* **Rock**: distorted icosahedron (apply random vertex noise, then flat shade).
+* **Conifer**: 2-stack truncated cones (leaves) + hex prism trunk. Vertex count target < 120. Light wind sway in vertex shader.
+* **Broadleaf**: squat cone/lumpy canopy + short trunk; slightly larger scale range; separate instanced family for variety.
+* **Shrub**: low-poly clumps (dodecahedron base) with subtle sway.
+* **Rock**: distorted icosahedron (random vertex noise, then flat shade); anisotropic per-instance scale for shape variety.
 
 **Density rules**
 
-* Forest: 50–120 trees/ha equivalent (≈0.5–1.2 per 4×4 tile area).
+* Forest: 50–120 trees/ha equivalent (≈0.5–1.2 per 4×4 tile area); species mix ≈60/40 conifer/broadleaf.
 * Chaparral: 1–3 shrubs per tile; fewer on steep slopes.
-* Rock: 0–1 cluster per 4×4 tiles; more on high slope/elev.
+* Rock: 0–1 cluster per 4×4 tiles; more on high slope/elev/rock biome mask.
 
 **Wind hint (visual only for now)**
 
@@ -387,7 +387,7 @@ export interface ScatterRule {
 * [x] `renderer`, `scene`, `camera`, `loop` modules in `/core`.
 * [x] `heightmap`, `mesh`, `material`, `grid`, `biomes` modules in `/terrain`.
 * [x] `trees`, `shrubs` with InstancedMesh in `/actors`.
-* [ ] `rocks` with InstancedMesh in `/actors`.
+* [x] `rocks` with InstancedMesh in `/actors`.
 * [x] `debug` UI toggles & stats overlay.
 * [ ] README with controls, settings, and known limits.
 * [x] Chunked terrain with basic LOD and grid aligned to vertices.

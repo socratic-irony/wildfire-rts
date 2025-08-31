@@ -217,8 +217,10 @@ function seedVariant(variant: Variant) {
   const pad = 6;
   if (variant === 'loop') {
     const loopPath = buildRectLoop(pad, pad, hm.width - 1 - pad, hm.height - 1 - pad);
-    roadsVis.addPath(loopPath);
-    rasterizePolyline(roadMask, loopPath, 0.9);
+    // Close visual loop by repeating start at end
+    const closed = loopPath.concat([loopPath[0]]);
+    roadsVis.addPath(closed);
+    rasterizePolyline(roadMask, closed, 0.9);
     const midX = Math.floor(hm.width / 2);
     const midZ = Math.floor(hm.height / 2);
     const spawns = [
@@ -234,7 +236,11 @@ function seedVariant(variant: Variant) {
     const rx = Math.max(4, Math.floor(hm.width / 2) - 8);
     const rz = Math.max(4, Math.floor(hm.height / 2) - 8);
     const sets = buildFigure8(cx, cz, rx, rz);
-    for (const path of sets) { roadsVis.addPath(path); rasterizePolyline(roadMask, path, 0.9); }
+    for (const path of sets) {
+      const closed = path.concat([path[0]]);
+      roadsVis.addPath(closed);
+      rasterizePolyline(roadMask, closed, 0.9);
+    }
     const spawns = [
       { x: cx - rx, z: cz - 2 },
       { x: cx + rx, z: cz - 2 },
@@ -247,4 +253,3 @@ function seedVariant(variant: Variant) {
 
 // Default preset
 seedVariant('loop');
-
