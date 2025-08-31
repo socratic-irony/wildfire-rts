@@ -1,4 +1,4 @@
-import { Mesh, Object3D, BufferAttribute, Vector3, Raycaster, Vector2 } from 'three';
+import { Mesh, Object3D, BufferAttribute, Vector3, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -22,6 +22,8 @@ import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
 import { applyRoadMaskToFireGrid, createRoadMask, rasterizePolyline } from './roads/state';
 import { VehiclesManager } from './vehicles/vehicles';
+import { Path2D } from './paths/path2d';
+import { PathFollower } from './vehicles/frenet';
 // import { createFireTexture } from './fire/texture';
 
 const app = document.getElementById('app')!;
@@ -94,9 +96,13 @@ loop.add((dt) => {
   // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
   fireViz.update(fireGrid, dt);
-  vehicles.update(dt);
-  if (yawDebugOn && yawDiv) {
-    yawDiv.textContent = vehicles.getDebugText(0);
+  if (followMode === 'grid') {
+    vehicles.update(dt);
+    if (yawDebugOn && yawDiv) {
+      yawDiv.textContent = vehicles.getDebugText(0);
+    }
+  } else {
+    for (const f of followers) f.update(dt);
   }
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
@@ -177,6 +183,35 @@ scene.add(roadsVis.group);
 const roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
+type FollowMode = 'grid' | 'frenet';
+let followMode: FollowMode = 'grid';
+let path2ds: Path2D[] = [];
+let followers: PathFollower[] = [];
+
+function rebuildPath2Ds() {
+  path2ds = roadsVis.getMidlinesXZ().map(pts => new Path2D(pts));
+}
+function clearFollowers() {
+  for (const f of followers) scene.remove(f.object);
+  followers = [];
+}
+function spawnFollowerAtCamera() {
+  if (!path2ds.length) return;
+  const camPos = rig.camera.getWorldPosition(new Vector3());
+  const start = { x: camPos.x, z: camPos.z };
+  let bestIdx = 0, bestDist = Infinity, bestS = 0;
+  for (let i = 0; i < path2ds.length; i++) {
+    const proj = path2ds[i].project(start);
+    if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
+  }
+  const obj = new Object3D();
+  const geo = new BoxGeometry(hm.scale * 0.6, hm.scale * 0.3, hm.scale * 0.9);
+  const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
+  const mesh = new Mesh(geo, mat); mesh.castShadow = true; obj.add(mesh);
+  scene.add(obj);
+  const follower = new PathFollower(path2ds[bestIdx], hm, obj, bestS);
+  followers.push(follower);
+}
 
 // Vehicles — manager uses terrain cost and road mask
 const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
@@ -254,6 +289,7 @@ let yawDiv: HTMLDivElement | null = null;
             roadsVis.addPath(path);
             rasterizePolyline(roadMask, path, 0.9);
             applyRoadMaskToFireGrid(fireGrid, roadMask);
+            rebuildPath2Ds();
           }
         }
       }
@@ -287,19 +323,35 @@ let yawDiv: HTMLDivElement | null = null;
     setVizMode: (mode) => fireViz.setMode(mode),
     roads: {
       toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
-      clear: () => { roadsVis.clear(); roadEndpoints = []; }
+      clear: () => { roadsVis.clear(); roadEndpoints = []; clearFollowers(); rebuildPath2Ds(); }
     },
     vehicles: {
       spawn: () => {
-        const camPos = rig.camera.getWorldPosition(new Vector3());
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
-        vehicles.spawnAt(gx, gz);
+        if (followMode === 'grid') {
+          const camPos = rig.camera.getWorldPosition(new Vector3());
+          const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
+          const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
+          vehicles.spawnAt(gx, gz);
+        } else {
+          rebuildPath2Ds();
+          spawnFollowerAtCamera();
+        }
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
-      clear: () => vehicles.clear(),
+      clear: () => { vehicles.clear(); clearFollowers(); },
       setYawMode: (m) => vehicles.setYawMode(m),
       toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
+      setFollowMode: (m: FollowMode) => {
+        followMode = m;
+        if (followMode === 'grid') {
+          vehicles.group.visible = true;
+          followers.forEach(f => f.object.visible = false);
+        } else {
+          vehicles.group.visible = false;
+          rebuildPath2Ds();
+          followers.forEach(f => f.object.visible = true);
+        }
+      },
       toggleYawDebug: (on) => {
         yawDebugOn = on;
         vehicles.setYawDebug(on);
