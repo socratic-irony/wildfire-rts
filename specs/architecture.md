@@ -20,7 +20,7 @@ Repository Topology
   - `renderer.ts`: WebGL renderer factory and resize logic.
   - `scene.ts`: Three.js scene creation; minimal global lights.
   - `camera.ts`: camera rig (node hierarchy for tilt/yaw/zoom) and resize.
-  - `rtsOrbit.ts`: RTS-style orbit/pan controller (input handling inside class).
+  - `rtsOrbit.ts`: RTS-style orbit/pan controller (input handling inside class). Camera stays at a fixed world Y; scroll zoom adjusts horizontal radius (not altitude); WASD pans along XZ without height sensitivity; left-drag yaws and adjusts pitch within a narrow clamp; rotation does not snap pivot to cursor (no initial jump).
   - `loop.ts`: frame loop with callback list; provides `dt` to subsystems.
 - Terrain: `src/terrain/`
   - `heightmap.ts`: procedural map generator + bilinear `sample(wx,wz)` API.

@@ -10,26 +10,26 @@ export class RTSOrbitCamera {
   private ray = new Raycaster();
   private mouse = new Vector2();
 
-  // Spherical state
+  // Orbit state
   private yaw = Math.PI * 0.25; // around Y
   private pitch = 0.9;          // 0..~1.3 (radians from horizon)
-  private distance = 40; // derived from altitude + pitch; kept for smoothing
+  // Horizontal radius (XZ) from pivot to camera; zoom changes this, not altitude
+  private distance = 40; // interpreted as horizontal radius (not full 3D distance)
   private minDist = 6;
-  private maxDist = 180;
-  private minPitch = 0.2;
-  private maxPitch = 1.3;
+  private maxDist = 220;
+  private minPitch = 0.6; // narrower tilt range (~34°)
+  private maxPitch = 1.05; // (~60°)
 
-  private panSpeed = 25; // units/sec at distance ~40
+  private panSpeed = 25; // units/sec (constant; not height-sensitive)
   private rotSpeed = 0.005;
-  private zoomFactor = 0.025; // multiplicative zoom step per wheel notch (lower = less sensitive)
+  private zoomFactor = 0.015; // gentler zoom per wheel notch
 
-  // Altitude control (absolute world Y, not terrain-relative)
-  private altitude = 40; // current camera world Y
-  private minAlt = 12;
-  private maxAlt = 120;
+  // Altitude control — fixed world Y (does not change with scroll)
+  private altitude = 40; // fixed camera world Y
   private defaultYaw = Math.PI * 0.25;
   private defaultPitch = 0.9;
   private defaultAlt = 40;
+  private defaultDist = 40;
 
   private dragging = false;
   private lastX = 0;
@@ -52,7 +52,8 @@ export class RTSOrbitCamera {
   }
 
   private setPivot(x: number, z: number) {
-    this.pivot.set(x, this.sample(x, z), z);
+    // Keep pivot XZ; Y is derived from fixed altitude, pitch, and horizontal radius
+    this.pivot.set(x, this.altitude - Math.tan(this.pitch) * this.distance, z);
   }
 
   private onDown = (e: PointerEvent) => {
@@ -67,18 +68,17 @@ export class RTSOrbitCamera {
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
     this.lastX = e.clientX; this.lastY = e.clientY;
+    // Rotate yaw + limited pitch; still feels like terrain spin
     this.yaw -= dx * this.rotSpeed;
     this.pitch = Math.max(this.minPitch, Math.min(this.maxPitch, this.pitch + dy * this.rotSpeed));
   };
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    this.getMouseNDC(e);
-    const hit = this.raycastToTerrain();
-    if (hit) this.setPivot(hit.x, hit.z);
-    // Zoom via altitude within a constrained band (less sensitive)
+    // Zoom by changing horizontal radius only; keep altitude constant
     const factor = e.deltaY < 0 ? (1 - this.zoomFactor) : (1 + this.zoomFactor);
-    this.altitude *= factor;
-    this.altitude = Math.max(this.minAlt, Math.min(this.maxAlt, this.altitude));
+    this.distance = Math.max(this.minDist, Math.min(this.maxDist, this.distance * factor));
+    // Re-derive pivot.y from fixed altitude, current pitch and radius
+    this.pivot.y = this.altitude - Math.tan(this.pitch) * this.distance;
   };
 
   private onKey = (e: KeyboardEvent) => {
@@ -86,7 +86,9 @@ export class RTSOrbitCamera {
       // Reset to default angle and altitude
       this.yaw = this.defaultYaw;
       this.pitch = this.defaultPitch;
-      this.altitude = Math.max(this.minAlt, Math.min(this.maxAlt, this.defaultAlt));
+      this.altitude = this.defaultAlt;
+      this.distance = this.defaultDist;
+      this.pivot.y = this.altitude - Math.tan(this.pitch) * this.distance;
       e.preventDefault();
     }
   };
@@ -103,7 +105,7 @@ export class RTSOrbitCamera {
   }
 
   update(dt: number, move: { left:boolean; right:boolean; up:boolean; down:boolean }) {
-    // Pan pivot along ground plane using yaw basis
+    // Pan pivot along ground plane using yaw basis (Y unchanged)
     const f = new Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const r = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const v = new Vector3();
@@ -112,29 +114,23 @@ export class RTSOrbitCamera {
     if (move.up) v.addScaledVector(f, -1);
     if (move.down) v.addScaledVector(f, 1);
     if (v.lengthSq() > 0) {
-      const speed = this.panSpeed * (0.4 + this.altitude / 60);
-      v.normalize().multiplyScalar(speed * dt);
+      v.normalize().multiplyScalar(this.panSpeed * dt);
       this.pivot.add(v);
-      // Keep pivot anchored to ground for lookAt, but camera altitude remains absolute
-      this.pivot.y = this.sample(this.pivot.x, this.pivot.z);
+      // Do not follow terrain; derive Y from fixed altitude + current pitch/radius
+      this.pivot.y = this.altitude - Math.tan(this.pitch) * this.distance;
     }
 
-    // Camera position from spherical around pivot
-    // Derive distance from altitude to maintain constant world Y regardless of terrain height
-    const minClear = 1.0;
-    const groundY = this.pivot.y;
-    if (this.altitude < groundY + minClear) this.altitude = groundY + minClear;
-    const sinP = Math.sin(this.pitch);
-    const safeSin = Math.max(0.1, sinP);
-    this.distance = (this.altitude - groundY) / safeSin;
-    this.distance = Math.min(this.maxDist, Math.max(this.minDist, this.distance));
+    // Camera position from horizontal radius around pivot; keep camera Y fixed
+    const tanP = Math.tan(this.pitch);
+    // Ensure pivot.y stays finite as pitch approaches 90°
+    const safeTan = Math.min(10, tanP);
+    this.pivot.y = this.altitude - safeTan * this.distance;
     const cp = new Vector3(
-      Math.sin(this.yaw) * Math.cos(this.pitch) * this.distance,
-      Math.sin(this.pitch) * this.distance,
-      Math.cos(this.yaw) * Math.cos(this.pitch) * this.distance
+      Math.sin(this.yaw) * this.distance,
+      safeTan * this.distance,
+      Math.cos(this.yaw) * this.distance
     );
     this.camera.position.copy(this.pivot).add(cp);
-    // Force absolute altitude; small correction if rounding imprecision
     this.camera.position.y = this.altitude;
     this.camera.lookAt(this.pivot);
   }
