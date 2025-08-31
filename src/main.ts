@@ -189,7 +189,31 @@ let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
 
 function rebuildPath2Ds() {
-  path2ds = roadsVis.getMidlinesXZ().map(pts => new Path2D(pts));
+  const raw = roadsVis.getMidlinesXZ();
+  const stitched: Array<Array<{x:number; z:number}>> = [];
+  const used = new Array(raw.length).fill(false);
+  const eps = hm.scale * 0.6;
+  const near = (a:{x:number;z:number}, b:{x:number;z:number}) => Math.hypot(a.x-b.x, a.z-b.z) <= eps;
+  for (let i = 0; i < raw.length; i++) {
+    if (used[i] || raw[i].length < 2) continue;
+    let cur = raw[i].slice(); used[i] = true;
+    let extended = true;
+    while (extended) {
+      extended = false;
+      for (let j = 0; j < raw.length; j++) {
+        if (used[j] || raw[j].length < 2) continue;
+        const a0 = cur[0], a1 = cur[cur.length-1];
+        const b0 = raw[j][0], b1 = raw[j][raw[j].length-1];
+        if (near(a1, b0)) { cur = cur.concat(raw[j].slice(1)); used[j] = true; extended = true; }
+        else if (near(a1, b1)) { cur = cur.concat(raw[j].slice(0, raw[j].length-1).reverse()); used[j] = true; extended = true; }
+        else if (near(a0, b1)) { cur = raw[j].concat(cur.slice(1)); used[j] = true; extended = true; }
+        else if (near(a0, b0)) { cur = raw[j].slice().reverse().concat(cur.slice(1)); used[j] = true; extended = true; }
+      }
+    }
+    stitched.push(cur);
+  }
+  for (let i = 0; i < raw.length; i++) if (!used[i]) stitched.push(raw[i]);
+  path2ds = stitched.map(pts => new Path2D(pts));
 }
 function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
