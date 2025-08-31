@@ -5,7 +5,7 @@ export type StatsHandle = {
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
   }) => void;
 };
@@ -41,7 +41,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
   } = {};
 
@@ -179,6 +179,19 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   }
   followSelect.value = 'frenet';
   followSelect.addEventListener('change', () => actions.vehicles?.setFollowMode?.(followSelect.value as any));
+  // Spacing mode selector
+  const spaceLabel = document.createElement('span');
+  spaceLabel.textContent = 'Spacing:';
+  spaceLabel.style.marginLeft = '8px';
+  spaceLabel.style.marginRight = '6px';
+  spaceLabel.style.color = '#cbd5e1';
+  const spaceSelect = document.createElement('select');
+  spaceSelect.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
+  for (const opt of ['hybrid','gap','time'] as const) {
+    const o = document.createElement('option'); o.value = opt; o.text = opt; spaceSelect.appendChild(o);
+  }
+  spaceSelect.value = 'hybrid';
+  spaceSelect.addEventListener('change', () => actions.vehicles?.setSpacingMode?.(spaceSelect.value as any));
   // Yaw smoothing toggle
   const yawSmooth = document.createElement('a');
   yawSmooth.href = '#';
@@ -210,6 +223,8 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   // (Turn selector removed)
   row.appendChild(followLabel);
   row.appendChild(followSelect);
+  row.appendChild(spaceLabel);
+  row.appendChild(spaceSelect);
   row.appendChild(yawSmooth);
   el.appendChild(row);
 

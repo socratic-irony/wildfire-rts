@@ -118,6 +118,7 @@ loop.add((dt) => {
           const lead = idxs[k + 1];
           followers[i].setLeader(followers[lead].s, followers[lead].v);
         }
+        followers[i].setSpacingMode(spacingMode);
         followers[i].update(dt);
       }
     }
@@ -205,6 +206,8 @@ type FollowMode = 'grid' | 'frenet';
 let followMode: FollowMode = 'frenet';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
+type SpacingMode = 'hybrid' | 'gap' | 'time';
+let spacingMode: SpacingMode = 'hybrid';
 
 function rebuildPath2Ds() {
   const raw = roadsVis.getMidlinesXZ();
@@ -384,6 +387,7 @@ vehicles.group.visible = (followMode === 'grid');
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => { vehicles.clear(); clearFollowers(); },
       toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
+      setSpacingMode: (m: 'hybrid' | 'gap' | 'time') => { spacingMode = m; },
       setFollowMode: (m: FollowMode) => {
         followMode = m;
         if (followMode === 'grid') {

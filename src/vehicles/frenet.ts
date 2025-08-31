@@ -29,7 +29,8 @@ export class PathFollower {
   accel = 8; brake = 12;
   aLatMax = 5; vMaxClamp = 16; arriveDist = 6;
   laneOffset = 0;
-  minGap = 2.0; timeHeadway = 1.0; // following gap params
+  minGap = 2.0; timeHeadway = 1.0; // following gaps
+  spacingMode: 'hybrid' | 'gap' | 'time' = 'hybrid';
   // smoothing
   prevQuat = new Quaternion();
 
@@ -41,6 +42,12 @@ export class PathFollower {
   setLeader(leaderS?: number, leaderV?: number) {
     this.leaderS = leaderS;
     this.leaderV = leaderV;
+  }
+
+  setSpacingMode(mode: 'hybrid' | 'gap' | 'time') { this.spacingMode = mode; }
+  setFollowingParams(minGap: number, timeHeadway: number) {
+    this.minGap = Math.max(0, minGap);
+    this.timeHeadway = Math.max(0.1, timeHeadway);
   }
 
   private groundFrame(tanXZ: V2, n: Vector3) {
@@ -89,7 +96,12 @@ export class PathFollower {
     // Leader following: cap target speed based on gap
     if (this.leaderS != null && this.leaderS > this.s) {
       const gapS = this.leaderS - this.s;
-      const followSpeed = Math.max(0, (gapS - this.minGap) / Math.max(0.3, this.timeHeadway));
+      const desiredGap = this.spacingMode === 'gap' ? this.minGap
+        : this.spacingMode === 'time' ? Math.max(0, this.v * this.timeHeadway)
+        : Math.max(this.minGap, this.v * this.timeHeadway);
+      // Convert remaining gap to an upper-bound speed. If using pure gap, divide by a small reaction window.
+      const denom = (this.spacingMode === 'gap') ? 0.3 : this.timeHeadway;
+      const followSpeed = Math.max(0, (gapS - desiredGap) / Math.max(0.1, denom));
       vTarget = Math.min(vTarget, followSpeed);
     }
     // accel/brake
@@ -101,7 +113,10 @@ export class PathFollower {
     // advance along path
     let ds = Math.max(0, this.v * Math.cos(headingErr)) * dt;
     if (this.leaderS != null && this.leaderS > this.s) {
-      ds = Math.min(ds, Math.max(0, this.leaderS - this.s - this.minGap));
+      const desiredGap = this.spacingMode === 'gap' ? this.minGap
+        : this.spacingMode === 'time' ? Math.max(0, this.v * this.timeHeadway)
+        : Math.max(this.minGap, this.v * this.timeHeadway);
+      ds = Math.min(ds, Math.max(0, (this.leaderS - this.s) - desiredGap));
     }
     this.s = Math.min(this.path.length, this.s + ds);
 
