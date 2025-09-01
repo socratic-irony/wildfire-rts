@@ -457,6 +457,12 @@ vehicles.group.visible = (followMode === 'grid');
       toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
       clear: () => { roadsVis.clear(); roadEndpoints = []; clearFollowers(); rebuildPath2Ds(); }
     },
+    ribbon: {
+      setVisible: (on) => (fireRibbon as any).setVisible?.(on),
+      setWidth: (w) => (fireRibbon as any).setWidth?.(w),
+      setOpacity: (o) => (fireRibbon as any).setOpacity?.(o),
+      setSpeed: (v) => (fireRibbon as any).setSpeed?.(v),
+    },
     vehicles: {
       spawn: () => {
         if (followMode === 'grid') {

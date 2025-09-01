@@ -69,6 +69,8 @@ function makeMaterial(atlas: Texture, frames: number) {
       attribute float iAngle;
       attribute float iF0;
       attribute float iRate;
+      attribute float iAspect;
+      attribute float iPhase;
       attribute vec3 iColor;
       varying vec2 vUv;
       varying vec3 vColor;
@@ -77,7 +79,11 @@ function makeMaterial(atlas: Texture, frames: number) {
         vec2 p = position.xy; // -0.5..0.5
         float c = cos(iAngle), s = sin(iAngle);
         vec2 r = vec2(p.x*c - p.y*s, p.x*s + p.y*c);
-        vec3 world = iOffset + cameraRight * (r.x * iSize) + cameraUp * (r.y * iSize);
+        // size-over-life driven by time and per-instance phase
+        float lifeT = fract(iPhase + uTime * (iRate * 0.08));
+        float lifeS = 1.0 - abs(lifeT * 2.0 - 1.0);
+        float sMul = mix(0.7, 1.2, lifeS);
+        vec3 world = iOffset + cameraRight * (r.x * iSize) + cameraUp * (r.y * iSize * iAspect * sMul);
         vUv = p + 0.5;
         vColor = iColor;
         vFrame = floor(iF0 + uTime * iRate);
@@ -127,12 +133,16 @@ export function createFlipbookParticles(hm: Heightmap) {
   const iF0 = new Float32Array(caps.total);
   const iRate = new Float32Array(caps.total);
   const iColor = new Float32Array(caps.total * 3);
+  const iAspect = new Float32Array(caps.total);
+  const iPhase = new Float32Array(caps.total);
   mesh.geometry.setAttribute('iOffset', new InstancedBufferAttribute(iOffset, 3));
   mesh.geometry.setAttribute('iSize', new InstancedBufferAttribute(iSize, 1));
   mesh.geometry.setAttribute('iAngle', new InstancedBufferAttribute(iAngle, 1));
   mesh.geometry.setAttribute('iF0', new InstancedBufferAttribute(iF0, 1));
   mesh.geometry.setAttribute('iRate', new InstancedBufferAttribute(iRate, 1));
   mesh.geometry.setAttribute('iColor', new InstancedBufferAttribute(iColor, 3));
+  mesh.geometry.setAttribute('iAspect', new InstancedBufferAttribute(iAspect, 1));
+  mesh.geometry.setAttribute('iPhase', new InstancedBufferAttribute(iPhase, 1));
 
   group.add(mesh);
 
@@ -183,6 +193,9 @@ export function createFlipbookParticles(hm: Heightmap) {
             iAngle[alive] = h * Math.PI * 2;
             iF0[alive] = Math.floor(h * frames);
             iRate[alive] = 8 + 8 * heat * lod;
+            // New: aspect (taller flames) and size-over-life phase
+            iAspect[alive] = 1.6 + 0.4 * heat;
+            iPhase[alive] = h;
             iColor[i3 + 0] = 1.0; iColor[i3 + 1] = 0.85; iColor[i3 + 2] = 0.6;
             alive++;
           }
@@ -200,6 +213,8 @@ export function createFlipbookParticles(hm: Heightmap) {
           iAngle[alive] = h2 * Math.PI * 2;
           iF0[alive] = Math.floor(h2 * frames);
           iRate[alive] = 6 + 4 * lod;
+          iAspect[alive] = 1.2 + 0.3 * (1.0 - heat);
+          iPhase[alive] = h2;
           iColor[i3 + 0] = 0.7; iColor[i3 + 1] = 0.7; iColor[i3 + 2] = 0.7;
           alive++;
         }
@@ -228,6 +243,8 @@ export function createFlipbookParticles(hm: Heightmap) {
         iAngle[alive] = h2 * Math.PI * 2;
         iF0[alive] = Math.floor(h2 * frames);
         iRate[alive] = 4 + 3 * lod;
+        iAspect[alive] = 1.1 + 0.3 * (1.0 - t.heat);
+        iPhase[alive] = h2;
         iColor[i3 + 0] = 0.65; iColor[i3 + 1] = 0.65; iColor[i3 + 2] = 0.65;
         alive++;
       }
@@ -240,8 +257,9 @@ export function createFlipbookParticles(hm: Heightmap) {
     (mesh.geometry.getAttribute('iF0') as any).needsUpdate = true;
     (mesh.geometry.getAttribute('iRate') as any).needsUpdate = true;
     (mesh.geometry.getAttribute('iColor') as any).needsUpdate = true;
+    (mesh.geometry.getAttribute('iAspect') as any).needsUpdate = true;
+    (mesh.geometry.getAttribute('iPhase') as any).needsUpdate = true;
   }
 
   return { group, update, setQuality, setEnabled } as const;
 }
-

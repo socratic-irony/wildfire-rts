@@ -5,6 +5,7 @@ export type StatsHandle = {
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
+    ribbon?: { setVisible?: (on:boolean)=>void; setWidth?: (w:number)=>void; setOpacity?: (o:number)=>void; setSpeed?: (v:number)=>void };
     vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
     config?: {
@@ -69,6 +70,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
+    ribbon?: { setVisible?: (on:boolean)=>void; setWidth?: (w:number)=>void; setOpacity?: (o:number)=>void; setSpeed?: (v:number)=>void };
     vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
     config?: { get?: () => any; set?: (partial: any) => void; regenerate?: () => void };
@@ -119,6 +121,23 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   select.addEventListener('change', () => actions.setVizMode?.(select.value as any));
   fireSec.body.appendChild(vizLabel);
   fireSec.body.appendChild(select);
+  // Ribbon controls
+  const rbLabel = document.createElement('div'); rbLabel.textContent = "Ribbon"; rbLabel.style.color = "#cbd5e1"; rbLabel.style.marginTop = "6px";
+  const rbToggle = document.createElement('a'); rbToggle.href = "#"; rbToggle.style.cssText = linkStyle; let rbOn = true; rbToggle.textContent = "On";
+  rbToggle.onclick = (e) => { e.preventDefault(); rbOn = !rbOn; rbToggle.textContent = rbOn?'On':'Off'; actions.ribbon?.setVisible?.(rbOn); };
+  const rbWidth = document.createElement('input'); rbWidth.type='range'; rbWidth.min='0.2'; rbWidth.max='1.5'; rbWidth.step='0.05'; rbWidth.value='0.9'; rbWidth.style.width='140px';
+  rbWidth.oninput = () => actions.ribbon?.setWidth?.(Number(rbWidth.value));
+  const rbOpacity = document.createElement('input'); rbOpacity.type='range'; rbOpacity.min='0.1'; rbOpacity.max='1.0'; rbOpacity.step='0.05'; rbOpacity.value='0.85'; rbOpacity.style.width='140px';
+  rbOpacity.oninput = () => actions.ribbon?.setOpacity?.(Number(rbOpacity.value));
+  const rbSpeed = document.createElement('input'); rbSpeed.type='range'; rbSpeed.min='0.05'; rbSpeed.max='1.0'; rbSpeed.step='0.05'; rbSpeed.value='0.35'; rbSpeed.style.width='140px';
+  rbSpeed.oninput = () => actions.ribbon?.setSpeed?.(Number(rbSpeed.value));
+  const rbRow = document.createElement('div'); rbRow.style.marginTop='2px';
+  rbRow.appendChild(rbToggle);
+  const wSpan = document.createElement('span'); wSpan.textContent = " Width"; wSpan.style.margin="0 6px 0 8px"; wSpan.style.color="#cbd5e1";
+  const oSpan = document.createElement('span'); oSpan.textContent = " Opacity"; oSpan.style.margin="0 6px 0 8px"; oSpan.style.color="#cbd5e1";
+  const sSpan = document.createElement('span'); sSpan.textContent = " Speed"; sSpan.style.margin="0 6px 0 8px"; sSpan.style.color="#cbd5e1";
+  rbRow.appendChild(wSpan); rbRow.appendChild(rbWidth); rbRow.appendChild(oSpan); rbRow.appendChild(rbOpacity); rbRow.appendChild(sSpan); rbRow.appendChild(rbSpeed);
+  fireSec.body.appendChild(rbLabel); fireSec.body.appendChild(rbRow);
   // Roads controls
   const roadsLabel = document.createElement('span');
   roadsLabel.textContent = 'Roads:';

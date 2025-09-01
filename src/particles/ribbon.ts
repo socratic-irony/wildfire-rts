@@ -3,20 +3,21 @@ import type { Heightmap } from '../terrain/heightmap';
 import type { FireGrid } from '../fire/grid';
 import { computePerimeter } from '../fire/perimeter';
 
-export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset?: number }) {
-  const widthW = (opts?.width ?? 0.45) * hm.scale; // world-space width
+export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset?: number; speed?: number; opacity?: number; visible?: boolean }) {
+  let widthW = (opts?.width ?? 0.45) * hm.scale; // world-space width
   const yOff = opts?.yOffset ?? 0.1;
   const geo = new BufferGeometry();
   const mat = new MeshBasicMaterial({
     color: new Color(1, 0.6, 0.2),
     transparent: true,
-    opacity: 0.85,
+    opacity: opts?.opacity ?? 0.85,
     blending: AdditiveBlending,
     depthWrite: false,
   });
   const mesh = new Mesh(geo, mat);
   (mesh as any).frustumCulled = false;
   mesh.renderOrder = 8;
+  mesh.visible = (opts?.visible ?? true);
 
   const tmp0 = new Vector3();
   const tmp1 = new Vector3();
@@ -70,9 +71,10 @@ export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset
     if (!(mat as any).userData._patched) {
       (mat as any).onBeforeCompile = (s: any) => {
         s.uniforms.uTime = { value: 0 };
+        s.uniforms.uSpeed = { value: opts?.speed ?? 0.35 };
         s.vertexShader = s.vertexShader.replace(
           '#include <uv_vertex>',
-          `#include <uv_vertex>\n vUv.x += uTime * 0.35;`
+          `#include <uv_vertex>\n vUv.x += uTime * uSpeed;`
         );
         s.fragmentShader = s.fragmentShader.replace(
           '#include <output_fragment>',
@@ -86,5 +88,9 @@ export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset
     if (sh) sh.uniforms.uTime.value = time;
   }
 
-  return { mesh, update } as const;
+    const setVisible = (on: boolean) => { mesh.visible = on; };
+  const setOpacity = (o: number) => { mat.opacity = Math.max(0, Math.min(1, o)); mat.needsUpdate = true; };
+  const setWidth = (w: number) => { widthW = Math.max(0.05 * hm.scale, w * hm.scale); };
+  const setSpeed = (v: number) => { const sh = (mat as any).userData.shader; if (sh) sh.uniforms.uSpeed.value = v; };
+  return { mesh, update, setVisible, setOpacity, setWidth, setSpeed } as const;
 }
