@@ -247,7 +247,7 @@ fireViz.addToScene(scene as any);
 fireViz.setMode('vertex');
 // Flipbook billboard particles (flame/smoke)
 let fireParticles = createFlipbookParticles(hm);
-fireParticles.addToScene(scene as any);
+scene.add((fireParticles as any).group);
 
 // Roads — cost field + visual + input state
 let roadCost = buildTerrainCost(hm);
@@ -558,9 +558,10 @@ vehicles.group.visible = (followMode === 'grid');
         fireViz.addToScene(scene as any);
         fireViz.setMode(prevMode);
         // Particles
-        fireParticles.removeFromScene(scene as any);
-        fireParticles = createFireParticles(hm);
-        fireParticles.addToScene(scene as any);
+        // Recreate flipbook particles for new heightmap
+        scene.remove((fireParticles as any).group);
+        fireParticles = createFlipbookParticles(hm) as any;
+        scene.add((fireParticles as any).group);
       }
     }
   });
