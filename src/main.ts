@@ -17,7 +17,7 @@ import { attachStats } from './ui/debug';
 import { buildFireGrid, ignite as igniteTiles, FireState } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
-import { createFireParticles } from './particles/fireParticles';
+import { createFlipbookParticles } from './particles/flipbook';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
@@ -144,8 +144,8 @@ loop.add((dt) => {
       if (_hoverTileDiv) _hoverTileDiv.textContent = '';
     }
   }
-  // Update particles (wind zero placeholder; hook up env later)
-  fireParticles.update(fireGrid, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
+  // Update flipbook particles (wind placeholder; can wire simEnv later)
+  fireParticles.update(fireGrid as any, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
   if (followMode === 'grid') {
     vehicles.update(dt);
     if (yawDebugOn && yawDiv) {
@@ -245,8 +245,8 @@ let fireSim = new FireSim(fireGrid, simEnv);
 let fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);
 fireViz.setMode('vertex');
-// 3D low-poly particles (flame/smoke/smolder)
-let fireParticles = createFireParticles(hm);
+// Flipbook billboard particles (flame/smoke)
+let fireParticles = createFlipbookParticles(hm);
 fireParticles.addToScene(scene as any);
 
 // Roads — cost field + visual + input state
