@@ -5,7 +5,7 @@ export type StatsHandle = {
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
     config?: {
       get?: () => any;
@@ -47,7 +47,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
     config?: { get?: () => any; set?: (partial: any) => void; regenerate?: () => void };
   } = {};
@@ -171,68 +171,10 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   vehClear.style.cssText = linkStyle;
   vehClear.textContent = 'Clear';
   vehClear.addEventListener('click', (e) => { e.preventDefault(); actions.vehicles?.clear?.(); });
-  // (Turn mode removed; Frenet handles yaw)
-  // Follow mode selector
-  const followLabel = document.createElement('span');
-  followLabel.textContent = 'Follow:';
-  followLabel.style.marginLeft = '8px';
-  followLabel.style.marginRight = '6px';
-  followLabel.style.color = '#cbd5e1';
-  const followSelect = document.createElement('select');
-  followSelect.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
-  for (const opt of ['grid','frenet'] as const) {
-    const o = document.createElement('option');
-    o.value = opt; o.text = opt; followSelect.appendChild(o);
-  }
-  followSelect.value = 'frenet';
-  followSelect.addEventListener('change', () => actions.vehicles?.setFollowMode?.(followSelect.value as any));
-  // Spacing mode selector
-  const spaceLabel = document.createElement('span');
-  spaceLabel.textContent = 'Spacing:';
-  spaceLabel.style.marginLeft = '8px';
-  spaceLabel.style.marginRight = '6px';
-  spaceLabel.style.color = '#cbd5e1';
-  const spaceSelect = document.createElement('select');
-  spaceSelect.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
-  for (const opt of ['hybrid','gap','time'] as const) {
-    const o = document.createElement('option'); o.value = opt; o.text = opt; spaceSelect.appendChild(o);
-  }
-  spaceSelect.value = 'hybrid';
-  spaceSelect.addEventListener('change', () => actions.vehicles?.setSpacingMode?.(spaceSelect.value as any));
-  // Yaw smoothing toggle
-  const yawSmooth = document.createElement('a');
-  yawSmooth.href = '#';
-  yawSmooth.style.cssText = linkStyle;
-  let yawSmoothOn = true;
-  yawSmooth.textContent = 'Yaw Smooth: On';
-  yawSmooth.addEventListener('click', (e) => {
-    e.preventDefault();
-    yawSmoothOn = !yawSmoothOn;
-    yawSmooth.textContent = `Yaw Smooth: ${yawSmoothOn ? 'On' : 'Off'}`;
-    actions.vehicles?.toggleYawSmoothing?.(yawSmoothOn);
-  });
   row.appendChild(vehLabel);
   row.appendChild(vehSpawn);
   row.appendChild(vehMove);
   row.appendChild(vehClear);
-  const yawDbg = document.createElement('a');
-  yawDbg.href = '#';
-  yawDbg.style.cssText = linkStyle;
-  let yawOn = false;
-  yawDbg.textContent = 'Yaw Debug: Off';
-  yawDbg.addEventListener('click', (e) => {
-    e.preventDefault();
-    yawOn = !yawOn;
-    yawDbg.textContent = `Yaw Debug: ${yawOn ? 'On' : 'Off'}`;
-    actions.vehicles?.toggleYawDebug?.(yawOn);
-  });
-  row.appendChild(yawDbg);
-  // (Turn selector removed)
-  row.appendChild(followLabel);
-  row.appendChild(followSelect);
-  row.appendChild(spaceLabel);
-  row.appendChild(spaceSelect);
-  row.appendChild(yawSmooth);
   el.appendChild(row);
 
   // Sliders panel

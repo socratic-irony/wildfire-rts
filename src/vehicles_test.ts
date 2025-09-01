@@ -1,4 +1,4 @@
-import { Object3D, Raycaster, Vector2, Vector3, Mesh, BoxGeometry, MeshStandardMaterial, Color } from 'three';
+import { Object3D, Raycaster, Vector2, Vector3 } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -13,8 +13,6 @@ import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
 import { createRoadMask, rasterizePolyline, clearRoadMask } from './roads/state';
 import { VehiclesManager } from './vehicles/vehicles';
-import { Path2D } from './paths/path2d';
-import { PathFollower } from './vehicles/frenet';
 import { RTSOrbitCamera } from './core/rtsOrbit';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
@@ -75,32 +73,7 @@ loop.add((dt) => {
   shrubs?.update(t);
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
-  if (followMode === 'grid') {
-    vehicles.update(dt);
-    if (yawDebugOn && yawDiv) yawDiv.textContent = vehicles.getDebugText(0);
-  } else {
-    // Update followers per path, front-to-back so leader uses up-to-date s
-    const groups = new Map<Path2D, number[]>();
-    for (let i = 0; i < followers.length; i++) {
-      const p = followers[i].path as Path2D;
-      if (!groups.has(p)) groups.set(p, []);
-      groups.get(p)!.push(i);
-    }
-    for (const [, idxs] of groups) {
-      idxs.sort((a, b) => followers[a].s - followers[b].s);
-      for (let k = idxs.length - 1; k >= 0; k--) {
-        const i = idxs[k];
-        if (k === idxs.length - 1) {
-          followers[i].setLeader(undefined, undefined);
-        } else {
-          const lead = idxs[k + 1];
-          followers[i].setLeader(followers[lead].s, followers[lead].v);
-        }
-        followers[i].setSpacingMode(spacingMode);
-        followers[i].update(dt);
-      }
-    }
-  }
+  vehicles.update(dt);
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
 });
@@ -110,30 +83,6 @@ window.addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() === 'g') {
     const shader = (terrainMat as any).userData?.shader;
     if (shader) shader.uniforms.uGridEnabled.value = shader.uniforms.uGridEnabled.value ? 0 : 1;
-  }
-  if (e.key.toLowerCase() === 'y') {
-    yawDebugOn = !yawDebugOn;
-    vehicles.setYawDebug(yawDebugOn);
-    if (yawDebugOn) {
-      if (!yawDiv) {
-        yawDiv = document.createElement('div');
-        yawDiv.style.position = 'absolute';
-        yawDiv.style.left = '12px';
-        yawDiv.style.bottom = '12px';
-        yawDiv.style.padding = '6px 8px';
-        yawDiv.style.background = 'rgba(0,0,0,0.5)';
-        yawDiv.style.color = '#e5e7eb';
-        yawDiv.style.whiteSpace = 'pre';
-        yawDiv.style.font = '12px/1.2 system-ui, sans-serif';
-        app.appendChild(yawDiv);
-      }
-    } else {
-      if (yawDiv && yawDiv.parentElement) { yawDiv.parentElement.removeChild(yawDiv); }
-      yawDiv = null;
-    }
-  }
-  if (e.key.toLowerCase() === 'l') {
-    console.log(vehicles.getDebugText(0));
   }
 });
 
@@ -162,72 +111,9 @@ const roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 
-const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
+const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64);
 scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
-let yawDebugOn = false;
-let yawDiv: HTMLDivElement | null = null;
-
-type FollowMode = 'grid' | 'frenet';
-let followMode: FollowMode = 'frenet';
-let path2ds: Path2D[] = [];
-let followers: PathFollower[] = [];
-vehicles.group.visible = (followMode === 'grid');
-
-function rebuildPath2Ds() {
-  const raw = roadsVis.getMidlinesXZ();
-  const stitched: Array<Array<{x:number; z:number}>> = [];
-  const used = new Array(raw.length).fill(false);
-  const eps = hm.scale * 0.6;
-  const near = (a:{x:number;z:number}, b:{x:number;z:number}) => Math.hypot(a.x-b.x, a.z-b.z) <= eps;
-  for (let i = 0; i < raw.length; i++) {
-    if (used[i] || raw[i].length < 2) continue;
-    let cur = raw[i].slice(); used[i] = true;
-    let extended = true;
-    while (extended) {
-      extended = false;
-      for (let j = 0; j < raw.length; j++) {
-        if (used[j] || raw[j].length < 2) continue;
-        const a0 = cur[0], a1 = cur[cur.length-1];
-        const b0 = raw[j][0], b1 = raw[j][raw[j].length-1];
-        if (near(a1, b0)) { cur = cur.concat(raw[j].slice(1)); used[j] = true; extended = true; }
-        else if (near(a1, b1)) { cur = cur.concat(raw[j].slice(0, raw[j].length-1).reverse()); used[j] = true; extended = true; }
-        else if (near(a0, b1)) { cur = raw[j].concat(cur.slice(1)); used[j] = true; extended = true; }
-        else if (near(a0, b0)) { cur = raw[j].slice().reverse().concat(cur.slice(1)); used[j] = true; extended = true; }
-      }
-    }
-    stitched.push(cur);
-  }
-  // any leftovers
-  for (let i = 0; i < raw.length; i++) if (!used[i]) stitched.push(raw[i]);
-  path2ds = stitched.map(pts => new Path2D(pts));
-}
-
-function clearFollowers() {
-  for (const f of followers) scene.remove(f.object);
-  followers = [];
-}
-
-function spawnFollowerAtCamera() {
-  if (!path2ds.length) return;
-  const camPos = rig.camera.getWorldPosition(new Vector3());
-  const start = { x: camPos.x, z: camPos.z };
-  let bestIdx = 0, bestDist = Infinity, bestS = 0;
-  for (let i = 0; i < path2ds.length; i++) {
-    const proj = path2ds[i].project(start);
-    if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
-  }
-  // Visible follower: simple box like grid vehicles
-  const obj = new Object3D();
-  const geo = new BoxGeometry(hm.scale * 0.6, hm.scale * 0.3, hm.scale * 0.9);
-  const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
-  const mesh = new Mesh(geo, mat);
-  mesh.castShadow = true;
-  obj.add(mesh);
-  scene.add(obj);
-  const follower = new PathFollower(path2ds[bestIdx], hm, obj, bestS);
-  followers.push(follower);
-}
 
 // Click handling for roads and vehicles
 {
@@ -278,12 +164,11 @@ function spawnFollowerAtCamera() {
         if (path.length) {
           roadsVis.addPath(path);
           rasterizePolyline(roadMask, path, 0.9);
-          rebuildPath2Ds();
         }
       }
       return;
     }
-    if (vehiclesMoveEnabled && followMode === 'grid') {
+    if (vehiclesMoveEnabled) {
       vehicles.setDestinationAll(gx, gz);
       return;
     }
@@ -297,51 +182,13 @@ function spawnFollowerAtCamera() {
     },
     vehicles: {
       spawn: () => {
-        if (followMode === 'grid') {
-          const camPos = rig.camera.getWorldPosition(new Vector3());
-          const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
-          const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
-          vehicles.spawnAt(gx, gz);
-        } else {
-          spawnFollowerAtCamera();
-        }
+        const camPos = rig.camera.getWorldPosition(new Vector3());
+        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
+        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
+        vehicles.spawnAt(gx, gz);
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
-      clear: () => { vehicles.clear(); clearFollowers(); },
-      toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
-      setSpacingMode: (m: 'hybrid' | 'gap' | 'time') => { spacingMode = m; },
-      setFollowMode: (m: FollowMode) => {
-        followMode = m;
-        if (followMode === 'grid') {
-          vehicles.group.visible = true;
-          followers.forEach(f => f.object.visible = false);
-        } else {
-          vehicles.group.visible = false;
-          rebuildPath2Ds();
-          followers.forEach(f => f.object.visible = true);
-        }
-      },
-      toggleYawDebug: (on) => {
-        yawDebugOn = on;
-        vehicles.setYawDebug(on);
-        if (on) {
-          if (!yawDiv) {
-            yawDiv = document.createElement('div');
-            yawDiv.style.position = 'absolute';
-            yawDiv.style.left = '12px';
-            yawDiv.style.bottom = '12px';
-            yawDiv.style.padding = '6px 8px';
-            yawDiv.style.background = 'rgba(0,0,0,0.5)';
-            yawDiv.style.color = '#e5e7eb';
-            yawDiv.style.whiteSpace = 'pre';
-            yawDiv.style.font = '12px/1.2 system-ui, sans-serif';
-            app.appendChild(yawDiv);
-          }
-        } else {
-          if (yawDiv && yawDiv.parentElement) { yawDiv.parentElement.removeChild(yawDiv); }
-          yawDiv = null;
-        }
-      },
+      clear: () => vehicles.clear(),
     },
     preset: { set: (v) => seedVariant(v) }
   });
@@ -367,7 +214,6 @@ function seedVariant(variant: Variant) {
   roadsVis.clear();
   clearRoadMask(roadMask);
   vehicles.clear();
-  clearFollowers();
   const pad = 6;
   if (variant === 'loop') {
     const loopPath = buildRectLoop(pad, pad, hm.width - 1 - pad, hm.height - 1 - pad);
@@ -403,7 +249,6 @@ function seedVariant(variant: Variant) {
     ];
     for (const s of spawns) vehicles.spawnAt(s.x, s.z);
   }
-  rebuildPath2Ds();
 }
 
 // Default preset
