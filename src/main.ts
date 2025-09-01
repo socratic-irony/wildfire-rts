@@ -14,7 +14,7 @@ import { createShrubs } from './actors/shrubs';
 import { createRocks } from './actors/rocks';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
-import { buildFireGrid, ignite as igniteTiles } from './fire/grid';
+import { buildFireGrid, ignite as igniteTiles, FireState } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
 import { createFireParticles } from './particles/fireParticles';
@@ -202,7 +202,8 @@ onResize();
 
 // Stage A-L (fire behavior) — initialize grid + viz, click to ignite
 let fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
-let fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
+let simEnv = { windDirRad: 0, windSpeed: 0 };
+let fireSim = new FireSim(fireGrid, simEnv);
 // Fire visualization controller
 let fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);
@@ -288,6 +289,22 @@ vehicles.group.visible = (followMode === 'grid');
   const ray = new Raycaster();
   const mouse = new Vector2();
   const dom = renderer.domElement;
+  // Hover tile debug overlay (lower-left)
+  let tileDiv: HTMLDivElement | null = null;
+  const ensureTileDiv = () => {
+    if (!tileDiv) {
+      tileDiv = document.createElement('div');
+      tileDiv.style.position = 'absolute';
+      tileDiv.style.left = '12px';
+      tileDiv.style.bottom = '12px';
+      tileDiv.style.padding = '6px 8px';
+      tileDiv.style.background = 'rgba(0,0,0,0.5)';
+      tileDiv.style.color = '#e5e7eb';
+      tileDiv.style.whiteSpace = 'pre';
+      tileDiv.style.font = '12px/1.2 system-ui, sans-serif';
+      app.appendChild(tileDiv);
+    }
+  };
   const ndcFromClient = (cx: number, cy: number) => {
     const rect = dom.getBoundingClientRect();
     mouse.x = ((cx - rect.left) / rect.width) * 2 - 1;
@@ -307,6 +324,31 @@ vehicles.group.visible = (followMode === 'grid');
     igniteTiles(fireGrid, [{ x: gx, z: gz }], 0.8);
     return true;
   }
+  dom.addEventListener('mousemove', (e) => {
+    // Update hover tile stats overlay
+    ensureTileDiv();
+    getMouseNDC(e as any);
+    mouse.set(mouse.x, mouse.y);
+    ray.setFromCamera(mouse as any, rig.camera);
+    const hits = ray.intersectObject(chunked.group, true);
+    if (!hits.length) { if (tileDiv) tileDiv.textContent = ''; return; }
+    const p = hits[0].point;
+    const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
+    const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+    const idx = gz * fireGrid.width + gx;
+    const t = fireGrid.tiles[idx];
+    const stateName = ['Unburned','Igniting','Burning','Smoldering','Burned'][t.state] || String(t.state);
+    const th = fireGrid.params.thresholds;
+    const windDeg = ((simEnv.windDirRad * 180 / Math.PI) % 360 + 360) % 360;
+    const lines =
+      `Tile ${gx},${gz}  Fuel ${t.fuel}\n` +
+      `State ${stateName}  Heat ${t.heat.toFixed(2)}  Prog ${t.progress.toFixed(2)}\n` +
+      `Moist ${t.fuelMoisture.toFixed(2)}  Wet ${t.wetness.toFixed(2)}  Ret ${t.retardant.toFixed(2)}  Line ${t.lineStrength.toFixed(2)}\n` +
+      `SlopeTan ${t.slopeTan.toFixed(2)}  Wind ${simEnv.windSpeed.toFixed(1)} m/s @ ${windDeg.toFixed(0)}°\n` +
+      `Thresh: ExtinguishHeat ${th.extinguishHeat.toFixed(2)}  CrownHeat ${th.crownHeat.toFixed(2)}`;
+    if (tileDiv) tileDiv.textContent = lines;
+  });
+
   dom.addEventListener('click', (e) => {
     getMouseNDC(e);
     // Roads placement when enabled

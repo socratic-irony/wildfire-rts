@@ -1,4 +1,4 @@
-import { Group, IcosahedronGeometry, MeshBasicMaterial, MeshStandardMaterial, Vector3 } from 'three';
+import { Color, Group, IcosahedronGeometry, MeshBasicMaterial, MeshStandardMaterial, Vector3 } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 import type { FireGrid } from '../fire/grid';
 import { FireState } from '../fire/grid';
@@ -26,8 +26,8 @@ export function createFireParticles(hm: Heightmap) {
 
   // Flames use basic material to be bright and unaffected by lighting
   const flameMat = new MeshBasicMaterial({ color: 0xffffff });
-  const smokeMat = new MeshBasicMaterial({ color: 0xffffff });
-  const smoldMat = new MeshBasicMaterial({ color: 0xffffff });
+  const smokeMat = new MeshBasicMaterial({ color: new Color(0.6, 0.6, 0.6), transparent: true, opacity: 0.25 });
+  const smoldMat = new MeshBasicMaterial({ color: new Color(0.7, 0.7, 0.7), transparent: true, opacity: 0.20 });
 
   let caps = { flames: 1500, smoke: 2000, smolder: 1000 };
   const flames = new InstancedParticleSystem('flame', ico, flameMat, caps.flames);
