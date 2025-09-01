@@ -15,6 +15,11 @@ export class RoadsVisual {
     for (const c of [...this.group.children]) this.group.remove(c);
   }
 
+  // Expose smoothed midlines as world XZ arrays for controllers
+  getMidlinesXZ(): Array<Array<{ x: number; z: number }>> {
+    return this.paths.map(path => path.map(p => ({ x: p.x, z: p.y })));
+  }
+
   // Public API remains compatible; scale/y ignored (derived from heightmap)
   addPath(points: Array<{ x: number; z: number }>, _scale?: number, _y?: number) {
     if (!points || points.length < 2) return;
