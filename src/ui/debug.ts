@@ -240,6 +240,20 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   panel.style.marginTop = '6px';
   panel.style.paddingTop = '6px';
   panel.style.borderTop = '1px solid #374151';
+  // Collapsible toggle to show/hide heavy biome panel
+  const panelToggle = document.createElement('a');
+  panelToggle.href = '#';
+  panelToggle.style.cssText = 'display:inline-block;margin:4px 0;color:#93c5fd; text-decoration:underline; cursor:pointer;';
+  let panelVisible = true;
+  const updatePanelToggleText = () => { panelToggle.textContent = panelVisible ? 'Hide Biome Panel' : 'Show Biome Panel'; };
+  updatePanelToggleText();
+  panelToggle.onclick = (e) => {
+    e.preventDefault();
+    panelVisible = !panelVisible;
+    (panel as HTMLDivElement).style.display = panelVisible ? 'block' : 'none';
+    updatePanelToggleText();
+  };
+  el.appendChild(panelToggle);
   const mkLabel = (text: string) => { const s = document.createElement('div'); s.textContent = text; s.style.color = '#cbd5e1'; s.style.margin = '6px 0 2px'; return s; };
   const mkRange = (id: string, min: number, max: number, step: number, val: number) => {
     const wrap = document.createElement('div');
