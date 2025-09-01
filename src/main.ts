@@ -18,6 +18,7 @@ import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { buildFireGrid, ignite as igniteTiles, FireState } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
+import { createFireRibbon } from './particles/ribbon';
 import { createFlipbookParticles } from './particles/flipbook';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
@@ -146,6 +147,8 @@ loop.add((dt) => {
       if (_hoverTileDiv) _hoverTileDiv.textContent = '';
     }
   }
+  // Update perimeter ribbon
+  fireRibbon.update(fireGrid as any, performance.now() / 1000);
   // Update flipbook particles (wind placeholder; can wire simEnv later)
   fireParticles.update(fireGrid as any, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
   if (followMode === 'grid') {
@@ -250,6 +253,9 @@ fireViz.setMode('vertex');
 // Flipbook billboard particles (flame/smoke)
 let fireParticles = createFlipbookParticles(hm);
 scene.add((fireParticles as any).group);
+// Perimeter ribbon (animated strip)
+let fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 });
+scene.add(fireRibbon.mesh);
 
 // Roads — cost field + visual + input state
 let roadCost = buildTerrainCost(hm);
@@ -564,6 +570,10 @@ vehicles.group.visible = (followMode === 'grid');
         scene.remove((fireParticles as any).group);
         fireParticles = createFlipbookParticles(hm) as any;
         scene.add((fireParticles as any).group);
+        // Recreate ribbon for new heightmap
+        scene.remove((fireRibbon as any).mesh);
+        fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 }) as any;
+        scene.add((fireRibbon as any).mesh);
       }
     }
   });
