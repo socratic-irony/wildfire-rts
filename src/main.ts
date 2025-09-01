@@ -14,6 +14,7 @@ import { createShrubs } from './actors/shrubs';
 import { createRocks } from './actors/rocks';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
+import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { buildFireGrid, ignite as igniteTiles, FireState } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
@@ -33,6 +34,7 @@ const rig = createCameraRig(app);
 scene.add(rig.root);
 
 const renderer = createRenderer(app);
+installGlobalErrorOverlay(app);
 // Hover tile debug overlay state (sample at ~10 Hz)
 let _hoverAcc = 0;
 let _hoverMouseX = 0, _hoverMouseY = 0;
