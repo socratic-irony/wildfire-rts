@@ -17,6 +17,7 @@ import { attachStats } from './ui/debug';
 import { buildFireGrid, ignite as igniteTiles } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
+import { createFireParticles } from './particles/fireParticles';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
@@ -106,6 +107,8 @@ loop.add((dt) => {
   // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
   fireViz.update(fireGrid, dt);
+  // Update particles (wind zero placeholder; hook up env later)
+  fireParticles.update(fireGrid, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
   if (followMode === 'grid') {
     vehicles.update(dt);
     if (yawDebugOn && yawDiv) {
@@ -204,6 +207,9 @@ let fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
 let fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);
 fireViz.setMode('vertex');
+// 3D low-poly particles (flame/smoke/smolder)
+let fireParticles = createFireParticles(hm);
+fireParticles.addToScene(scene as any);
 
 // Roads — cost field + visual + input state
 let roadCost = buildTerrainCost(hm);
@@ -490,6 +496,10 @@ vehicles.group.visible = (followMode === 'grid');
         fireViz = createFireViz(hm, chunked.group);
         fireViz.addToScene(scene as any);
         fireViz.setMode(prevMode);
+        // Particles
+        fireParticles.removeFromScene(scene as any);
+        fireParticles = createFireParticles(hm);
+        fireParticles.addToScene(scene as any);
       }
     }
   });
