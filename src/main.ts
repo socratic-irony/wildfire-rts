@@ -33,6 +33,13 @@ const rig = createCameraRig(app);
 scene.add(rig.root);
 
 const renderer = createRenderer(app);
+// Hover tile debug overlay state (sample at ~10 Hz)
+let _hoverAcc = 0;
+let _hoverMouseX = 0, _hoverMouseY = 0;
+let _hoverHasMouse = false;
+let _hoverTileDiv: HTMLDivElement | null = null;
+const _hoverRay = new Raycaster();
+const _hoverMouse = new Vector2();
 
 // World config used by Debug UI
 type WorldCfg = {
@@ -107,6 +114,36 @@ loop.add((dt) => {
   // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
   fireViz.update(fireGrid, dt);
+  // Hover overlay update at ~10 Hz independent of mouse movement
+  _hoverAcc += dt;
+  if (_hoverAcc >= 0.1 && _hoverHasMouse) {
+    _hoverAcc = 0;
+    const rect = renderer.domElement.getBoundingClientRect();
+    const nx = ((_hoverMouseX - rect.left) / rect.width) * 2 - 1;
+    const ny = -((_hoverMouseY - rect.top) / rect.height) * 2 + 1;
+    _hoverMouse.set(nx, ny);
+    _hoverRay.setFromCamera(_hoverMouse as any, rig.camera);
+    const hits = _hoverRay.intersectObject(chunked.group, true);
+    if (hits.length) {
+      const p = hits[0].point;
+      const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
+      const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+      const idx = gz * fireGrid.width + gx;
+      const t0 = fireGrid.tiles[idx];
+      const stateName = ['Unburned','Igniting','Burning','Smoldering','Burned'][t0.state] || String(t0.state);
+      const th = fireGrid.params.thresholds;
+      const windDeg = ((simEnv.windDirRad * 180 / Math.PI) % 360 + 360) % 360;
+      const lines =
+        `Tile ${gx},${gz}  Fuel ${t0.fuel}\n` +
+        `State ${stateName}  Heat ${t0.heat.toFixed(2)}  Prog ${t0.progress.toFixed(2)}\n` +
+        `Moist ${t0.fuelMoisture.toFixed(2)}  Wet ${t0.wetness.toFixed(2)}  Ret ${t0.retardant.toFixed(2)}  Line ${t0.lineStrength.toFixed(2)}\n` +
+        `SlopeTan ${t0.slopeTan.toFixed(2)}  Wind ${simEnv.windSpeed.toFixed(1)} m/s @ ${windDeg.toFixed(0)}°\n` +
+        `Thresh: ExtinguishHeat ${th.extinguishHeat.toFixed(2)}  CrownHeat ${th.crownHeat.toFixed(2)}`;
+      if (_hoverTileDiv) _hoverTileDiv.textContent = lines;
+    } else {
+      if (_hoverTileDiv) _hoverTileDiv.textContent = '';
+    }
+  }
   // Update particles (wind zero placeholder; hook up env later)
   fireParticles.update(fireGrid, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
   if (followMode === 'grid') {
@@ -290,19 +327,18 @@ vehicles.group.visible = (followMode === 'grid');
   const mouse = new Vector2();
   const dom = renderer.domElement;
   // Hover tile debug overlay (lower-left)
-  let tileDiv: HTMLDivElement | null = null;
   const ensureTileDiv = () => {
-    if (!tileDiv) {
-      tileDiv = document.createElement('div');
-      tileDiv.style.position = 'absolute';
-      tileDiv.style.left = '12px';
-      tileDiv.style.bottom = '12px';
-      tileDiv.style.padding = '6px 8px';
-      tileDiv.style.background = 'rgba(0,0,0,0.5)';
-      tileDiv.style.color = '#e5e7eb';
-      tileDiv.style.whiteSpace = 'pre';
-      tileDiv.style.font = '12px/1.2 system-ui, sans-serif';
-      app.appendChild(tileDiv);
+    if (!_hoverTileDiv) {
+      _hoverTileDiv = document.createElement('div');
+      _hoverTileDiv.style.position = 'absolute';
+      _hoverTileDiv.style.left = '12px';
+      _hoverTileDiv.style.bottom = '12px';
+      _hoverTileDiv.style.padding = '6px 8px';
+      _hoverTileDiv.style.background = 'rgba(0,0,0,0.5)';
+      _hoverTileDiv.style.color = '#e5e7eb';
+      _hoverTileDiv.style.whiteSpace = 'pre';
+      _hoverTileDiv.style.font = '12px/1.2 system-ui, sans-serif';
+      app.appendChild(_hoverTileDiv);
     }
   };
   const ndcFromClient = (cx: number, cy: number) => {
@@ -325,28 +361,11 @@ vehicles.group.visible = (followMode === 'grid');
     return true;
   }
   dom.addEventListener('mousemove', (e) => {
-    // Update hover tile stats overlay
+    // Record cursor pos; overlay updates at 10 Hz from main loop
     ensureTileDiv();
-    getMouseNDC(e as any);
-    mouse.set(mouse.x, mouse.y);
-    ray.setFromCamera(mouse as any, rig.camera);
-    const hits = ray.intersectObject(chunked.group, true);
-    if (!hits.length) { if (tileDiv) tileDiv.textContent = ''; return; }
-    const p = hits[0].point;
-    const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
-    const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
-    const idx = gz * fireGrid.width + gx;
-    const t = fireGrid.tiles[idx];
-    const stateName = ['Unburned','Igniting','Burning','Smoldering','Burned'][t.state] || String(t.state);
-    const th = fireGrid.params.thresholds;
-    const windDeg = ((simEnv.windDirRad * 180 / Math.PI) % 360 + 360) % 360;
-    const lines =
-      `Tile ${gx},${gz}  Fuel ${t.fuel}\n` +
-      `State ${stateName}  Heat ${t.heat.toFixed(2)}  Prog ${t.progress.toFixed(2)}\n` +
-      `Moist ${t.fuelMoisture.toFixed(2)}  Wet ${t.wetness.toFixed(2)}  Ret ${t.retardant.toFixed(2)}  Line ${t.lineStrength.toFixed(2)}\n` +
-      `SlopeTan ${t.slopeTan.toFixed(2)}  Wind ${simEnv.windSpeed.toFixed(1)} m/s @ ${windDeg.toFixed(0)}°\n` +
-      `Thresh: ExtinguishHeat ${th.extinguishHeat.toFixed(2)}  CrownHeat ${th.crownHeat.toFixed(2)}`;
-    if (tileDiv) tileDiv.textContent = lines;
+    _hoverHasMouse = true;
+    _hoverMouseX = (e as MouseEvent).clientX;
+    _hoverMouseY = (e as MouseEvent).clientY;
   });
 
   dom.addEventListener('click', (e) => {
