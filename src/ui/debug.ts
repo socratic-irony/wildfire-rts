@@ -36,7 +36,29 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   el.style.whiteSpace = 'pre';
   el.style.pointerEvents = 'auto';
   el.title = 'F1 to toggle';
+  // Columns container
+  const cols = document.createElement('div');
+  cols.style.display = 'flex';
+  cols.style.gap = '8px';
   container.appendChild(el);
+  el.appendChild(cols);
+
+  // Helper to create collapsible section (column)
+  const makeSection = (title: string, open = false) => {
+    const col = document.createElement('div');
+    col.style.minWidth = '180px';
+    const header = document.createElement('a');
+    header.href = '#';
+    header.style.cssText = 'display:block;color:#93c5fd;text-decoration:underline;cursor:pointer;margin-bottom:4px;';
+    const body = document.createElement('div');
+    body.style.display = open ? 'block' : 'none';
+    const setTitle = () => header.textContent = (open ? 'Hide ' : 'Show ') + title;
+    setTitle();
+    header.onclick = (e) => { e.preventDefault(); open = !open; body.style.display = open ? 'block' : 'none'; setTitle(); };
+    col.appendChild(header); col.appendChild(body);
+    cols.appendChild(col);
+    return { col, header, body, setOpen: (v:boolean) => { open = v; body.style.display = open?'block':'none'; setTitle(); } };
+  };
 
   let acc = 0;
   let frames = 0;
@@ -52,10 +74,15 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     config?: { get?: () => any; set?: (partial: any) => void; regenerate?: () => void };
   } = {};
 
-  // Controls row
-  const row = document.createElement('div');
-  row.style.marginBottom = '4px';
+  // Sections
   const linkStyle = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-right:8px;';
+  const fireSec = makeSection('Fire', true);
+  const roadsSec = makeSection('Roads', false);
+  const vehSec = makeSection('Vehicles', false);
+  const biomesSec = makeSection('Biomes & Terrain', false);
+  const statsSec = makeSection('CPU / Stats', false);
+
+  // Fire controls
   const igniteToggle = document.createElement('a');
   igniteToggle.href = '#';
   igniteToggle.style.cssText = linkStyle;
@@ -73,8 +100,8 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     e.preventDefault();
     actions.igniteCenter?.();
   });
-  row.appendChild(igniteToggle);
-  row.appendChild(igniteCenter);
+  fireSec.body.appendChild(igniteToggle);
+  fireSec.body.appendChild(igniteCenter);
   // Fire viz mode dropdown
   const vizLabel = document.createElement('span');
   vizLabel.textContent = 'Fire Viz:';
@@ -90,8 +117,8 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   }
   select.value = 'vertex';
   select.addEventListener('change', () => actions.setVizMode?.(select.value as any));
-  row.appendChild(vizLabel);
-  row.appendChild(select);
+  fireSec.body.appendChild(vizLabel);
+  fireSec.body.appendChild(select);
   // Roads controls
   const roadsLabel = document.createElement('span');
   roadsLabel.textContent = 'Roads:';
@@ -114,9 +141,9 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   roadsClear.style.cssText = linkStyle;
   roadsClear.textContent = 'Clear Roads';
   roadsClear.addEventListener('click', (e) => { e.preventDefault(); actions.roads?.clear?.(); });
-  row.appendChild(roadsLabel);
-  row.appendChild(roadsToggle);
-  row.appendChild(roadsClear);
+  roadsSec.body.appendChild(roadsLabel);
+  roadsSec.body.appendChild(roadsToggle);
+  roadsSec.body.appendChild(roadsClear);
 
   // Map preset selector (added dynamically if provided by caller)
   let presetInjected = false;
@@ -139,8 +166,8 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     }
     presetSelect.value = 'loop';
     presetSelect.addEventListener('change', () => actions.preset?.set?.(presetSelect.value as any));
-    row.appendChild(presetLabel);
-    row.appendChild(presetSelect);
+    fireSec.body.appendChild(presetLabel);
+    fireSec.body.appendChild(presetSelect);
     presetInjected = true;
   };
 
@@ -211,10 +238,10 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     yawSmooth.textContent = `Yaw Smooth: ${yawSmoothOn ? 'On' : 'Off'}`;
     actions.vehicles?.toggleYawSmoothing?.(yawSmoothOn);
   });
-  row.appendChild(vehLabel);
-  row.appendChild(vehSpawn);
-  row.appendChild(vehMove);
-  row.appendChild(vehClear);
+  vehSec.body.appendChild(vehLabel);
+  vehSec.body.appendChild(vehSpawn);
+  vehSec.body.appendChild(vehMove);
+  vehSec.body.appendChild(vehClear);
   const yawDbg = document.createElement('a');
   yawDbg.href = '#';
   yawDbg.style.cssText = linkStyle;
@@ -226,34 +253,16 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     yawDbg.textContent = `Yaw Debug: ${yawOn ? 'On' : 'Off'}`;
     actions.vehicles?.toggleYawDebug?.(yawOn);
   });
-  row.appendChild(yawDbg);
+  vehSec.body.appendChild(yawDbg);
   // (Turn selector removed)
-  row.appendChild(followLabel);
-  row.appendChild(followSelect);
-  row.appendChild(spaceLabel);
-  row.appendChild(spaceSelect);
-  row.appendChild(yawSmooth);
-  el.appendChild(row);
+  vehSec.body.appendChild(followLabel);
+  vehSec.body.appendChild(followSelect);
+  vehSec.body.appendChild(spaceLabel);
+  vehSec.body.appendChild(spaceSelect);
+  vehSec.body.appendChild(yawSmooth);
 
-  // Sliders panel
-  const panel = document.createElement('div');
-  panel.style.marginTop = '6px';
-  panel.style.paddingTop = '6px';
-  panel.style.borderTop = '1px solid #374151';
-  // Collapsible toggle to show/hide heavy biome panel
-  const panelToggle = document.createElement('a');
-  panelToggle.href = '#';
-  panelToggle.style.cssText = 'display:inline-block;margin:4px 0;color:#93c5fd; text-decoration:underline; cursor:pointer;';
-  let panelVisible = true;
-  const updatePanelToggleText = () => { panelToggle.textContent = panelVisible ? 'Hide Biome Panel' : 'Show Biome Panel'; };
-  updatePanelToggleText();
-  panelToggle.onclick = (e) => {
-    e.preventDefault();
-    panelVisible = !panelVisible;
-    (panel as HTMLDivElement).style.display = panelVisible ? 'block' : 'none';
-    updatePanelToggleText();
-  };
-  el.appendChild(panelToggle);
+  // Biomes & Terrain sliders
+  const panel = biomesSec.body;
   const mkLabel = (text: string) => { const s = document.createElement('div'); s.textContent = text; s.style.color = '#cbd5e1'; s.style.margin = '6px 0 2px'; return s; };
   const mkRange = (id: string, min: number, max: number, step: number, val: number) => {
     const wrap = document.createElement('div');
@@ -342,7 +351,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   btnRow.appendChild(randBoth);
   panel.appendChild(btnRow);
 
-  el.appendChild(panel);
+  // Done building biomes panel inside biomesSec
 
   // Toggle with F1
   window.addEventListener('keydown', (e) => {
@@ -384,12 +393,12 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
         `Calls ${info.render.calls}  Tris ${info.render.triangles}\n` +
         (opts.chunkGroup ? `Chunks ${chunksVis}/${chunks}  LOD H:${lodHi} L:${lodLo}\n` : '') +
         (opts.forest || opts.shrubs || opts.rocks ? `Instances Trees ${treeCount}${treeBroad?` (broad ${treeBroad})`:''}  Shrubs ${shrubCount}  Rocks ${rockCount}` : '');
-      // Ensure stats lines sit below controls row
-      let lines = el.querySelector('.lines') as HTMLDivElement | null;
+      // CPU/Stats section lines
+      let lines = statsSec.body.querySelector('.lines') as HTMLDivElement | null;
       if (!lines) {
         lines = document.createElement('div');
         lines.className = 'lines';
-        el.appendChild(lines);
+        statsSec.body.appendChild(lines);
       }
       lines.textContent = statsText;
 
