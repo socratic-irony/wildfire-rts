@@ -88,8 +88,8 @@ export class InstancedParticleSystem {
         `#include <common>\n varying float vAgeT;\n varying vec3 vCol0;\n varying vec3 vCol1;`
       ).replace(
         '#include <output_fragment>',
-        `#include <output_fragment>\n float t = clamp(vAgeT, 0.0, 1.0);\n vec3 cc = mix(vCol0, vCol1, t);\n // opacity ramp: ease-out for flames, ease-in-out for smoke
-         float op = ${kind === 'flame' ? '1.0 - t' : 'smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.6, 1.0, t))'};\n gl_FragColor.rgb *= cc;\n gl_FragColor.a *= op;`
+        `#include <output_fragment>\n float t = clamp(vAgeT, 0.0, 1.0);\n vec3 cc = mix(vCol0, vCol1, t);\n // opacity ramp: flames stronger, smoke/smolder more transparent
+         float op = ${kind === 'flame' ? '0.9 * (1.0 - t)' : '0.35 * (smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.6, 1.0, t)))'};\n gl_FragColor.rgb *= cc;\n gl_FragColor.a *= op;`
       );
       (stdMat as any).userData.shader = shader;
     };
@@ -161,4 +161,3 @@ export class InstancedParticleSystem {
     this.alive.fill(0); this.aliveCount = 0;
   }
 }
-

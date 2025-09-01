@@ -24,7 +24,8 @@ export function createFireParticles(hm: Heightmap) {
   const group = new Group();
   const ico = new IcosahedronGeometry(0.5, 0); // base; scaled per instance
 
-  const flameMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.0 });
+  // Flames use basic material to be bright and unaffected by lighting
+  const flameMat = new MeshBasicMaterial({ color: 0xffffff });
   const smokeMat = new MeshBasicMaterial({ color: 0xffffff });
   const smoldMat = new MeshBasicMaterial({ color: 0xffffff });
 
@@ -107,9 +108,9 @@ export function createFireParticles(hm: Heightmap) {
     const wx = Math.sin(env.windDirRad) * env.windSpeed;
     const wz = Math.cos(env.windDirRad) * env.windSpeed;
     const wind = { wx, wz };
-    const baseFlame = 10.0 * dt; // base particles per second per hot tile (~10 at heat=1)
-    const baseSmoke = 6.0 * dt;
-    const baseSmold = 3.0 * dt;
+    const baseFlame = 14.0 * dt; // hotter, more visible flames
+    const baseSmoke = 5.0 * dt;
+    const baseSmold = 2.5 * dt;
 
     // Spawn from Burning
     for (let bi = 0; bi < grid.bCount; bi++) {
@@ -136,9 +137,22 @@ export function createFireParticles(hm: Heightmap) {
       const wxz = (x + 0.5) * hm.scale; const wzx = (z + 0.5) * hm.scale;
       const dx = (camera.position.x - wxz); const dz = (camera.position.z - wzx);
       const d2 = dx * dx + dz * dz;
-      let lod = 1.0; if (d2 > 300 * 300) lod = 0.0; else if (d2 > 180 * 180) lod = 0.4; else if (d2 > 80 * 80) lod = 0.7;
+      let lod = 1.0; if (d2 > 300 * 300) lod = 0.0; else if (d2 > 180 * 180) lod = 0.3; else if (d2 > 80 * 80) lod = 0.6;
       if (lod <= 0) continue;
       spawnFromTile('smolder', x, z, baseSmold * Math.max(0.3, invHeat) * lod, t.heat, t.fuel);
+    }
+
+    // Light flames from Igniting tiles (small pop at the head/front)
+    for (let ii = 0; ii < grid.iCount; ii++) {
+      const idx = grid.igniting[ii] | 0;
+      const x = idx % grid.width; const z = (idx / grid.width) | 0;
+      const t = grid.tiles[idx];
+      const wxz = (x + 0.5) * hm.scale; const wzx = (z + 0.5) * hm.scale;
+      const dx = (camera.position.x - wxz); const dz = (camera.position.z - wzx);
+      const d2 = dx * dx + dz * dz;
+      let lod = 1.0; if (d2 > 300 * 300) lod = 0.0; else if (d2 > 180 * 180) lod = 0.2; else if (d2 > 80 * 80) lod = 0.5;
+      if (lod <= 0) continue;
+      spawnFromTile('flame', x, z, (0.4 * baseFlame) * lod, Math.max(0.4, t.heat), t.fuel);
     }
 
     // Integrate particles
@@ -155,4 +169,3 @@ export function createFireParticles(hm: Heightmap) {
 
   return { group, update, addToScene, removeFromScene, setQuality } as const;
 }
-
