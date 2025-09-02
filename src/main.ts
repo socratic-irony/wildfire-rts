@@ -24,6 +24,7 @@ import { applyRoadMaskToFireGrid, createRoadMask, rasterizePolyline } from './ro
 import { VehiclesManager } from './vehicles/vehicles';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
+import { IntersectionManager } from './vehicles/intersections';
 // import { createFireTexture } from './fire/texture';
 
 const app = document.getElementById('app')!;
@@ -102,13 +103,15 @@ loop.add((dt) => {
       yawDiv.textContent = vehicles.getDebugText(0);
     }
   } else {
+    // Update intersection manager before follower integration to influence this frame
+    try { interMgr.update(dt, followers as any); } catch {}
     const groups = new Map<Path2D, number[]>();
     for (let i = 0; i < followers.length; i++) {
       const p = followers[i].path as Path2D;
       if (!groups.has(p)) groups.set(p, []);
       groups.get(p)!.push(i);
     }
-    for (const [, idxs] of groups) {
+  for (const [, idxs] of groups) {
       idxs.sort((a, b) => followers[a].s - followers[b].s);
       for (let k = idxs.length - 1; k >= 0; k--) {
         const i = idxs[k];
@@ -119,70 +122,13 @@ loop.add((dt) => {
           followers[i].setLeader(followers[lead].s, followers[lead].v);
         }
         followers[i].setSpacingMode(spacingMode);
-        // Intersection manager: reservation with mandatory full stop
-        // Parameters
-        const STOP_DWELL = 0.6;      // seconds to fully stop
-        const APPROACH_DIST = 6.0;   // meters
-        const NEAR_DIST = 2.0;       // meters
-        const PASS_DIST = 3.5;       // meters after S crosses intersection
-        const MAX_CROSS_TIME = 2.0;  // safety timeout (seconds)
-        const now = performance.now() / 1000;
-        try {
-          const f = followers[i];
-          const pIdx = path2dIndexMap.get(f.path as Path2D) ?? -1;
-          if (pIdx >= 0) {
-            const inter = (roadsVis as any).getNextIntersection?.(pIdx, f.s, APPROACH_DIST);
-            const st = followerState[i] || (followerState[i] = {} as FState);
-            if (inter) {
-              // Reserve if free
-              const res = interReservations.get(inter.id);
-              if (!res && inter.dist < APPROACH_DIST) {
-                interReservations.set(inter.id, { reservedBy: i, startS: inter.s, startTime: now, pathIndex: pIdx });
-                st.currentIntId = inter.id;
-                st.targetS = inter.s;
-                st.stopTimer = STOP_DWELL;
-              }
-              const curRes = interReservations.get(inter.id);
-              if (curRes && curRes.reservedBy === i) {
-                // We own the intersection: full stop when near, then go
-                if (inter.dist < NEAR_DIST) {
-                  // enforce dwell stop near the line
-                  if (st.stopTimer && st.stopTimer > 0) {
-                    (f as any).setSpeedCap?.(0.0, 0.2);
-                    st.stopTimer -= dt;
-                  }
-                } else if (inter.dist < APPROACH_DIST && (st.stopTimer ?? 0) > 0) {
-                  // approaching: pre-slow while counting down
-                  (f as any).setSpeedCap?.(0.6, 0.2);
-                  st.stopTimer -= dt * 0.5;
-                }
-                // Release once passed or timeout
-                const L = f.path.length;
-                if (st.targetS != null) {
-                  let ds = f.s - st.targetS;
-                  if ((f.path as any).closed && ds < 0) ds += L;
-                  if (ds > PASS_DIST || now - curRes.startTime > MAX_CROSS_TIME) {
-                    interReservations.delete(inter.id);
-                    st.currentIntId = undefined; st.targetS = undefined; st.stopTimer = undefined;
-                  }
-                }
-              } else if (curRes && curRes.reservedBy !== i) {
-                // Another follower owns this intersection: stop/slow
-                if (inter.dist < NEAR_DIST) (f as any).setSpeedCap?.(0.0, 0.2);
-                else (f as any).setSpeedCap?.(0.5, 0.2);
-              }
-            } else {
-              // no intersection ahead
-              st.currentIntId = undefined; st.targetS = undefined; st.stopTimer = undefined;
-            }
-          }
-        } catch {}
         followers[i].update(dt);
       }
     }
   }
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
+  // (intersection manager already ran pre-update in Frenet mode)
 });
 
 // Toggle grid overlay (G)
@@ -408,6 +354,7 @@ roadsVis.buildIntersections();
 if (followMode === 'frenet') {
   spawnFollowersOnAllPaths(3);
 }
+let interMgr = new IntersectionManager(roadsVis as any, path2dIndexMap);
 
 // Click to ignite under cursor
 {

@@ -206,6 +206,22 @@ export class RoadsVisual {
     return best;
   }
 
+  // Expose all intersections for a path (sorted by s)
+  getIntersectionsForPath(pathIndex: number) {
+    const list = this.perPathIntersections[pathIndex] || [];
+    return list.map(it => ({ id: it.id, s: it.s, pos: { x: it.pos.x, z: it.pos.y }, otherPath: it.otherPath, otherS: it.otherS }));
+  }
+
+  getPathLength(pathIndex: number) {
+    const p = this.paths[pathIndex];
+    if (!p) return 0;
+    // length in world meters
+    const cum = this.cumS[pathIndex];
+    return cum && cum.length ? cum[cum.length - 1] : 0;
+  }
+
+  isPathClosed(pathIndex: number) { return !!this.closedFlags[pathIndex]; }
+
   // Enhanced projection: return s along path
   projectToMidlineOnPathWithS(pathIndex: number, wx: number, wz: number, hintSeg?: number, window = 96) {
     const res = this.projectToMidlineOnPath(pathIndex, wx, wz, hintSeg, window);
