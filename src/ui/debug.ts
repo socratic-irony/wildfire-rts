@@ -1,3 +1,7 @@
+// DEPRECATED: This debug overlay has been superseded by the unified menubar interface.
+// All functionality has been moved to src/ui/menubar.ts for a cleaner, unified experience.
+// This file is kept for reference but is no longer used in the application.
+
 import { config } from '../config/features';
 import { computeFireStats, FireStats } from '../fire/stats';
 import { FireGrid } from '../fire/grid';
