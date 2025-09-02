@@ -112,12 +112,12 @@ export class PathFollower {
     const tNear = this.path.sample(this.s + dTurn).t;
     const dotTN = Math.max(-1, Math.min(1, tNow.x * tNear.x + tNow.z * tNear.z));
     const ang = Math.acos(dotTN); // radians
-    if (ang > Math.PI * 0.75) { // > 135° extremely sharp: stop
-      vTarget = Math.min(vTarget, 0.2);
+    if (ang > Math.PI * 0.80) { // > 144° extremely sharp: nearly stop
+      vTarget = Math.min(vTarget, 0.15);
     } else if (ang > Math.PI * 0.5) { // > 90° very sharp: crawl
-      vTarget = Math.min(vTarget, 0.6);
+      vTarget = Math.min(vTarget, 0.45);
     } else if (ang > Math.PI * 0.35) { // > 63°: slow
-      vTarget = Math.min(vTarget, 1.2);
+      vTarget = Math.min(vTarget, 0.9);
     }
 
     // grade-based modulation (downhill a bit faster, uphill slower)
@@ -127,9 +127,9 @@ export class PathFollower {
     const hAhead = this.hm.sample(ahead.x, ahead.z);
     const dist = Math.max(0.1, Math.hypot(ahead.x - now.x, ahead.z - now.z));
     const grade = (hAhead - hNow) / dist; // +uphill, -downhill
-    const upFactor = 1 / (1 + Math.max(0, grade) * 0.6);
-    const downFactor = 1 + Math.max(0, -grade) * 0.35;
-    const gradeFactor = Math.max(0.6, Math.min(1.25, upFactor * downFactor));
+    const upFactor = 1 / (1 + Math.max(0, grade) * 1.2);
+    const downFactor = 1 + Math.max(0, -grade) * 0.6;
+    const gradeFactor = Math.max(0.5, Math.min(1.35, upFactor * downFactor));
     vTarget *= gradeFactor;
     // Leader following: cap target speed based on gap
     if (this.leaderS != null && this.leaderS > this.s) {

@@ -34,7 +34,7 @@ export class RoadsVisual {
       }
     }
     const simplified = simplifyRDP(centers, scale * 0.2, closed);
-    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: scale * 0.02, closed });
+    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: closed ? scale * 0.01 : scale * 0.02, closed });
     const width = 0.5 * scale; // approx half tile width
     // Store smoothed midline for projection queries
     this.paths.push(smooth.map(p => p.clone()));
@@ -302,11 +302,30 @@ function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; s
   const closed = !!opts.closed;
   const P = (i: number) => closed ? pts[(i % pts.length + pts.length) % pts.length] : pts[Math.max(0, Math.min(pts.length - 1, i))];
 
-  const spline = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: number) => {
-    const t2 = t * t, t3 = t2 * t;
-    const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
-    const z = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
-    return new Vector2(x, z);
+  // Centripetal Catmull–Rom point evaluation (alpha=0.5)
+  const centripetalCR = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t01: number) => {
+    const alpha = 0.5;
+    const td = (a: Vector2, b: Vector2) => Math.pow(Math.hypot(b.x - a.x, b.y - a.y), alpha) || 1e-6;
+    const t0 = 0;
+    const t1 = t0 + td(p0, p1);
+    const t2 = t1 + td(p1, p2);
+    const t3 = t2 + td(p2, p3);
+    const u = t1 + t01 * (t2 - t1); // map [0,1] -> [t1,t2]
+    const lerp = (A: Vector2, B: Vector2, ta: number, tb: number) => {
+      const denom = (tb - ta) || 1e-6;
+      const w = (u - ta) / denom;
+      return new Vector2(
+        A.x + (B.x - A.x) * w,
+        A.y + (B.y - A.y) * w,
+      );
+    };
+    const A1 = lerp(p0, p1, t0, t1);
+    const A2 = lerp(p1, p2, t1, t2);
+    const A3 = lerp(p2, p3, t2, t3);
+    const B1 = lerp(A1, A2, t0, t2);
+    const B2 = lerp(A2, A3, t1, t3);
+    const C = lerp(B1, B2, t1, t2);
+    return C;
   };
 
   const subdivide = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) => {
@@ -317,7 +336,7 @@ function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; s
     while (stack.length) {
       const { t0, t1, A, B } = stack.pop()!;
       const midT = (t0 + t1) * 0.5;
-      const M = spline(p0, p1, p2, p3, midT);
+      const M = centripetalCR(p0, p1, p2, p3, midT);
       // linear midpoint between A and B
       const Lx = (A.x + B.x) * 0.5;
       const Lz = (A.y + B.y) * 0.5; // careful: Vector2.y is our z coordinate
@@ -325,8 +344,6 @@ function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; s
       const segLen = Math.hypot(B.x - A.x, B.y - A.y);
       if (sag > opts.sagEps || segLen > opts.maxSegLen) {
         // split
-        const leftMid = spline(p0, p1, p2, p3, (t0 + midT) * 0.5);
-        const rightMid = spline(p0, p1, p2, p3, (midT + t1) * 0.5);
         stack.push({ t0: midT, t1, A: M, B });
         stack.push({ t0, t1: midT, A, B: M });
       } else {
