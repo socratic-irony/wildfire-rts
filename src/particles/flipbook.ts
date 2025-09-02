@@ -90,20 +90,25 @@ function makeMaterial(atlas: Texture, frames: number) {
       uniform vec3 cameraRight;
       uniform vec3 cameraUp;
       attribute vec3 iOffset;
-      attribute float iSize;
-      attribute float iAngle;
-      attribute float iF0;
-      attribute float iRate;
-      attribute float iFBase;
-      attribute float iFCount;
-      attribute float iAspect;
-      attribute float iPhase;
-      attribute float iRise;
-      attribute vec3 iColor;
+      attribute vec4 iPack1; // x=size, y=angle, z=f0, w=rate
+      attribute vec4 iPack2; // x=fBase, y=fCount, z=aspect, w=phase
+      attribute vec4 iPack3; // x=rise, y=colorR, z=colorG, w=colorB
       varying vec2 vUv;
       varying vec3 vColor;
       varying float vFrame;
       void main() {
+        // Unpack attributes
+        float iSize = iPack1.x;
+        float iAngle = iPack1.y;
+        float iF0 = iPack1.z;
+        float iRate = iPack1.w;
+        float iFBase = iPack2.x;
+        float iFCount = iPack2.y;
+        float iAspect = iPack2.z;
+        float iPhase = iPack2.w;
+        float iRise = iPack3.x;
+        vec3 iColor = iPack3.yzw;
+        
         vec2 p = position.xy; // -0.5..0.5
         float c = cos(iAngle), s = sin(iAngle);
         vec2 r = vec2(p.x*c - p.y*s, p.x*s + p.y*c);
@@ -157,29 +162,15 @@ export function createFlipbookParticles(hm: Heightmap) {
   const mesh = new InstancedMesh(quad, mat, caps.total);
   (mesh as any).frustumCulled = false;
   mesh.count = 0;
-  // Per-instance attributes
+  // Per-instance attributes (packed to reduce attribute count)
   const iOffset = new Float32Array(caps.total * 3);
-  const iSize = new Float32Array(caps.total);
-  const iAngle = new Float32Array(caps.total);
-  const iF0 = new Float32Array(caps.total);
-  const iRate = new Float32Array(caps.total);
-  const iColor = new Float32Array(caps.total * 3);
-  const iAspect = new Float32Array(caps.total);
-  const iPhase = new Float32Array(caps.total);
-  const iFBase = new Float32Array(caps.total);
-  const iFCount = new Float32Array(caps.total);
-  const iRise = new Float32Array(caps.total);
+  const iPack1 = new Float32Array(caps.total * 4); // size, angle, f0, rate
+  const iPack2 = new Float32Array(caps.total * 4); // fBase, fCount, aspect, phase
+  const iPack3 = new Float32Array(caps.total * 4); // rise, colorR, colorG, colorB
   mesh.geometry.setAttribute('iOffset', new InstancedBufferAttribute(iOffset, 3));
-  mesh.geometry.setAttribute('iSize', new InstancedBufferAttribute(iSize, 1));
-  mesh.geometry.setAttribute('iAngle', new InstancedBufferAttribute(iAngle, 1));
-  mesh.geometry.setAttribute('iF0', new InstancedBufferAttribute(iF0, 1));
-  mesh.geometry.setAttribute('iRate', new InstancedBufferAttribute(iRate, 1));
-  mesh.geometry.setAttribute('iColor', new InstancedBufferAttribute(iColor, 3));
-  mesh.geometry.setAttribute('iAspect', new InstancedBufferAttribute(iAspect, 1));
-  mesh.geometry.setAttribute('iPhase', new InstancedBufferAttribute(iPhase, 1));
-  mesh.geometry.setAttribute('iFBase', new InstancedBufferAttribute(iFBase, 1));
-  mesh.geometry.setAttribute('iFCount', new InstancedBufferAttribute(iFCount, 1));
-  mesh.geometry.setAttribute('iRise', new InstancedBufferAttribute(iRise, 1));
+  mesh.geometry.setAttribute('iPack1', new InstancedBufferAttribute(iPack1, 4));
+  mesh.geometry.setAttribute('iPack2', new InstancedBufferAttribute(iPack2, 4));
+  mesh.geometry.setAttribute('iPack3', new InstancedBufferAttribute(iPack3, 4));
 
   group.add(mesh);
 
@@ -223,20 +214,23 @@ export function createFlipbookParticles(hm: Heightmap) {
             const ox = (h * 2 - 1) * 0.35 * scale;
             const oz = (((h * 65537.0) % 1) * 2 - 1) * 0.35 * scale;
             const i3 = alive * 3;
+            const i4 = alive * 4;
             iOffset[i3 + 0] = wx + ox;
             iOffset[i3 + 1] = hm.sample(wx + ox, wz + oz) + 0.45;
             iOffset[i3 + 2] = wz + oz;
-            iSize[alive] = 0.6 + 0.8 * heat;
-            iAngle[alive] = h * Math.PI * 2;
-            iFBase[alive] = atlasInfo.flameBase;
-            iFCount[alive] = atlasInfo.flameFrames;
-            iF0[alive] = Math.floor(h * atlasInfo.flameFrames);
-            iRate[alive] = 8 + 8 * heat * lod;
-            // New: aspect (taller flames) and size-over-life phase
-            iAspect[alive] = 1.6 + 0.4 * heat;
-            iPhase[alive] = h;
-            iRise[alive] = 0.30 + 0.35 * heat; // small upward lick
-            iColor[i3 + 0] = 1.0; iColor[i3 + 1] = 0.85; iColor[i3 + 2] = 0.6;
+            // Pack attributes into vec4s
+            iPack1[i4 + 0] = 0.6 + 0.8 * heat; // size
+            iPack1[i4 + 1] = h * Math.PI * 2;   // angle
+            iPack1[i4 + 2] = Math.floor(h * atlasInfo.flameFrames); // f0
+            iPack1[i4 + 3] = 8 + 8 * heat * lod; // rate
+            iPack2[i4 + 0] = atlasInfo.flameBase;     // fBase
+            iPack2[i4 + 1] = atlasInfo.flameFrames;   // fCount
+            iPack2[i4 + 2] = 1.6 + 0.4 * heat;       // aspect
+            iPack2[i4 + 3] = h;                       // phase
+            iPack3[i4 + 0] = 0.30 + 0.35 * heat;     // rise
+            iPack3[i4 + 1] = 1.0;                     // colorR
+            iPack3[i4 + 2] = 0.85;                    // colorG
+            iPack3[i4 + 3] = 0.6;                     // colorB
             alive++;
           }
         }
@@ -246,19 +240,23 @@ export function createFlipbookParticles(hm: Heightmap) {
           const ox = (h2 * 2 - 1) * 0.4 * scale;
           const oz = (((h2 * 8191.0) % 1) * 2 - 1) * 0.4 * scale;
           const i3 = alive * 3;
+          const i4 = alive * 4;
           iOffset[i3 + 0] = wx + ox;
           iOffset[i3 + 1] = hm.sample(wx + ox, wz + oz) + 0.2;
           iOffset[i3 + 2] = wz + oz;
-          iSize[alive] = 0.8 + 1.2 * heat;
-          iAngle[alive] = h2 * Math.PI * 2;
-          iFBase[alive] = atlasInfo.smokeBase;
-          iFCount[alive] = atlasInfo.smokeFrames;
-          iF0[alive] = Math.floor(h2 * atlasInfo.smokeFrames);
-          iRate[alive] = 6 + 4 * lod;
-          iAspect[alive] = 1.2 + 0.3 * (1.0 - heat);
-          iPhase[alive] = h2;
-          iRise[alive] = 1.2 + 0.8 * lod; // floats higher before fade
-          iColor[i3 + 0] = 0.7; iColor[i3 + 1] = 0.7; iColor[i3 + 2] = 0.7;
+          // Pack attributes into vec4s
+          iPack1[i4 + 0] = 0.8 + 1.2 * heat;          // size
+          iPack1[i4 + 1] = h2 * Math.PI * 2;          // angle
+          iPack1[i4 + 2] = Math.floor(h2 * atlasInfo.smokeFrames); // f0
+          iPack1[i4 + 3] = 6 + 4 * lod;               // rate
+          iPack2[i4 + 0] = atlasInfo.smokeBase;        // fBase
+          iPack2[i4 + 1] = atlasInfo.smokeFrames;      // fCount
+          iPack2[i4 + 2] = 1.2 + 0.3 * (1.0 - heat);  // aspect
+          iPack2[i4 + 3] = h2;                         // phase
+          iPack3[i4 + 0] = 1.2 + 0.8 * lod;           // rise
+          iPack3[i4 + 1] = 0.7;                        // colorR
+          iPack3[i4 + 2] = 0.7;                        // colorG
+          iPack3[i4 + 3] = 0.7;                        // colorB
           alive++;
         }
       }
@@ -279,36 +277,32 @@ export function createFlipbookParticles(hm: Heightmap) {
         const ox = (h2 * 2 - 1) * 0.45 * scale;
         const oz = (((h2 * 12289.0) % 1) * 2 - 1) * 0.45 * scale;
         const i3 = alive * 3;
+        const i4 = alive * 4;
         iOffset[i3 + 0] = wx + ox;
         iOffset[i3 + 1] = hm.sample(wx + ox, wz + oz) + 0.2;
         iOffset[i3 + 2] = wz + oz;
-        iSize[alive] = 0.6 + 0.8 * (1 - t.heat);
-        iAngle[alive] = h2 * Math.PI * 2;
-        iFBase[alive] = atlasInfo.smokeBase; // smolder uses smoke frames
-        iFCount[alive] = atlasInfo.smokeFrames;
-        iF0[alive] = Math.floor(h2 * atlasInfo.smokeFrames);
-        iRate[alive] = 4 + 3 * lod;
-        iAspect[alive] = 1.1 + 0.3 * (1.0 - t.heat);
-        iPhase[alive] = h2;
-        iRise[alive] = 0.8 + 0.4 * lod; // gentle rise for smolder
-        // a bit lighter/whiter for smolder
-        iColor[i3 + 0] = 0.82; iColor[i3 + 1] = 0.82; iColor[i3 + 2] = 0.82;
+        // Pack attributes into vec4s
+        iPack1[i4 + 0] = 0.6 + 0.8 * (1 - t.heat);      // size
+        iPack1[i4 + 1] = h2 * Math.PI * 2;               // angle
+        iPack1[i4 + 2] = Math.floor(h2 * atlasInfo.smokeFrames); // f0
+        iPack1[i4 + 3] = 4 + 3 * lod;                    // rate
+        iPack2[i4 + 0] = atlasInfo.smokeBase;             // fBase (smolder uses smoke frames)
+        iPack2[i4 + 1] = atlasInfo.smokeFrames;           // fCount
+        iPack2[i4 + 2] = 1.1 + 0.3 * (1.0 - t.heat);     // aspect
+        iPack2[i4 + 3] = h2;                              // phase
+        iPack3[i4 + 0] = 0.8 + 0.4 * lod;                // rise (gentle rise for smolder)
+        iPack3[i4 + 1] = 0.82;                            // colorR (a bit lighter/whiter for smolder)
+        iPack3[i4 + 2] = 0.82;                            // colorG
+        iPack3[i4 + 3] = 0.82;                            // colorB
         alive++;
       }
     }
 
     mesh.count = alive;
     (mesh.geometry.getAttribute('iOffset') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iSize') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iAngle') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iF0') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iRate') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iColor') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iAspect') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iPhase') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iFBase') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iFCount') as any).needsUpdate = true;
-    (mesh.geometry.getAttribute('iRise') as any).needsUpdate = true;
+    (mesh.geometry.getAttribute('iPack1') as any).needsUpdate = true;
+    (mesh.geometry.getAttribute('iPack2') as any).needsUpdate = true;
+    (mesh.geometry.getAttribute('iPack3') as any).needsUpdate = true;
   }
 
   return { group, update, setQuality, setEnabled } as const;
