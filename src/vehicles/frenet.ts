@@ -33,6 +33,9 @@ export class PathFollower {
   spacingMode: 'hybrid' | 'gap' | 'time' = 'hybrid';
   // smoothing
   prevQuat = new Quaternion();
+  // external speed cap (e.g., intersections)
+  private extCap = Infinity;
+  private extCapTimer = 0;
 
   constructor(path: Path2D, hm: Heightmap, object: Object3D, s0 = 0) {
     this.path = path; this.hm = hm; this.object = object; this.s = s0;
@@ -131,6 +134,13 @@ export class PathFollower {
     const downFactor = 1 + Math.max(0, -grade) * 0.6;
     const gradeFactor = Math.max(0.5, Math.min(1.35, upFactor * downFactor));
     vTarget *= gradeFactor;
+    // external cap
+    if (this.extCapTimer > 0) {
+      this.extCapTimer -= dt;
+      vTarget = Math.min(vTarget, this.extCap);
+    } else {
+      this.extCap = Infinity;
+    }
     // Leader following: cap target speed based on gap
     if (this.leaderS != null && this.leaderS > this.s) {
       const gapS = this.leaderS - this.s;
@@ -178,5 +188,11 @@ export class PathFollower {
     m.multiply(rotY);
     this.object.matrix.copy(m);
     this.object.matrix.setPosition(newPos);
+  }
+
+  // Apply an external speed cap for a duration (seconds)
+  setSpeedCap(cap: number, duration: number) {
+    this.extCap = Math.max(0, cap);
+    this.extCapTimer = Math.max(this.extCapTimer, duration);
   }
 }

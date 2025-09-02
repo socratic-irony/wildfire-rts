@@ -119,6 +119,21 @@ loop.add((dt) => {
           followers[i].setLeader(followers[lead].s, followers[lead].v);
         }
         followers[i].setSpacingMode(spacingMode);
+        // Intersection four-way stop: simple stop timer when approaching
+        try {
+          const pathIdx = path2dIndexMap.get(followers[i].path as Path2D) ?? -1;
+          if (pathIdx >= 0) {
+            const look = 6.0; // meters ahead
+            const inter = (roadsVis as any).getNextIntersection?.(pathIdx, followers[i].s, look);
+            if (inter && inter.dist < 2.0) {
+              // stop for a fixed time at intersection
+              (followers[i] as any).setSpeedCap?.(0.0, 1.0); // 1s stop
+            } else if (inter && inter.dist < 4.0) {
+              // pre-slow when approaching
+              (followers[i] as any).setSpeedCap?.(0.8, 0.5);
+            }
+          }
+        } catch {}
         followers[i].update(dt);
       }
     }
@@ -206,6 +221,7 @@ type FollowMode = 'grid' | 'frenet';
 let followMode: FollowMode = 'frenet';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
+let path2dIndexMap: Map<Path2D, number> = new Map();
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
 
@@ -241,6 +257,8 @@ function rebuildPath2Ds() {
     const isClosed = Math.hypot(first.x - last.x, first.z - last.z) < hm.scale * 1.5;
     return new Path2D(pts, { closed: isClosed });
   });
+  path2dIndexMap = new Map();
+  for (let i = 0; i < path2ds.length; i++) path2dIndexMap.set(path2ds[i], i);
 }
 function spawnFollowersOnAllPaths(perPath = 3) {
   // Create visible follower objects for each path2d
@@ -338,6 +356,7 @@ vehicles.group.visible = (followMode === 'grid');
 // Seed random road loops at startup and spawn moving vehicles
 seedRandomLoopsAndVehicles(2);
 rebuildPath2Ds();
+roadsVis.buildIntersections();
 if (followMode === 'frenet') {
   spawnFollowersOnAllPaths(3);
 }

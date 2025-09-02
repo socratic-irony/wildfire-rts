@@ -9,10 +9,29 @@ export class RoadsVisual {
   private yOffset = 0.05;
   private hm: Heightmap;
   private paths: Vector2[][] = [];
+  private cumS: number[][] = [];
+  private closedFlags: boolean[] = [];
+
+  // Spatial index for segments (uniform grid)
+  private gridCellSize = 0; // set on first path add
+  private gridW = 0; private gridH = 0;
+  private grid: number[][] = []; // cell -> segment indices
+  private segs: Array<{ path: number; i: number; a: Vector2; b: Vector2; len: number }>=[];
+
+  // Intersections cache
+  private intersections: Array<{ id: number; pos: Vector2; a:{path:number;s:number;seg:number;t:number}; b:{path:number;s:number;seg:number;t:number} }> = [];
+  private perPathIntersections: Array<Array<{ id:number; s:number; pos: Vector2; otherPath:number; otherS:number }>> = [];
   constructor(hm: Heightmap) { this.hm = hm; }
 
   clear() {
     for (const c of [...this.group.children]) this.group.remove(c);
+    this.paths = [];
+    this.cumS = [];
+    this.closedFlags = [];
+    this.grid = [];
+    this.segs = [];
+    this.intersections = [];
+    this.perPathIntersections = [];
   }
 
   // Expose smoothed midlines as world XZ arrays for controllers
@@ -37,7 +56,27 @@ export class RoadsVisual {
     const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: closed ? scale * 0.01 : scale * 0.02, closed });
     const width = 0.5 * scale; // approx half tile width
     // Store smoothed midline for projection queries
-    this.paths.push(smooth.map(p => p.clone()));
+    const mid = smooth.map(p => p.clone());
+    const pathIndex = this.paths.length;
+    this.paths.push(mid);
+    this.closedFlags[pathIndex] = closed;
+    // Build cumulative s for this path
+    const cum: number[] = []; let accS = 0;
+    const M = mid.length; const segCount = closed ? M : (M - 1);
+    for (let i = 0; i < segCount; i++) {
+      cum.push(accS);
+      const a = mid[i]; const b = mid[(i + 1) % M];
+      accS += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    cum.push(accS);
+    this.cumS[pathIndex] = cum;
+    // Accumulate segments for spatial index
+    for (let i = 0; i < segCount; i++) {
+      const a = mid[i]; const b = mid[(i + 1) % M];
+      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1e-6;
+      this.segs.push({ path: pathIndex, i, a, b, len });
+    }
+    this.perPathIntersections[pathIndex] = [];
     // Main road surface
     {
       const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset, closed);
@@ -73,6 +112,114 @@ export class RoadsVisual {
       mesh.renderOrder = 8;
       this.group.add(mesh);
     }
+  }
+
+  // Build or rebuild the spatial index and compute segment intersections
+  buildIntersections() {
+    // Init grid
+    const scale = this.hm.scale;
+    this.gridCellSize = this.gridCellSize || (scale * 2);
+    this.grid = [];
+    const W = Math.ceil(this.hm.width * scale / this.gridCellSize);
+    const H = Math.ceil(this.hm.height * scale / this.gridCellSize);
+    this.gridW = W; this.gridH = H;
+    for (let i = 0; i < W * H; i++) this.grid[i] = [];
+    const cellOf = (x: number, z: number) => {
+      const cx = Math.max(0, Math.min(W - 1, Math.floor(x / this.gridCellSize)));
+      const cz = Math.max(0, Math.min(H - 1, Math.floor(z / this.gridCellSize)));
+      return cz * W + cx;
+    };
+    // Insert segments into grid cells
+    for (let si = 0; si < this.segs.length; si++) {
+      const s = this.segs[si];
+      const minx = Math.min(s.a.x, s.b.x), maxx = Math.max(s.a.x, s.b.x);
+      const minz = Math.min(s.a.y, s.b.y), maxz = Math.max(s.a.y, s.b.y);
+      const c0x = Math.max(0, Math.floor(minx / this.gridCellSize));
+      const c1x = Math.min(W - 1, Math.floor(maxx / this.gridCellSize));
+      const c0z = Math.max(0, Math.floor(minz / this.gridCellSize));
+      const c1z = Math.min(H - 1, Math.floor(maxz / this.gridCellSize));
+      for (let cz = c0z; cz <= c1z; cz++) {
+        for (let cx = c0x; cx <= c1x; cx++) this.grid[cz * W + cx].push(si);
+      }
+    }
+    // Find intersections
+    const seen = new Set<string>();
+    this.intersections = [];
+    this.perPathIntersections = this.perPathIntersections.map(() => []);
+    const segsAtCell = (x: number, z: number) => this.grid[z * W + x];
+    const addInt = (pos: Vector2, A: typeof this.segs[number], tA: number, B: typeof this.segs[number], tB: number) => {
+      const sA = this.cumS[A.path][A.i] + tA * A.len;
+      const sB = this.cumS[B.path][B.i] + tB * B.len;
+      const id = this.intersections.length;
+      this.intersections.push({ id, pos: new Vector2(pos.x, pos.y), a: { path: A.path, s: sA, seg: A.i, t: tA }, b: { path: B.path, s: sB, seg: B.i, t: tB } });
+      this.perPathIntersections[A.path].push({ id, s: sA, pos: new Vector2(pos.x, pos.y), otherPath: B.path, otherS: sB });
+      this.perPathIntersections[B.path].push({ id, s: sB, pos: new Vector2(pos.x, pos.y), otherPath: A.path, otherS: sA });
+    };
+    const segSeg = (a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2) => {
+      const ax = a2.x - a1.x, az = a2.y - a1.y;
+      const bx = b2.x - b1.x, bz = b2.y - b1.y;
+      const den = ax * bz - az * bx;
+      if (Math.abs(den) < 1e-6) return null;
+      const dx = b1.x - a1.x, dz = b1.y - a1.y;
+      const ua = (dx * bz - dz * bx) / den; // along A
+      const ub = (dx * az - dz * ax) / den; // along B
+      if (ua < 0 || ua > 1 || ub < 0 || ub > 1) return null;
+      return { ua, ub, x: a1.x + ua * ax, y: a1.y + ua * az };
+    };
+    for (let cz = 0; cz < H; cz++) {
+      for (let cx = 0; cx < W; cx++) {
+        const list = segsAtCell(cx, cz);
+        for (let i = 0; i < list.length; i++) {
+          const ai = list[i]; const A = this.segs[ai];
+          for (let j = i + 1; j < list.length; j++) {
+            const bi = list[j]; const B = this.segs[bi];
+            // Skip adjacent segments on same path
+            if (A.path === B.path) {
+              const same = Math.abs(A.i - B.i) <= 1 || (this.closedFlags[A.path] && ((A.i === 0 && B.i === this.cumS[A.path].length - 2) || (B.i === 0 && A.i === this.cumS[A.path].length - 2)));
+              if (same) continue;
+            }
+            const key = ai < bi ? `${ai}-${bi}` : `${bi}-${ai}`;
+            if (seen.has(key)) continue; seen.add(key);
+            const res = segSeg(A.a, A.b, B.a, B.b);
+            if (res) addInt(new Vector2(res.x, res.y), A, res.ua, B, res.ub);
+          }
+        }
+      }
+    }
+    // sort per path by s
+    for (let p = 0; p < this.perPathIntersections.length; p++) this.perPathIntersections[p].sort((a,b)=>a.s-b.s);
+  }
+
+  getNextIntersection(pathIndex: number, s: number, lookahead = 6): { id:number; s:number; dist:number; pos:{x:number;z:number} } | null {
+    const list = this.perPathIntersections[pathIndex] || [];
+    if (!list.length) return null;
+    const L = this.cumS[pathIndex][this.cumS[pathIndex].length - 1] || 0;
+    // find first with s'>=s
+    let best: any = null;
+    for (const it of list) {
+      let ds = it.s - s;
+      if (this.closedFlags[pathIndex]) {
+        if (ds < 0) ds += L;
+      } else if (ds < 0) continue;
+      if (ds <= lookahead && (best == null || ds < best.dist)) best = { id: it.id, s: it.s, dist: ds, pos: { x: it.pos.x, z: it.pos.y } };
+    }
+    return best;
+  }
+
+  // Enhanced projection: return s along path
+  projectToMidlineOnPathWithS(pathIndex: number, wx: number, wz: number, hintSeg?: number, window = 96) {
+    const res = this.projectToMidlineOnPath(pathIndex, wx, wz, hintSeg, window);
+    if (!res) return null;
+    const path = this.paths[pathIndex];
+    const segIndex = res.segIndex ?? 0;
+    const a = path[segIndex]; const b = path[(segIndex + 1) % path.length];
+    const abx = b.x - a.x, abz = b.y - a.y;
+    const apx = res.pos.x - a.x, apz = res.pos.z - a.y;
+    const ab2 = abx * abx + abz * abz || 1e-6;
+    const t = Math.max(0, Math.min(1, (apx * abx + apz * abz) / ab2));
+    const len = Math.hypot(abx, abz) || 1e-6;
+    const s = this.cumS[pathIndex][segIndex] + t * len;
+    return { ...res, s } as const;
   }
 
   // Project a world XZ point to the nearest point on any road midline and return pos/normal/tangent
