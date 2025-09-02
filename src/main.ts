@@ -22,6 +22,7 @@ import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
 import { createFireRibbon } from './particles/ribbon';
 import { createFlipbookParticles } from './particles/flipbook';
+import { createSuppressionDecals } from './fire/decals';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
@@ -130,6 +131,8 @@ loop.add((dt) => {
   // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
   fireViz.update(fireGrid, dt);
+  // Update water and retardant decals
+  suppressionDecals.update(fireGrid);
   // Hover overlay update at ~10 Hz independent of mouse movement
   _hoverAcc += dt;
   if (_hoverAcc >= 0.1 && _hoverHasMouse) {
@@ -385,6 +388,9 @@ paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, 
 let fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);
 fireViz.setMode('vertex');
+// Water and retardant decal overlays
+let suppressionDecals = createSuppressionDecals(hm, { offsetY: 0.05, depthTest: false });
+suppressionDecals.addToScene(scene);
 // Flipbook billboard particles (flame/smoke)
 let fireParticles = createFlipbookParticles(hm);
 scene.add((fireParticles as any).group);
