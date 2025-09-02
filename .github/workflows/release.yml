@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run tests
+        run: npm test
+        
+      - name: Build project
+        run: npm run build
+        
+      - name: Create release archive
+        run: |
+          cd dist
+          tar -czf ../wildfire-rts-${{ github.ref_name }}.tar.gz .
+          cd ..
+          
+      - name: Generate changelog
+        run: |
+          echo "## Release ${{ github.ref_name }}" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "Built from commit: ${{ github.sha }}" >> RELEASE_NOTES.md
+          echo "Build date: $(date -u)" >> RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "### Artifacts" >> RELEASE_NOTES.md
+          echo "- \`wildfire-rts-${{ github.ref_name }}.tar.gz\`: Complete build artifacts" >> RELEASE_NOTES.md
+          
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          files: |
+            wildfire-rts-${{ github.ref_name }}.tar.gz
