@@ -1,4 +1,4 @@
-import { Color, DodecahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D, Shader } from 'three';
+import { Color, DodecahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D } from 'three';
 import { Heightmap } from '../terrain/heightmap';
 import { BiomeMask } from '../terrain/biomes';
 import type { FireGrid } from '../fire/grid';
@@ -15,16 +15,16 @@ function seededRng(seed: number) {
 export function createShrubs(hm: Heightmap, biomes: BiomeMask, opts: { density?: number } = {}) {
   const geo = new DodecahedronGeometry(0.35, 0);
   const mat = new MeshStandardMaterial({ color: new Color('#6FA06F'), flatShading: true, roughness: 0.9 });
-  mat.onBeforeCompile = (s: Shader) => {
-    s.uniforms.uTime = { value: 0 };
-    s.vertexShader = s.vertexShader.replace(
+  mat.onBeforeCompile = (shader: any) => {
+    shader.uniforms.uTime = { value: 0 };
+    shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       `#include <common>\n uniform float uTime;`
     ).replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>\n float sway = sin(uTime * 1.5 + position.y) * 0.03;\n transformed.x += sway;`
     );
-    (mat as any).userData.shader = s;
+    (mat as any).userData.shader = shader;
   };
 
   const rng = seededRng(67890);

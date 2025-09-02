@@ -17,7 +17,7 @@ const mockInput = {
   focus: vi.fn(),
 };
 
-global.document = {
+(global as any).document = {
   createElement: vi.fn((tag: string) => {
     if (tag === 'input') return mockInput;
     return mockElement;
@@ -26,10 +26,10 @@ global.document = {
   addEventListener: vi.fn(),
 } as any;
 
-global.HTMLElement = class {} as any;
+(global as any).HTMLElement = class {} as any;
 
 // Mock performance
-global.performance = {
+(global as any).performance = {
   now: () => Date.now(),
   memory: {
     usedJSHeapSize: 50 * 1024 * 1024,

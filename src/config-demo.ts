@@ -1,5 +1,5 @@
-import { loadConfig } from './tools/config';
-import { ConfigurableLogger } from './tools/logger';
+import { loadConfig } from '../tools/config';
+import { ConfigurableLogger } from '../tools/logger';
 
 /**
  * Configuration demo showing feature flag usage in a non-critical path
@@ -18,7 +18,7 @@ export async function demonstrateConfiguration(): Promise<void> {
     // Report any validation errors (but don't throw)
     if (errors.length > 0) {
       console.warn('Configuration validation errors found:');
-      errors.forEach(error => {
+      errors.forEach((error: any) => {
         console.warn(`  ${error.path}: ${error.message}`);
       });
     }

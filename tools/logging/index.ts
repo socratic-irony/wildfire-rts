@@ -1,5 +1,5 @@
-export { Logger, LoggerConfig, LogLevel, LogEntry } from './logger.js';
+export { Logger } from './logger.js';
 export { LoggerFactory, createLogger, getLogger } from './factory.js';
 
-// Re-export for convenience
+// Re-export types only
 export type { LogLevel, LogEntry, LoggerConfig } from './logger.js';

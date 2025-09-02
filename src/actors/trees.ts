@@ -6,7 +6,6 @@ import {
   Matrix4,
   MeshStandardMaterial,
   Object3D,
-  Shader,
   Vector3,
 } from 'three';
 import { Heightmap } from '../terrain/heightmap';
@@ -47,16 +46,16 @@ export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts 
 
   // Wind sway
   const injectSway = (mat: MeshStandardMaterial) => {
-    mat.onBeforeCompile = (s: Shader) => {
-      s.uniforms.uTime = { value: 0 };
-      s.vertexShader = s.vertexShader.replace(
+    mat.onBeforeCompile = (shader: any) => {
+      shader.uniforms.uTime = { value: 0 };
+      shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
         `#include <common>\n uniform float uTime;`
       ).replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>\n float sway = sin(uTime * 1.2 + position.y * 0.5) * 0.05;\n transformed.x += sway;`
       );
-      (mat as any).userData.shader = s;
+      (mat as any).userData.shader = shader;
     };
   };
   injectSway(conLeafMat);
