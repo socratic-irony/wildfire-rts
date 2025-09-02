@@ -389,7 +389,7 @@ export interface ScatterRule {
 * [x] `trees`, `shrubs` with InstancedMesh in `/actors`.
 * [x] `rocks` with InstancedMesh in `/actors`.
 * [x] `debug` UI toggles & stats overlay.
-* [ ] README with controls, settings, and known limits.
+* [x] README with controls, settings, and known limits.
 * [x] Chunked terrain with basic LOD and grid aligned to vertices.
 * [x] Roads prototype: A* valley preference + smoothed, ground-hugging ribbon render.
 
