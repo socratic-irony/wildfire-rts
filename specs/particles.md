@@ -1,6 +1,34 @@
-# Particles: Fire, Smoke, Smoldering
+# Particles: Flames, Smoke, Smolder — Flipbook + Ribbon
 
-This document proposes a particle system to visualize wildfire combustion across fuels (trees/forest canopy, shrubs/chaparral, grass) with Three.js. It integrates with the existing fire grid (`src/fire/grid.ts`) and simulator (`src/fire/sim.ts`) while staying performant on the web.
+This spec captures the particle FX approach used to visualize wildfire combustion across fuels (forest, chaparral, grass) in Three.js. It aligns with the fire grid (`src/fire/grid.ts`) and simulator (`src/fire/sim.ts`) and focuses on batching, low overdraw, and simple control from the CPU.
+
+## Status
+
+- Implemented (feature/particles):
+  - GPU‑instanced flipbook billboards for flames/smoke using a single atlas and one material (`src/particles/flipbook.ts`).
+    - Per‑instance attributes: `iOffset(vec3)`, `iSize(float)`, `iAngle(float)`, `iF0(float)`, `iRate(float)`, `iFBase(float)`, `iFCount(float)`, `iColor(vec3)`, `iAspect(float)`, `iPhase(float)`, `iRise(float)`.
+    - Billboarding done in vertex shader using camera right/up; simple size‑over‑life; placeholder atlas generated on the fly.
+    - Distance LOD throttles emission; hard cap via `mesh.count`.
+  - Perimeter ribbon strip (`src/particles/ribbon.ts`): expanded line rendered as one mesh with animated UV flow; UI exposes `visible/width/opacity/speed`.
+  - Wired in `src/main.ts`: created once, updated every frame; ribbon controls in Debug UI Fire panel.
+- Legacy (kept for reference): CPU‑pooled instanced spheres (`src/particles/system.ts` + `src/particles/fireParticles.ts`). Not used by `main.ts` anymore; useful as a baseline and for potential embers.
+
+## Outstanding Work
+
+- Flipbook
+  - Replace placeholder DataTexture with a packed atlas (flames + smoke rows); keep single material/atlas to preserve batching.
+  - Soft particles (depth‑fade) to hide terrain intersections; evaluate cost with depth texture.
+  - Wind/slope drift directly in shader or via per‑instance offsets; currently only spawn placement considers heightmap.
+  - Optional: separate FPS by distance (near 12–16, far 4–8) to reduce perceived repetition.
+- Ribbon
+  - Improve tangent/normal continuity and simplify contours before meshing (RDP or resample at even spacing) to reduce vertex count.
+  - Intensity‑driven width/color from local heat.
+- Embers (later)
+  - GPU update path (WebGL2 Transform Feedback or texture ping‑pong) for 2–8k additive embers; render as points or tiny quads.
+- Hero plumes (later)
+  - Cross‑card or blob meshes with slow vertex noise for rare, dramatic events.
+
+Tests: `src/__tests__/particles_flipbook.test.ts` covers basic capacity and update wiring.
 
 ## Goals
 
@@ -57,26 +85,30 @@ Per active tile we maintain an emitter accumulator to convert continuous rates t
   - Smolder: light gray `(0.7, 0.7, 0.7, alpha 0.5)` to near transparent.
 - Optional: per-instance “spin” or “frame” for atlas-based sprite variation.
 
-## Rendering Approach
+## Rendering Approaches (chosen stack)
 
-- Single InstancedBufferGeometry per system (flames, smoke, smolder) to keep draw calls low.
-- Billboard quads constructed in vertex shader from per-instance center/size, facing camera.
-- Simple alpha-blended materials; set `depthWrite: false`, sorted renderOrder after terrain; consider soft-particle depth fade later.
-- Texturing: start with a simple circular falloff in shader (no texture). Upgrade path: small sprite atlas (2–4 variants) for detail.
+1) Flipbook‑instanced billboards (primary)
+   - One `InstancedMesh` of a unit quad (`PlaneGeometry`) + one `ShaderMaterial` sampling a vertical frame stack (flipbook atlas).
+   - Per‑instance attributes drive position, size, angle, color, initial frame and frame rate. `iAspect` and `iPhase` add taller flames and size‑over‑life variation without CPU state.
+   - Vertex shader builds a camera‑facing quad from camera right/up; fragment samples the atlas slice. Depth write off; premultiplied alpha recommended for fire.
 
-## CPU Update Loop
+2) Fire‑edge ribbon (perimeter strip) (complement)
+   - Marching‑squares perimeter → expanded polyline strip in world‑space; animated UV x to suggest flow/licking.
+   - Replaces “sprites along the entire front” with one draw; hotspot flipbooks can still be sprinkled.
 
-We use a pooled particle system with SoA arrays per system:
+3) Embers via GPU update (planned)
+   - Transform Feedback buffers for pos/vel update on GPU; render as additive points.
 
-- Capacity: e.g. Flames 8k, Smoke 12k, Smolder 6k (tunable). Quality presets will scale these.
-- Arrays for `pos, vel, age, life, size0, size1, color0, color1`.
-- Update `age += dt`; kill when `age >= life`; compact with free-list or ring buffer.
-- Spawn pass: traverse `burning` and `smoldering` frontier arrays, update each emitter’s accumulator, spawn particles (writing into free slots) until budget reached.
+4) Hero plumes as mesh stacks (planned)
+   - Cross‑cards or low‑poly blobs for rare large plumes.
 
-Wind/slope advection:
+## Update Model
 
-- Wind vector `(wx, wz)` from `FireSim.env`; add to horizontal velocity scaled by `(0.4 + 0.6*heat)` for smoke.
-- Vertical velocity base: flames `(1.2..2.0)`, smoke `(0.6..1.4)`, smolder `(0.2..0.5)`; add small uphill lift proportional to `slopeTan`.
+- Flipbook: CPU only decides where/how many to spawn this frame (no per‑particle CPU lifetime). All animation (frame advance, size‑over‑life, aspect stretch, rotation) is shader‑driven.
+  - Emission: traverse `burning` and `smoldering` frontier arrays; apply distance LOD; spawn at most 1–2 flames per hot tile + occasional smoke; clamp by a global cap; write attributes once per frame into the first `mesh.count` slots.
+  - “Lifetime” look: `iPhase` and `iRate` modulate size‑over‑life and atlas frame; instances are ephemeral (rebuilt every frame), avoiding CPU GC pressure.
+  - Camera basis: extract `cameraRight`/`cameraUp` from camera matrix each frame.
+- Ribbon: rebuild geometry from `computePerimeter(grid)` each frame; small and cheap compared to many sprites; evolving width/opacity via uniforms.
 
 ## LOD & Performance
 
@@ -85,39 +117,24 @@ Wind/slope advection:
 - Global clamp: if alive_count > capacity × 0.9, scale new spawns down.
 - Optionally skip updates for offscreen or occluded tiles (future improvement).
 
-## API (proposed)
+## APIs (current)
 
-```ts
-// src/particles/fireParticles.ts
-export type ParticleQuality = 'low' | 'med' | 'high';
-export function createFireParticles(hm: Heightmap) {
-  const flames = createSystem({ kind: 'flame' });
-  const smoke = createSystem({ kind: 'smoke' });
-  const smold = createSystem({ kind: 'smolder' });
-  const group = new Group(); group.add(flames.mesh, smoke.mesh, smold.mesh);
-  let quality: ParticleQuality = 'med';
-  let enabled = { flames: true, smoke: true, smolder: true };
+- Flipbook sprites — `src/particles/flipbook.ts`
+  - `createFlipbookParticles(hm)` → `{ group, update(grid, env, dt, camera), setQuality(q), setEnabled(part) }`.
+  - Attributes written each frame: `iOffset, iSize, iAngle, iF0, iRate, iFBase, iFCount, iAspect, iPhase, iRise, iColor`.
+  - Uniforms: `uTime, uFrames, uAtlas, cameraRight, cameraUp`.
+  - Atlas layout: vertical stack with flames frames first, then smoke frames; per‑instance `iFBase/iFCount` select the sub‑range.
+  - Quality presets map to total cap (default 8k). One atlas/material keeps batching to one draw.
 
-  function setQuality(q: ParticleQuality) { quality = q; resizePools(q); }
-  function setEnabled(part: Partial<typeof enabled>) { Object.assign(enabled, part); }
+- Ribbon — `src/particles/ribbon.ts`
+  - `createFireRibbon(hm, { width, yOffset, speed, opacity, visible })` → `{ mesh, update(grid,time), setVisible(on), setOpacity(o), setWidth(w), setSpeed(v) }`.
+  - Rebuilds geometry from `computePerimeter(grid)`; animated in `onBeforeCompile` via `uTime`/`uSpeed` uniforms.
 
-  function update(grid: FireGrid, env: Env, dt: number, camera: THREE.Camera) {
-    // Decide LOD per tile, compute emission rates, spawn into pools, then integrate particles.
-    if (enabled.flames) flames.update(grid, env, dt, camera);
-    if (enabled.smoke) smoke.update(grid, env, dt, camera);
-    if (enabled.smolder) smold.update(grid, env, dt, camera);
-  }
+Integration (main.ts)
 
-  return { group, update, setQuality, setEnabled };
-}
-```
-
-Integration points:
-
-- Construct once in `main.ts` after `createFireViz`; `scene.add(particles.group)`.
-- In the main loop, call `particles.update(fireGrid, simEnv, dt, rig.camera)`.
-- On world regenerate, dispose meshes and recreate with the new `Heightmap`.
-- Debug UI: add toggles (flames/smoke/smolder), quality selector, and a “max particles” slider.
+- Construct once after fire viz: add `fireParticles.group` and `fireRibbon.mesh` to the scene.
+- Per frame: call `fireParticles.update(grid, env, dt, camera)` and `fireRibbon.update(grid, time)`.
+- On world regenerate: recreate both (already wired in `main.ts`).
 
 ## Suggested Defaults
 
@@ -141,48 +158,43 @@ Quality presets (total pooled capacity across all systems):
 - Med: flames 6k, smoke 8k, smolder 4k
 - High: flames 10k, smoke 12k, smolder 6k
 
-## Shaders (outline)
+## Flipbook Shader Notes
 
-Vertex shader (billboard):
-
-- Take instance attributes: center, age, life, size0, size1.
-- Compute size = mix(size0, size1, t), where t = age/life.
-- Build quad in view-space facing camera (two axes from camera right/up).
-- Optionally add subtle per-instance rotation.
-
-Fragment shader:
-
-- For flames: radial falloff + blackbody-like gradient based on t and heat.
-- For smoke/smolder: soft circular falloff; color ramps to transparent; premultiplied alpha.
-
-We can start with untextured quads (math falloff) and later switch to small atlases for detail.
+- Vertex: use `cameraRight/cameraUp` to face quads; rotate in plane by `iAngle`; compute size‑over‑life from `iPhase` + `uTime * iRate`; apply `iAspect` for taller flames; add vertical rise over life via `iRise`; pick frame within a per‑instance range via `iFBase/iFCount`.
+- Fragment: sample vertical frame stack with `frame = iFBase + mod(iF0 + uTime * iRate, iFCount)`; prefer premultiplied alpha for additive fire.
+- Depth: `depthWrite=false`; consider soft‑particle depth fade once a depth texture is available.
 
 ## Determinism & Randomness
 
 - Use a simple hash per tile index and an emitter-local counter to derive pseudo-random offsets/velocities so visuals are stable frame-to-frame.
 - Seeding: combine `grid.seed`, tile index, and a local step to vary patterns across runs with different `grid.seed` or time.
 
-## Implementation Plan
+## Plan (incremental)
 
-1) Scaffolding
-   - `src/particles/fireParticles.ts`: container + three systems.
-   - `src/particles/system.ts`: shared pool (add/remove/compact, instanced attributes, simple shaders).
-2) CPU integration
-   - Read `grid.burning/smoldering`; for each active tile, accumulate spawn; emit per fuel and state.
-   - Wind advection + slope lift in velocity.
-3) Debug UI
-   - Add toggles + quality select in `src/ui/debug.ts` under a new “Particles” section.
-4) World regen wiring
-   - Recreate particle container on regenerate.
-5) Optimizations (later)
-   - Depth-softening near terrain, sprite atlas, optional GPU update path.
+1) Flipbook foundations (done)
+   - Instanced quad + shader flipbook; per‑tile LOD; placeholder atlas; UI wiring via main loop.
+2) Perimeter ribbon (done)
+   - Marching‑squares → strip mesh; flow UV; UI controls in Debug panel.
+3) Atlas + material unification (next)
+   - Replace placeholder with a 2k atlas containing flames/smoke rows; keep one material to batch both.
+   - Add per‑instance state to select row range if needed.
+4) Soft particles + wind (next)
+   - Add optional depth‑fade; modulate offsets by wind to drift smoke.
+5) Embers GPU update (later)
+   - TF update + additive points for 2–8k embers.
+6) Hero plumes (later)
+   - Cross‑cards/blob meshes for rare events.
 
 ## Testing
 
-- Determinism test with fixed `grid.seed` and `sim` wind: ensure number of live particles and rough AABB stable within tolerance.
-- Performance sanity: verify frame time under target with medium quality on typical hardware; assert pool never overflows in load tests.
+- Flipbook: headless update exercises instanced count ≤ cap and >0 when burning tiles exist (`src/__tests__/particles_flipbook.test.ts`).
+- Performance: verify frame time ≤ 3–4 ms for particles at medium quality on mid‑range laptop; check draw calls remain minimal (1–2 for sprites + 1 for ribbon).
 
----
+## Budgets & Tuning
 
-If this direction looks good, next step is to scaffold `src/particles/` with a pooled instanced system and wire it into `main.ts` with a minimal flame-only pass, then expand to smoke and smolder.
+- Flipbook billboards: 6–10k visible (mixed flames/smoke) on iGPU; keep quads tight; clamp max screen size; throttle at distance.
+- Ribbon: ~2–5k verts after simplification.
+- Embers: 2–8k points if/when enabled.
+- Atlas: start with 2048×2048; frame size 128–256px; animate 8–16 fps near, 4–8 fps far.
 
+This spec now reflects the chosen approach (flipbook + ribbon) in the `feature/particles` branch and the current code. See “Outstanding Work” and “Plan” for next steps.
