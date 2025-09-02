@@ -1,4 +1,6 @@
 import { config } from '../config/features';
+import { computeFireStats, FireStats } from '../fire/stats';
+import { FireGrid } from '../fire/grid';
 
 export type StatsHandle = {
   update: (dt: number, renderer: import('three').WebGLRenderer) => void;
@@ -26,6 +28,7 @@ type DebugOpts = {
   forest?: { leaves: import('three').InstancedMesh; trunks: import('three').InstancedMesh; broadLeaves?: import('three').InstancedMesh; broadTrunks?: import('three').InstancedMesh };
   shrubs?: { inst: import('three').InstancedMesh };
   rocks?: { inst: import('three').InstancedMesh };
+  fireGrid?: FireGrid;
 };
 
 export function attachStats(container: HTMLElement, opts: DebugOpts = {}): StatsHandle {
@@ -153,6 +156,22 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   const sSpan = document.createElement('span'); sSpan.textContent = " Speed"; sSpan.style.margin="0 6px 0 8px"; sSpan.style.color="#cbd5e1";
   rbRow.appendChild(wSpan); rbRow.appendChild(rbWidth); rbRow.appendChild(oSpan); rbRow.appendChild(rbOpacity); rbRow.appendChild(sSpan); rbRow.appendChild(rbSpeed);
   fireSec.body.appendChild(rbLabel); fireSec.body.appendChild(rbRow);
+  
+  // Fire statistics display
+  const fireStatsLabel = document.createElement('div');
+  fireStatsLabel.textContent = 'Statistics:';
+  fireStatsLabel.style.color = '#cbd5e1';
+  fireStatsLabel.style.marginTop = '6px';
+  fireStatsLabel.style.marginBottom = '2px';
+  fireSec.body.appendChild(fireStatsLabel);
+  
+  const fireStatsDiv = document.createElement('div');
+  fireStatsDiv.className = 'fire-stats';
+  fireStatsDiv.style.fontSize = '11px';
+  fireStatsDiv.style.color = '#94a3b8';
+  fireStatsDiv.style.lineHeight = '1.3';
+  fireStatsDiv.textContent = 'No fire activity';
+  fireSec.body.appendChild(fireStatsDiv);
   // Roads controls
   const roadsLabel = document.createElement('span');
   roadsLabel.textContent = 'Roads:';
@@ -456,6 +475,25 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
         statsSec.body.appendChild(lines);
       }
       lines.textContent = statsText;
+
+      // Update fire statistics if fireGrid is available
+      if (opts.fireGrid) {
+        const fireStats = computeFireStats(opts.fireGrid);
+        const fireStatsDiv = fireSec.body.querySelector('.fire-stats') as HTMLDivElement | null;
+        if (fireStatsDiv) {
+          if (fireStats.active === 0 && fireStats.burnedTiles === 0) {
+            fireStatsDiv.textContent = 'No fire activity';
+          } else {
+            const burnedAreaHa = fireStats.burnedAreaWorld / 10000; // Convert m² to hectares
+            const perimeterKm = fireStats.perimeterWorld / 1000;   // Convert m to km
+            fireStatsDiv.textContent = [
+              `Burning: ${fireStats.burning} tiles`,
+              `Burned area: ${burnedAreaHa.toFixed(1)} ha`,
+              `Perimeter: ${perimeterKm.toFixed(2)} km`
+            ].join('\n');
+          }
+        }
+      }
 
       // reset auto counters each frame
       info.reset();

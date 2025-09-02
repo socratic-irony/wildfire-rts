@@ -243,7 +243,7 @@ scene.add(shrubs.inst);
 let rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
 scene.add(rocks.inst);
 
-// Attach stats after actors/chunks are created so we can report counts
+// Attach stats after actors/chunks are created so we can report counts  
 const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs, rocks });
 
 // Initialize debug console if enabled
@@ -370,6 +370,9 @@ scene.add((fireParticles as any).group);
 // Perimeter ribbon (animated strip)
 let fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 });
 scene.add(fireRibbon.mesh);
+
+// Update debug interface with fireGrid reference now that it's available
+stats.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
 
 // Roads — cost field + visual + input state
 let roadCost = buildTerrainCost(hm);
@@ -760,6 +763,9 @@ if (followMode === 'frenet') {
         fireViz = createFireViz(hm, chunked.group);
         fireViz.addToScene(scene as any);
         fireViz.setMode(prevMode);
+        
+        // Update debug interface with new fireGrid reference
+        stats.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
         // Particles
         // Recreate flipbook particles for new heightmap
         scene.remove((fireParticles as any).group);
