@@ -15,6 +15,8 @@ import { createRocks } from './actors/rocks';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
 import { installGlobalErrorOverlay } from './ui/errorOverlay';
+import { createMenubar } from './ui/menubar';
+import { createPaintSystem } from './ui/paint';
 import { buildFireGrid, ignite as igniteTiles, FireState } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
@@ -191,6 +193,17 @@ loop.add((dt) => {
     }
   }
   renderer.render(scene, rig.camera);
+  
+  // Update paint system
+  if (paintSystem) {
+    paintSystem.update(dt);
+    // Sync tool between menubar and paint system
+    const menubarTool = menubar.getCurrentTool();
+    if (paintSystem.getCurrentTool() !== menubarTool) {
+      paintSystem.setCurrentTool(menubarTool);
+    }
+  }
+  
   stats.update(dt, renderer);
   // (intersection manager already ran pre-update in Frenet mode)
 });
@@ -245,6 +258,12 @@ scene.add(rocks.inst);
 
 // Attach stats after actors/chunks are created so we can report counts  
 const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs, rocks });
+
+// Create menubar for painting tools
+const menubar = createMenubar(app);
+
+// Create paint system (will be initialized after fire grid is available)
+let paintSystem: ReturnType<typeof createPaintSystem> | null = null;
 
 // Initialize debug console if enabled
 let debugConsole: DebugConsole | undefined;
@@ -360,6 +379,10 @@ onResize();
 let fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
 let simEnv = { windDirRad: 0, windSpeed: 0 };
 let fireSim = new FireSim(fireGrid, simEnv);
+
+// Initialize paint system now that fire grid is available
+paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, hm, fireGrid);
+
 // Fire visualization controller
 let fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);
@@ -570,8 +593,24 @@ if (followMode === 'frenet') {
 
   dom.addEventListener('click', (e) => {
     getMouseNDC(e);
-    // Roads placement when enabled
-    if (roadsEnabled) {
+    
+    // Handle menubar tool modes
+    const currentTool = paintSystem?.getCurrentTool() || 'none';
+    
+    if (currentTool === 'ignite') {
+      // Ignite mode - ignite at click location
+      igniteFromNDC(mouse.x, mouse.y);
+      return;
+    }
+    
+    // Paint tools (water, retardant) are handled by the paint system on mouse down/drag
+    if (currentTool === 'water' || currentTool === 'retardant') {
+      // Paint system handles these
+      return;
+    }
+    
+    // Roads placement when enabled or in roads mode
+    if (roadsEnabled || currentTool === 'roads') {
       mouse.set(mouse.x, mouse.y);
       ray.setFromCamera(mouse as any, rig.camera);
       const hits = ray.intersectObject(chunked.group, true);
@@ -764,6 +803,11 @@ if (followMode === 'frenet') {
         fireViz.addToScene(scene as any);
         fireViz.setMode(prevMode);
         
+        // Update paint system with new fire grid and terrain
+        if (paintSystem) {
+          paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, hm, fireGrid);
+        }
+        
         // Update debug interface with new fireGrid reference
         stats.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
         // Particles
@@ -775,6 +819,53 @@ if (followMode === 'frenet') {
         scene.remove((fireRibbon as any).mesh);
         fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 }) as any;
         scene.add((fireRibbon as any).mesh);
+      }
+    }
+  });
+
+  // Wire menubar actions
+  menubar.setActions({
+    fire: {
+      igniteCenter: () => {
+        igniteFromNDC(0, 0);
+      },
+      setVizMode: (mode) => fireViz.setMode(mode),
+      applyWater: (x, z, radius) => {
+        if (paintSystem) {
+          // This will be called by the paint system
+          console.log(`Water applied at (${x}, ${z}) with radius ${radius}`);
+        }
+      },
+      applyRetardant: (x, z, radius) => {
+        if (paintSystem) {
+          // This will be called by the paint system
+          console.log(`Retardant applied at (${x}, ${z}) with radius ${radius}`);
+        }
+      }
+    },
+    roads: {
+      toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
+      clear: () => { roadsVis.clear(); roadEndpoints = []; clearFollowers(); rebuildPath2Ds(); }
+    },
+    vehicles: {
+      spawn: () => {
+        if (followMode === 'grid') {
+          const camPos = rig.camera.getWorldPosition(new Vector3());
+          const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
+          const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
+          vehicles.spawnAt(gx, gz);
+        } else {
+          rebuildPath2Ds();
+          spawnFollowerAtCamera();
+        }
+      },
+      moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
+      clear: () => { vehicles.clear(); clearFollowers(); }
+    },
+    stats: {
+      toggleOverlay: () => {
+        const currentlyVisible = stats.isVisible();
+        stats.setVisible(!currentlyVisible);
       }
     }
   });
