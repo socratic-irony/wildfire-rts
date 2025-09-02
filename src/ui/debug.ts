@@ -96,32 +96,17 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   const row = document.createElement('div');
   row.style.marginBottom = '4px';
   const linkStyle = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-right:8px;';
-  const fireSec = makeSection('Fire', true);
+  const fireSec = makeSection('Fire Stats & Config', true);
   const roadsSec = makeSection('Roads', false);
   const vehSec = makeSection('Vehicles', false);
   const biomesSec = makeSection('Biomes & Terrain', false);
-  const statsSec = makeSection('CPU / Stats', false);
+  const statsSec = makeSection('CPU / Stats', true); // Open by default
 
-  // Fire controls
-  const igniteToggle = document.createElement('a');
-  igniteToggle.href = '#';
-  igniteToggle.style.cssText = linkStyle;
-  igniteToggle.textContent = 'Ignite: Off';
-  igniteToggle.addEventListener('click', (e) => {
-    e.preventDefault();
-    igniteMode = !igniteMode;
-    igniteToggle.textContent = `Ignite: ${igniteMode ? 'On' : 'Off'}`;
-  });
-  const igniteCenter = document.createElement('a');
-  igniteCenter.href = '#';
-  igniteCenter.style.cssText = linkStyle;
-  igniteCenter.textContent = 'Ignite Center';
-  igniteCenter.addEventListener('click', (e) => {
-    e.preventDefault();
-    actions.igniteCenter?.();
-  });
-  fireSec.body.appendChild(igniteToggle);
-  fireSec.body.appendChild(igniteCenter);
+  // Fire controls - simplified since main tools are in menubar
+  const note = document.createElement('div');
+  note.textContent = '💡 Use menubar above for painting tools';
+  note.style.cssText = 'font-size:11px; color:#94a3b8; margin-bottom:8px; font-style:italic;';
+  fireSec.body.appendChild(note);
   // Fire viz mode dropdown
   const vizLabel = document.createElement('span');
   vizLabel.textContent = 'Fire Viz:';
@@ -173,6 +158,11 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   fireStatsDiv.textContent = 'No fire activity';
   fireSec.body.appendChild(fireStatsDiv);
   // Roads controls
+  const roadsNote = document.createElement('div');
+  roadsNote.textContent = '💡 Use 🛣️ Roads tool in menubar above';
+  roadsNote.style.cssText = 'font-size:11px; color:#94a3b8; margin-bottom:6px; font-style:italic;';
+  roadsSec.body.appendChild(roadsNote);
+  
   const roadsLabel = document.createElement('span');
   roadsLabel.textContent = 'Roads:';
   roadsLabel.style.marginLeft = '8px';
@@ -225,6 +215,11 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   };
 
   // Vehicles controls
+  const vehNote = document.createElement('div');
+  vehNote.textContent = '💡 Use 🚗 vehicle tools in menubar above';
+  vehNote.style.cssText = 'font-size:11px; color:#94a3b8; margin-bottom:6px; font-style:italic;';
+  vehSec.body.appendChild(vehNote);
+  
   const vehLabel = document.createElement('span');
   vehLabel.textContent = 'Vehicles:';
   vehLabel.style.marginLeft = '8px';
