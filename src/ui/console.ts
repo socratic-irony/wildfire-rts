@@ -22,9 +22,9 @@ export interface ConsoleOptions {
  * Debug console implementation
  */
 export class DebugConsole {
-  private element: HTMLDivElement;
-  private input: HTMLInputElement;
-  private output: HTMLDivElement;
+  private element!: HTMLDivElement;
+  private input!: HTMLInputElement;
+  private output!: HTMLDivElement;
   private visible: boolean = false;
   private commands: Map<string, Command> = new Map();
   private history: string[] = [];

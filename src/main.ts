@@ -509,7 +509,7 @@ let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
 // Show grid vehicles only in grid mode
-vehicles.group.visible = (followMode === 'grid');
+vehicles.group.visible = (followMode as FollowMode === 'grid');
 
 // Seed random road loops at startup and spawn moving vehicles
 seedRandomLoopsAndVehicles(2);

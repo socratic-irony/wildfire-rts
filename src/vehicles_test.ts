@@ -170,9 +170,11 @@ let yawDiv: HTMLDivElement | null = null;
 
 type FollowMode = 'grid' | 'frenet';
 let followMode: FollowMode = 'frenet';
+type SpacingMode = 'hybrid' | 'gap' | 'time';
+let spacingMode: SpacingMode = 'hybrid';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
-vehicles.group.visible = (followMode === 'grid');
+vehicles.group.visible = (followMode as FollowMode === 'grid');
 
 function rebuildPath2Ds() {
   const raw = roadsVis.getMidlinesXZ();
