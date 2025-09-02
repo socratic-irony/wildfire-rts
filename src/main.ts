@@ -29,6 +29,10 @@ import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 // import { createFireTexture } from './fire/texture';
 
+// Config and console system
+import { config, isFeatureEnabled } from './config/features';
+import { DebugConsole } from './ui/console';
+
 const app = document.getElementById('app')!;
 const scene = createScene();
 const rig = createCameraRig(app);
@@ -239,6 +243,104 @@ scene.add(rocks.inst);
 
 // Attach stats after actors/chunks are created so we can report counts
 const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs, rocks });
+
+// Initialize debug console if enabled
+let debugConsole: DebugConsole | undefined;
+if (isFeatureEnabled('console_commands')) {
+  debugConsole = new DebugConsole(app);
+  
+  // Register fire-related commands
+  debugConsole.registerCommand({
+    name: 'fire.ignite',
+    description: 'Ignite fire at grid coordinates (x z)',
+    execute: (args) => {
+      if (args.length < 2) return 'Usage: fire.ignite <x> <z>';
+      const x = parseInt(args[0]);
+      const z = parseInt(args[1]);
+      if (isNaN(x) || isNaN(z)) return 'Invalid coordinates';
+      igniteTiles(fireGrid, [{ x, z }], 0.8);
+      return `Ignited fire at (${x}, ${z})`;
+    }
+  });
+  
+  debugConsole.registerCommand({
+    name: 'fire.stats',
+    description: 'Display fire simulation statistics',
+    execute: () => {
+      const burning = fireGrid.bCount;
+      const smoldering = fireGrid.sCount;
+      const total = fireGrid.width * fireGrid.height;
+      const burned = fireGrid.tiles.filter(t => t.state === 'burned').length;
+      return [
+        'Fire Statistics:',
+        `  Burning tiles: ${burning}`,
+        `  Smoldering tiles: ${smoldering}`,
+        `  Burned tiles: ${burned}`,
+        `  Total tiles: ${total}`,
+        `  Simulation time: ${fireGrid.time.toFixed(2)}s`
+      ].join('\n');
+    }
+  });
+  
+  debugConsole.registerCommand({
+    name: 'fire.clear',
+    description: 'Extinguish all fires',
+    execute: () => {
+      // Reset fire grid by setting all tiles to unburned
+      fireGrid.tiles.forEach(tile => {
+        tile.state = 'unburned';
+        tile.heat = 0;
+        tile.progress = 0;
+      });
+      fireGrid.burning = [];
+      fireGrid.smoldering = [];
+      fireGrid.bCount = 0;
+      fireGrid.sCount = 0;
+      return 'All fires extinguished';
+    }
+  });
+  
+  // Terrain commands
+  debugConsole.registerCommand({
+    name: 'terrain.info',
+    description: 'Get terrain info at grid coordinates (x z)',
+    execute: (args) => {
+      if (args.length < 2) return 'Usage: terrain.info <x> <z>';
+      const x = parseInt(args[0]);
+      const z = parseInt(args[1]);
+      if (isNaN(x) || isNaN(z) || x < 0 || z < 0 || x >= hm.width || z >= hm.height) {
+        return 'Invalid coordinates';
+      }
+      const elevation = hm.sample(x * hm.scale, z * hm.scale);
+      const biome = biomes.forest[z * hm.width + x] > 0.5 ? 'forest' : 
+                   biomes.chaparral[z * hm.width + x] > 0.5 ? 'chaparral' : 'rock';
+      return [
+        `Terrain Info at (${x}, ${z}):`,
+        `  Elevation: ${elevation.toFixed(2)}m`,
+        `  Biome: ${biome}`,
+        `  World coords: (${(x * hm.scale).toFixed(1)}, ${(z * hm.scale).toFixed(1)})`
+      ].join('\n');
+    }
+  });
+  
+  // Vehicle commands (avoiding direct coupling)
+  debugConsole.registerCommand({
+    name: 'vehicles.count',
+    description: 'Display current vehicle count',
+    execute: () => `Vehicle count: ${vehicles.count}`
+  });
+  
+  debugConsole.registerCommand({
+    name: 'vehicles.clear',
+    description: 'Remove all vehicles',
+    execute: () => {
+      vehicles.clear();
+      clearFollowers();
+      return 'All vehicles cleared';
+    }
+  });
+}
+
 loop.start();
 
 // Vegetation burn tint cadence accumulator

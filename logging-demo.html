@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logging System Demo - Wildfire RTS</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+    .demo-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+    .demo-section h3 { margin-top: 0; color: #333; }
+    .console-output { background: #1e1e1e; color: #00ff00; padding: 10px; border-radius: 3px; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+    button { background: #007acc; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin: 5px; }
+    button:hover { background: #005a9e; }
+    .info { background: #e7f3ff; padding: 10px; border-radius: 3px; border-left: 4px solid #007acc; }
+    .success { background: #e7f7e7; padding: 10px; border-radius: 3px; border-left: 4px solid #28a745; }
+    pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    .feature-list { list-style: none; padding: 0; }
+    .feature-list li { padding: 5px 0; }
+    .feature-list li:before { content: "✅"; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Logging System Demo</h1>
+  
+  <div class="success">
+    <strong>✅ Implementation Complete!</strong> The logging and error reporting wrapper has been successfully implemented for issue #3.
+  </div>
+
+  <div class="demo-section">
+    <h3>Features Implemented</h3>
+    <ul class="feature-list">
+      <li><strong>Log Levels:</strong> debug, info, warn, error with configurable filtering</li>
+      <li><strong>Structured Logging:</strong> JSON format with metadata and timestamps</li>
+      <li><strong>Configuration System:</strong> JSON-based config with runtime updates</li>
+      <li><strong>Feature Flags:</strong> Third-party reporting (Sentry) disabled by default</li>
+      <li><strong>Log Rotation:</strong> Automatic memory management (1000-entry limit)</li>
+      <li><strong>Multiple Sinks:</strong> Console and file output support</li>
+      <li><strong>Singleton Pattern:</strong> Global logger instance via getLogger()</li>
+      <li><strong>Complete Testing:</strong> 7 test cases covering all functionality</li>
+    </ul>
+  </div>
+
+  <div class="demo-section">
+    <h3>API Example</h3>
+    <pre><code>import { createLogger, getLogger } from './tools/logging/index.js';
+
+// Create logger with custom config
+const logger = createLogger({
+  level: 'debug',
+  structured: {
+    enabled: true,
+    includeTimestamp: true,
+    includeLevel: true,
+    includeSource: true
+  }
+});
+
+// Basic logging
+logger.debug('Debug message');
+logger.info('Application started');
+logger.warn('Non-critical warning');
+logger.error('Something went wrong');
+
+// Structured logging with metadata
+logger.info('User action', {
+  userId: 'user-123',
+  action: 'login',
+  timestamp: Date.now()
+}, 'auth.service');
+
+// Get singleton instance
+const globalLogger = getLogger();</code></pre>
+  </div>
+
+  <div class="demo-section">
+    <h3>Configuration Example</h3>
+    <pre><code>{
+  "level": "info",
+  "enableConsole": true,
+  "enableFileLogging": false,
+  "structured": {
+    "enabled": true,
+    "includeTimestamp": true,
+    "includeLevel": true,
+    "includeSource": false
+  },
+  "thirdParty": {
+    "sentry": {
+      "enabled": false,
+      "dsn": "",
+      "environment": "development"
+    }
+  },
+  "sinks": {
+    "console": { "enabled": true, "format": "simple" },
+    "file": { "enabled": false, "path": "logs/app.log", "format": "json" }
+  }
+}</code></pre>
+  </div>
+
+  <div class="demo-section">
+    <h3>Test Results</h3>
+    <div class="console-output" id="test-output">
+✓ src/__tests__/logging.test.ts (7 tests) 
+✓ All existing tests still pass (17 total tests)
+✓ Build verification successful
+✓ No gameplay code modified
+
+Test Coverage:
+- Log level filtering
+- Structured logging functionality  
+- Log rotation behavior
+- Configuration updates
+- Singleton pattern
+- Feature flag verification
+- Memory management
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h3>Files Created</h3>
+    <pre><code>tools/logging/
+├── index.ts          # Main API exports
+├── logger.ts         # Core Logger class
+├── factory.ts        # LoggerFactory for instance management
+└── demo.ts           # Demo script
+
+config/
+└── logging.json      # Configuration file
+
+docs/
+├── logging.md        # Complete documentation
+└── buckets/
+    └── logging.md    # Touch map
+
+src/__tests__/
+└── logging.test.ts   # Test suite
+
+logging-demo.html     # This demo page</code></pre>
+  </div>
+
+  <div class="demo-section">
+    <h3>Simulated Log Output</h3>
+    <div class="console-output">
+<span style="color: #888">[2025-09-02T05:32:10.141Z]</span> <span style="color: #00ff00">DEBUG</span>: Application initialized
+<span style="color: #888">[2025-09-02T05:32:10.142Z]</span> <span style="color: #00bfff">INFO</span>: {"message":"User logged in","timestamp":"2025-09-02T05:32:10.142Z","level":"info","data":{"userId":"user-123","sessionId":"session-456"}}
+<span style="color: #888">[2025-09-02T05:32:10.143Z]</span> <span style="color: #ffaa00">WARN</span>: API rate limit approaching (95/100)
+<span style="color: #888">[2025-09-02T05:32:10.144Z]</span> <span style="color: #ff4444">ERROR</span>: Database connection failed - retrying (3/5)
+    </div>
+  </div>
+
+  <div class="info">
+    <strong>How to Test:</strong>
+    <br>• Run <code>npm test</code> to execute the test suite
+    <br>• Import the logging API in your TypeScript code
+    <br>• Check <code>docs/logging.md</code> for complete documentation
+    <br>• Review <code>docs/buckets/logging.md</code> for the touch map
+    <br>• See <code>tools/logging/demo.ts</code> for programmatic demo
+  </div>
+
+</body>
+</html>

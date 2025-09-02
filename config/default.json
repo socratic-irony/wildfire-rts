@@ -1,0 +1,20 @@
+{
+  "logging": {
+    "verbosity": "info",
+    "enableConsoleTimestamps": false,
+    "enablePerformanceLogs": false
+  },
+  "debug": {
+    "showStats": true,
+    "enableGridOverlay": false,
+    "enableWireframe": false
+  },
+  "rendering": {
+    "antialias": true,
+    "shadows": true,
+    "maxPixelRatio": 2
+  },
+  "features": {
+    "enableExperimentalFeatures": false
+  }
+}

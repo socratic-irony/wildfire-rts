@@ -1,6 +1,10 @@
+import { config } from '../config/features';
+
 export type StatsHandle = {
   update: (dt: number, renderer: import('three').WebGLRenderer) => void;
   getIgniteMode: () => boolean;
+  setVisible: (visible: boolean) => void;
+  isVisible: () => boolean;
   setActions: (a: {
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
@@ -64,7 +68,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   let acc = 0;
   let frames = 0;
   let fps = 0;
-  let visible = true;
+  let visible = config.debug.overlay_visible_on_start;
   let igniteMode = false;
   let actions: {
     igniteCenter?: () => void;
@@ -77,6 +81,17 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   } = {};
 
   // Sections
+
+  // Initialize visibility based on config
+  el.style.display = visible ? 'block' : 'none';
+
+  // Memory tracking variables
+  let lastMemoryUpdate = 0;
+  let memoryInfo = { used: 0, total: 0, limit: 0 };
+
+  // Controls row
+  const row = document.createElement('div');
+  row.style.marginBottom = '4px';
   const linkStyle = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-right:8px;';
   const fireSec = makeSection('Fire', true);
   const roadsSec = makeSection('Roads', false);
@@ -372,9 +387,9 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
 
   // Done building biomes panel inside biomesSec
 
-  // Toggle with F1
+  // Toggle with F1 (only if feature is enabled)
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'F1' || e.key === 'f1') {
+    if ((e.key === 'F1' || e.key === 'f1') && config.features.debug_overlay) {
       visible = !visible;
       el.style.display = visible ? 'block' : 'none';
       e.preventDefault();
@@ -385,6 +400,21 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     update(dt, renderer) {
       acc += dt; frames++;
       if (acc >= 0.5) { fps = Math.round(frames / acc); acc = 0; frames = 0; }
+      
+      // Update memory info every second (when config enabled and overlay visible)
+      const now = performance.now();
+      if (config.debug.memory_metrics_enabled && visible && now - lastMemoryUpdate > 1000) {
+        lastMemoryUpdate = now;
+        if ('memory' in performance) {
+          const mem = (performance as any).memory;
+          memoryInfo = {
+            used: Math.round(mem.usedJSHeapSize / 1048576), // MB
+            total: Math.round(mem.totalJSHeapSize / 1048576), // MB
+            limit: Math.round(mem.jsHeapSizeLimit / 1048576), // MB
+          };
+        }
+      }
+      
       const info = renderer.info;
 
       // Chunk stats (if available)
@@ -407,10 +437,16 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       const shrubCount = opts.shrubs ? ((opts.shrubs.inst as any).count ?? (opts.shrubs.inst as any).instanceCount ?? 0) : 0;
       const rockCount = opts.rocks ? ((opts.rocks.inst as any).count ?? (opts.rocks.inst as any).instanceCount ?? 0) : 0;
 
-      const statsText =
-        `FPS ${fps}\n` +
-        `Calls ${info.render.calls}  Tris ${info.render.triangles}\n` +
-        (opts.chunkGroup ? `Chunks ${chunksVis}/${chunks}  LOD H:${lodHi} L:${lodLo}\n` : '') +
+      // Build stats text with optional memory info
+      let statsText = `FPS ${fps}\n` +
+        `Calls ${info.render.calls}  Tris ${info.render.triangles}\n`;
+      
+      // Add memory info if enabled and available
+      if (config.debug.memory_metrics_enabled && memoryInfo.total > 0) {
+        statsText += `Memory ${memoryInfo.used}/${memoryInfo.total} MB\n`;
+      }
+      
+      statsText += (opts.chunkGroup ? `Chunks ${chunksVis}/${chunks}  LOD H:${lodHi} L:${lodLo}\n` : '') +
         (opts.forest || opts.shrubs || opts.rocks ? `Instances Trees ${treeCount}${treeBroad?` (broad ${treeBroad})`:''}  Shrubs ${shrubCount}  Rocks ${rockCount}` : '');
       // CPU/Stats section lines
       let lines = statsSec.body.querySelector('.lines') as HTMLDivElement | null;
@@ -425,7 +461,13 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       info.reset();
     },
     getIgniteMode() { return igniteMode; },
+
     setActions(a) { actions = a; maybeInjectPreset(); },
     setRefs(o) { opts = o; }
+    setVisible(vis: boolean) { 
+      visible = vis; 
+      el.style.display = visible ? 'block' : 'none';
+    },
+    isVisible() { return visible; },
   };
 }

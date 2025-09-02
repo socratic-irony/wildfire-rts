@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Wildfire RTS Configuration Schema",
+  "type": "object",
+  "properties": {
+    "logging": {
+      "type": "object",
+      "properties": {
+        "verbosity": {
+          "type": "string",
+          "enum": ["silent", "error", "warn", "info", "debug", "verbose"],
+          "default": "info",
+          "description": "Logging verbosity level"
+        },
+        "enableConsoleTimestamps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include timestamps in console output"
+        },
+        "enablePerformanceLogs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log performance metrics"
+        }
+      },
+      "additionalProperties": false
+    },
+    "debug": {
+      "type": "object",
+      "properties": {
+        "showStats": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show debug statistics panel"
+        },
+        "enableGridOverlay": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable terrain grid overlay by default"
+        },
+        "enableWireframe": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render wireframe view"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rendering": {
+      "type": "object",
+      "properties": {
+        "antialias": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable antialiasing"
+        },
+        "shadows": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable shadow rendering"
+        },
+        "maxPixelRatio": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 2,
+          "description": "Maximum pixel ratio for high-DPI displays"
+        }
+      },
+      "additionalProperties": false
+    },
+    "features": {
+      "type": "object",
+      "properties": {
+        "enableExperimentalFeatures": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable experimental features (may be unstable)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

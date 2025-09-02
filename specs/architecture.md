@@ -40,22 +40,24 @@ Repository Topology
   - `visual.ts`: smoothed ribbon mesh (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe.
   - `state.ts`: rasterization of road paths to a road mask; integration hooks (e.g., fire grid fuel adjustments).
 - Vehicles: `src/vehicles/vehicles.ts`: instanced agents, road-only pathing, terrain-aligned pose. Simple and stable baseline.
-- UI/Debug: `src/ui/debug.ts`: floating stats; toggles for fire viz, roads, vehicles (spawn/move/clear).
+- UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
 - Specs: `specs/` contains domain specs (terrain, fire_behavior, vehicles, architecture).
 - Root docs: `AGENTS.md` (guidelines, commit hygiene).
 
 Runtime Model
 
 - Init sequence in `main.ts`:
-  1) Create scene/renderer/camera rig and heightmap.
-  2) Build chunked terrain, material, and apply biome colors.
-  3) Instantiate fire grid/sim/viz and attach viz nodes to scene.
-  4) Build road cost field, visualization group, and road mask.
-  5) Create vehicles manager and add to scene.
-  6) Install debug UI and input handlers for ignite, road draw, and vehicle modes.
+  1) Initialize feature flags and configuration system.
+  2) Create scene/renderer/camera rig and heightmap.
+  3) Build chunked terrain, material, and apply biome colors.
+  4) Instantiate fire grid/sim/viz and attach viz nodes to scene.
+  5) Build road cost field, visualization group, and road mask.
+  6) Create vehicles manager and add to scene.
+  7) Install debug UI (if enabled) and console system with commands.
+  8) Install input handlers for ignite, road draw, and vehicle modes.
   - Branch `features/vehicles`: after wiring, seed a rectangular road loop on a small (32×32) mostly-flat test map and auto-spawn a few vehicles on the loop for immediate interaction.
 - Frame loop (`Loop`):
-  - Per-frame: update camera controller; LOD updates; `FireSim.step(dt)` with fixed sub-steps; `fireViz.update(grid, dt)`; `vehicles.update(dt)`; render; stats.
+  - Per-frame: update camera controller; LOD updates; `FireSim.step(dt)` with fixed sub-steps; `fireViz.update(grid, dt)`; `vehicles.update(dt)`; render; stats (including memory metrics if enabled).
   - Fixed fire dt: 0.25 s with 6-step cap per frame.
 
 Key Abstractions & Data
