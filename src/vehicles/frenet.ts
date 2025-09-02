@@ -73,7 +73,13 @@ export class PathFollower {
   }
 
   update(dt: number) {
-    if (this.s >= this.path.length) return;
+    // For closed paths, wrap S; for open, clamp at end
+    if (this.path.closed) {
+      if (this.s >= this.path.length) this.s -= this.path.length;
+      if (this.s < 0) this.s += this.path.length;
+    } else {
+      if (this.s >= this.path.length) return;
+    }
     const L = Math.min(this.Lmax, Math.max(this.Lmin, this.Lmin + this.kLook * this.v));
     const sampL = this.path.sample(Math.min(this.path.length, this.s + L));
     const target = sampL.p;
@@ -91,7 +97,7 @@ export class PathFollower {
     // curvature and speed target
     const kappa = Math.abs(this.path.curvature(this.s));
     const vCurve = Math.sqrt(Math.max(0.1, this.aLatMax / Math.max(kappa, 1e-3)));
-    const vArrive = (this.path.length - this.s < this.arriveDist) ? 2 : this.vMaxClamp;
+    const vArrive = this.path.closed ? this.vMaxClamp : ((this.path.length - this.s < this.arriveDist) ? 2 : this.vMaxClamp);
     let vTarget = Math.min(this.vMaxClamp, vCurve, vArrive);
     // Leader following: cap target speed based on gap
     if (this.leaderS != null && this.leaderS > this.s) {
@@ -118,7 +124,12 @@ export class PathFollower {
         : Math.max(this.minGap, this.v * this.timeHeadway);
       ds = Math.min(ds, Math.max(0, (this.leaderS - this.s) - desiredGap));
     }
-    this.s = Math.min(this.path.length, this.s + ds);
+    this.s = this.s + ds;
+    if (this.path.closed) {
+      if (this.s >= this.path.length) this.s -= this.path.length;
+    } else {
+      this.s = Math.min(this.path.length, this.s);
+    }
 
     // update pose at new s
     const { p, t } = this.path.sample(this.s);

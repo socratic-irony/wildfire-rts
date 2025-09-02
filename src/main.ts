@@ -234,7 +234,13 @@ function rebuildPath2Ds() {
     stitched.push(cur);
   }
   for (let i = 0; i < raw.length; i++) if (!used[i]) stitched.push(raw[i]);
-  path2ds = stitched.map(pts => new Path2D(pts));
+  // Treat each smoothed midline as a closed loop if it appears to form a circuit
+  path2ds = stitched.map(pts => {
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const isClosed = Math.hypot(first.x - last.x, first.z - last.z) < hm.scale * 1.5;
+    return new Path2D(pts, { closed: isClosed });
+  });
 }
 function spawnFollowersOnAllPaths(perPath = 3) {
   // Create visible follower objects for each path2d
