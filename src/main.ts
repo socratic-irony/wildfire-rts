@@ -119,18 +119,61 @@ loop.add((dt) => {
           followers[i].setLeader(followers[lead].s, followers[lead].v);
         }
         followers[i].setSpacingMode(spacingMode);
-        // Intersection four-way stop: simple stop timer when approaching
+        // Intersection manager: reservation with mandatory full stop
+        // Parameters
+        const STOP_DWELL = 0.6;      // seconds to fully stop
+        const APPROACH_DIST = 6.0;   // meters
+        const NEAR_DIST = 2.0;       // meters
+        const PASS_DIST = 3.5;       // meters after S crosses intersection
+        const MAX_CROSS_TIME = 2.0;  // safety timeout (seconds)
+        const now = performance.now() / 1000;
         try {
-          const pathIdx = path2dIndexMap.get(followers[i].path as Path2D) ?? -1;
-          if (pathIdx >= 0) {
-            const look = 6.0; // meters ahead
-            const inter = (roadsVis as any).getNextIntersection?.(pathIdx, followers[i].s, look);
-            if (inter && inter.dist < 2.0) {
-              // stop for a fixed time at intersection
-              (followers[i] as any).setSpeedCap?.(0.0, 1.0); // 1s stop
-            } else if (inter && inter.dist < 4.0) {
-              // pre-slow when approaching
-              (followers[i] as any).setSpeedCap?.(0.8, 0.5);
+          const f = followers[i];
+          const pIdx = path2dIndexMap.get(f.path as Path2D) ?? -1;
+          if (pIdx >= 0) {
+            const inter = (roadsVis as any).getNextIntersection?.(pIdx, f.s, APPROACH_DIST);
+            const st = followerState[i] || (followerState[i] = {} as FState);
+            if (inter) {
+              // Reserve if free
+              const res = interReservations.get(inter.id);
+              if (!res && inter.dist < APPROACH_DIST) {
+                interReservations.set(inter.id, { reservedBy: i, startS: inter.s, startTime: now, pathIndex: pIdx });
+                st.currentIntId = inter.id;
+                st.targetS = inter.s;
+                st.stopTimer = STOP_DWELL;
+              }
+              const curRes = interReservations.get(inter.id);
+              if (curRes && curRes.reservedBy === i) {
+                // We own the intersection: full stop when near, then go
+                if (inter.dist < NEAR_DIST) {
+                  // enforce dwell stop near the line
+                  if (st.stopTimer && st.stopTimer > 0) {
+                    (f as any).setSpeedCap?.(0.0, 0.2);
+                    st.stopTimer -= dt;
+                  }
+                } else if (inter.dist < APPROACH_DIST && (st.stopTimer ?? 0) > 0) {
+                  // approaching: pre-slow while counting down
+                  (f as any).setSpeedCap?.(0.6, 0.2);
+                  st.stopTimer -= dt * 0.5;
+                }
+                // Release once passed or timeout
+                const L = f.path.length;
+                if (st.targetS != null) {
+                  let ds = f.s - st.targetS;
+                  if ((f.path as any).closed && ds < 0) ds += L;
+                  if (ds > PASS_DIST || now - curRes.startTime > MAX_CROSS_TIME) {
+                    interReservations.delete(inter.id);
+                    st.currentIntId = undefined; st.targetS = undefined; st.stopTimer = undefined;
+                  }
+                }
+              } else if (curRes && curRes.reservedBy !== i) {
+                // Another follower owns this intersection: stop/slow
+                if (inter.dist < NEAR_DIST) (f as any).setSpeedCap?.(0.0, 0.2);
+                else (f as any).setSpeedCap?.(0.5, 0.2);
+              }
+            } else {
+              // no intersection ahead
+              st.currentIntId = undefined; st.targetS = undefined; st.stopTimer = undefined;
             }
           }
         } catch {}
@@ -222,6 +265,10 @@ let followMode: FollowMode = 'frenet';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
 let path2dIndexMap: Map<Path2D, number> = new Map();
+type InterRes = { reservedBy: number; startS: number; startTime: number; pathIndex: number };
+const interReservations = new Map<number, InterRes>();
+type FState = { currentIntId?: number; targetS?: number; stopTimer?: number };
+let followerState: FState[] = [];
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
 
@@ -274,6 +321,7 @@ function spawnFollowersOnAllPaths(perPath = 3) {
       const follower = new PathFollower(p, hm, obj, startS);
       follower.setSpacingMode(spacingMode);
       followers.push(follower);
+      followerState.push({});
     }
   }
 }
