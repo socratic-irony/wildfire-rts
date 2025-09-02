@@ -463,7 +463,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     getIgniteMode() { return igniteMode; },
 
     setActions(a) { actions = a; maybeInjectPreset(); },
-    setRefs(o) { opts = o; }
+    setRefs(o) { opts = o; },
     setVisible(vis: boolean) { 
       visible = vis; 
       el.style.display = visible ? 'block' : 'none';
