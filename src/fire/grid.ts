@@ -72,11 +72,12 @@ export function buildFireGrid(hm: Heightmap, biomes: BiomeMask, params: Partial<
     const hR = hm.data[zi * cols + (xi + 1)];
     const hD = hm.data[(zi - 1) * cols + xi];
     const hU = hm.data[(zi + 1) * cols + xi];
-    const dx = (hR - hL) * 0.5;
-    const dz = (hU - hD) * 0.5;
+    const dx = (hR - hL) * 0.5; // gradient in +X direction
+    const dz = (hU - hD) * 0.5; // gradient in +Z direction
     const tanSlope = Math.hypot(dx, dz) / (1.0 * hm.scale);
     const len = Math.hypot(dx, dz) || 1e-6;
-    return { tanSlope, downX: dx / len, downZ: dz / len };
+    // Return downslope direction (opposite of gradient)
+    return { tanSlope, downX: -dx / len, downZ: -dz / len };
   }
 
   const chooseFuel = (i: number): FuelKey => {
@@ -153,17 +154,32 @@ export function applyWaterAoE(grid: FireGrid, center: { x: number; z: number }, 
       const dx = x - center.x; const dz = z - center.z;
       if (dx * dx + dz * dz <= r2) {
         const i = coordToIndex(grid, x, z);
-        grid.tiles[i].wetness = Math.min(1, grid.tiles[i].wetness + intensity);
+        const tile = grid.tiles[i];
+        tile.wetness = Math.min(1, tile.wetness + intensity);
+        
+        // Immediate heat knockdown effect as per spec
+        if (tile.state === FireState.Burning || tile.state === FireState.Smoldering) {
+          const knockdown = 0.8 * intensity; // Increase from 0.4 to 0.8 for stronger suppression
+          tile.heat = Math.max(0, tile.heat - knockdown);
+          
+          // Check for early extinguish if heat drops below threshold
+          if (tile.heat < grid.params.thresholds.extinguishHeat) {
+            if (tile.state === FireState.Burning) {
+              tile.state = FireState.Smoldering;
+            }
+          }
+        }
       }
     }
   }
 }
 
 export function applyRetardantLine(grid: FireGrid, polyline: Array<{ x: number; z: number }>, width: number, strength: number) {
-  // Rasterize simple discs along the line
+  // Rasterize simple discs along the line, interpolating between points
   for (let k = 0; k < polyline.length; k++) {
-    applyWaterAoE(grid, polyline[k], width, 0); // noop to reuse window math
     const c = polyline[k];
+    
+    // Apply disc at current point
     const r = width;
     const r2 = r * r;
     for (let z = Math.max(0, Math.floor(c.z - r)); z < Math.min(grid.height, Math.ceil(c.z + r)); z++) {
@@ -173,6 +189,33 @@ export function applyRetardantLine(grid: FireGrid, polyline: Array<{ x: number; 
           const i = coordToIndex(grid, x, z);
           grid.tiles[i].retardant = Math.max(grid.tiles[i].retardant, strength);
           grid.tiles[i].lineStrength = Math.max(grid.tiles[i].lineStrength, strength * 0.7);
+        }
+      }
+    }
+    
+    // Interpolate to next point if it exists
+    if (k + 1 < polyline.length) {
+      const next = polyline[k + 1];
+      const dx = next.x - c.x;
+      const dz = next.z - c.z;
+      const len = Math.hypot(dx, dz);
+      const steps = Math.max(1, Math.ceil(len)); // At least one step per unit distance
+      
+      for (let step = 1; step < steps; step++) {
+        const t = step / steps;
+        const interpX = c.x + dx * t;
+        const interpZ = c.z + dz * t;
+        
+        // Apply disc at interpolated point
+        for (let z = Math.max(0, Math.floor(interpZ - r)); z < Math.min(grid.height, Math.ceil(interpZ + r)); z++) {
+          for (let x = Math.max(0, Math.floor(interpX - r)); x < Math.min(grid.width, Math.ceil(interpX + r)); x++) {
+            const dx = x - interpX; const dz = z - interpZ;
+            if (dx * dx + dz * dz <= r2) {
+              const i = coordToIndex(grid, x, z);
+              grid.tiles[i].retardant = Math.max(grid.tiles[i].retardant, strength);
+              grid.tiles[i].lineStrength = Math.max(grid.tiles[i].lineStrength, strength * 0.7);
+            }
+          }
         }
       }
     }
