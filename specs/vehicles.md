@@ -3,6 +3,7 @@
 Status (current)
 
 - Implemented: instanced vehicles with a simple grid-follow model constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction), spawn near nearest road, road-only A* for explicit destinations, and an auto-follow mode that advances along connected road tiles. UI hooks to spawn/move/clear. Vehicles render reliably after rollback to terrain-only alignment.
+- Demo seeding (vehicles branch): at startup, the main app auto-seeds 1–2 random rectangular road loops and spawns a few vehicles on them so behavior is visible immediately. Clear via debug UI to draw your own roads.
 - Update: baseline road-follow now prefers 4-neighbor (N/E/S/W) turns, considering diagonals only when needed, for clearer cornering. Added a small heading “weathervane” debug marker per agent for quick orientation diagnostics.
 - Road visuals: adaptive smoothed ribbon that hugs terrain via normal offset, dusty shoulders, dashed center stripe; polygon offset to avoid z-fighting.
 - Road building: cost field includes slope penalty and hard block for steep tiles; turn penalty biases A* to reduce sharp curves; rasterized road mask integrates with fire grid.
@@ -89,9 +90,10 @@ Performance Targets
 - ≤ 0.5 ms/update for 100 vehicles on typical roads.
 - No stutters on first spawn or after long road placement.
 
-Known Issues / Outstanding Work
+ Known Issues / Outstanding Work
 
 - Midline projection (safe): Reintroduce vehicle projection/orientation to road midline using a spatial index (grid or BVH) per road to avoid O(N·M) scans. Maintain per-agent path+segment hints for O(1) neighborhood queries. Guard against degenerate segments (zero length).
+  - Current status: orientation uses midline projection with a gentle lateral nudge; a per-road spatial index and stable segment pinning are next.
 - Intersections & branching: Pin each agent to the intended polyline; resolve choice at intersections; avoid snapping to parallel/nearby roads.
 - Steering/yaw smoothing: Reapply forward vector smoothing (lerp/slerp) once projection is stable to get visually pleasing steering through curves.
 - Speed model: Modulate speed by grade, curvature, and road class; cap speed on steep slopes and sharp turns.
