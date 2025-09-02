@@ -24,15 +24,23 @@ export class RoadsVisual {
   addPath(points: Array<{ x: number; z: number }>, _scale?: number, _y?: number) {
     if (!points || points.length < 2) return;
     const scale = this.hm.scale;
-    const centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
-    const simplified = simplifyRDP(centers, scale * 0.2);
-    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: scale * 0.02 });
+    let centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
+    // Detect closed loop if first and last are near; remove duplicate last if repeated
+    const closed = centers.length > 2 && Math.hypot(centers[0].x - centers[centers.length - 1].x, centers[0].y - centers[centers.length - 1].y) < scale * 1.0;
+    if (closed) {
+      // remove duplicate endpoint to avoid zero-length seam
+      if (Math.hypot(centers[0].x - centers[centers.length - 1].x, centers[0].y - centers[centers.length - 1].y) < 1e-3) {
+        centers = centers.slice(0, centers.length - 1);
+      }
+    }
+    const simplified = simplifyRDP(centers, scale * 0.2, closed);
+    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: scale * 0.02, closed });
     const width = 0.5 * scale; // approx half tile width
     // Store smoothed midline for projection queries
     this.paths.push(smooth.map(p => p.clone()));
     // Main road surface
     {
-      const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset);
+      const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset, closed);
       const geo = new BufferGeometry();
       geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
       geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
@@ -46,7 +54,7 @@ export class RoadsVisual {
     // Shoulders: faint dusty brown bands outside the road
     {
       const shoulder = Math.max(0.25 * scale, 0.3 * width);
-      const { positions, colors, indices } = buildShoulderBands(smooth, width, shoulder, this.hm, this.yOffset * 0.8);
+      const { positions, colors, indices } = buildShoulderBands(smooth, width, shoulder, this.hm, this.yOffset * 0.8, closed);
       const geo = new BufferGeometry();
       geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
       geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
@@ -60,7 +68,7 @@ export class RoadsVisual {
       const stripeWidth = 0.12 * scale;
       const dash = 1.2 * scale;
       const gap = 0.8 * scale;
-      const geo = buildCenterDashed(smooth, stripeWidth, dash, gap, this.hm, this.yOffset + 0.02);
+      const geo = buildCenterDashed(smooth, stripeWidth, dash, gap, this.hm, this.yOffset + 0.02, closed);
       const mesh = new Mesh(geo, this.stripeMat);
       mesh.renderOrder = 8;
       this.group.add(mesh);
@@ -164,7 +172,7 @@ export class RoadsVisual {
   }
 }
 
-function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset: number) {
+function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset: number, closed = false) {
   const half = width * 0.5;
   const positions: number[] = [];
   const colors: number[] = [];
@@ -176,10 +184,11 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
   const nms: Vector3[] = [];
   const nrs: Vector3[] = [];
 
-  for (let i = 0; i < path.length; i++) {
+  const N = path.length;
+  for (let i = 0; i < N; i++) {
     const p = path[i];
-    const pPrev = path[Math.max(0, i - 1)];
-    const pNext = path[Math.min(path.length - 1, i + 1)];
+    const pPrev = closed ? path[(i - 1 + N) % N] : path[Math.max(0, i - 1)];
+    const pNext = closed ? path[(i + 1) % N] : path[Math.min(N - 1, i + 1)];
     const tx = pNext.x - pPrev.x;
     const tz = pNext.y - pPrev.y;
     const len = Math.hypot(tx, tz) || 1;
@@ -214,7 +223,7 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
     colors.push(...edge, ...mid, ...edge);
   }
   // indices: stitch between (L,M,R) at i and i+1 -> four triangles (two quads)
-  for (let i = 0; i < path.length - 1; i++) {
+  for (let i = 0; i < N - 1; i++) {
     const iL = i * 3;
     const iM = i * 3 + 1;
     const iR = i * 3 + 2;
@@ -226,45 +235,72 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
     // right quad
     indices.push(iM, jM, iR, iR, jM, jR);
   }
+  // stitch last to first if closed
+  if (closed && N > 1) {
+    const i = N - 1;
+    const iL = i * 3, iM = i * 3 + 1, iR = i * 3 + 2;
+    const jL = 0, jM = 1, jR = 2;
+    indices.push(iL, jL, iM, iM, jL, jM);
+    indices.push(iM, jM, iR, iR, jM, jR);
+  }
   return { positions, colors, indices };
 }
 
 // Ramer–Douglas–Peucker simplification on 2D points
-function simplifyRDP(pts: Vector2[], eps: number): Vector2[] {
+function simplifyRDP(pts: Vector2[], eps: number, closed = false): Vector2[] {
   if (pts.length <= 2) return pts.slice();
-  const keep = new Array(pts.length).fill(false);
-  keep[0] = keep[pts.length - 1] = true;
-  function distPointSeg(p: Vector2, a: Vector2, b: Vector2) {
-    const abx = b.x - a.x, abz = b.y - a.y;
-    const apx = p.x - a.x, apz = p.y - a.y;
-    const t = Math.max(0, Math.min(1, (apx * abx + apz * abz) / (abx * abx + abz * abz || 1)));
-    const cx = a.x + t * abx, cz = a.y + t * abz;
-    return Math.hypot(p.x - cx, p.y - cz);
-  }
-  function recurse(i0: number, i1: number) {
-    let maxD = -1, idx = -1;
-    for (let i = i0 + 1; i < i1; i++) {
-      const d = distPointSeg(pts[i], pts[i0], pts[i1]);
-      if (d > maxD) { maxD = d; idx = i; }
+  if (!closed) {
+    const keep = new Array(pts.length).fill(false);
+    keep[0] = keep[pts.length - 1] = true;
+    function distPointSeg(p: Vector2, a: Vector2, b: Vector2) {
+      const abx = b.x - a.x, abz = b.y - a.y;
+      const apx = p.x - a.x, apz = p.y - a.y;
+      const t = Math.max(0, Math.min(1, (apx * abx + apz * abz) / (abx * abx + abz * abz || 1)));
+      const cx = a.x + t * abx, cz = a.y + t * abz;
+      return Math.hypot(p.x - cx, p.y - cz);
     }
-    if (maxD > eps && idx !== -1) {
-      keep[idx] = true;
-      recurse(i0, idx);
-      recurse(idx, i1);
+    function recurse(i0: number, i1: number) {
+      let maxD = -1, idx = -1;
+      for (let i = i0 + 1; i < i1; i++) {
+        const d = distPointSeg(pts[i], pts[i0], pts[i1]);
+        if (d > maxD) { maxD = d; idx = i; }
+      }
+      if (maxD > eps && idx !== -1) {
+        keep[idx] = true;
+        recurse(i0, idx);
+        recurse(idx, i1);
+      }
     }
+    recurse(0, pts.length - 1);
+    const out: Vector2[] = [];
+    for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
+    return out;
   }
-  recurse(0, pts.length - 1);
+  // Closed: approximate by rotating, simplifying open, then rotating back
+  const N = pts.length;
+  const mid = Math.floor(N / 2);
+  const rotated = pts.slice(mid).concat(pts.slice(0, mid));
+  const open = simplifyRDP(rotated, eps, false);
+  // Rotate back to original order (find rotated[0])
+  const idx0 = open.findIndex(p => p.x === rotated[0].x && p.y === rotated[0].y);
+  const back = idx0 >= 0 ? open.slice(idx0).concat(open.slice(0, idx0)) : open;
+  // Remove potential duplicate last==first
   const out: Vector2[] = [];
-  for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
+  for (let i = 0; i < back.length; i++) {
+    const a = back[i], b = back[(i + 1) % back.length];
+    out.push(a);
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 1e-6) i++;
+  }
   return out;
 }
 
 // Catmull-Rom resampling for smoother curves
 // Catmull-Rom adaptive resampling using midpoint sag error and max segment length
-function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; sagEps: number }): Vector2[] {
+function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; sagEps: number; closed?: boolean }): Vector2[] {
   if (pts.length <= 2) return pts.slice();
   const out: Vector2[] = [];
-  const P = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+  const closed = !!opts.closed;
+  const P = (i: number) => closed ? pts[(i % pts.length + pts.length) % pts.length] : pts[Math.max(0, Math.min(pts.length - 1, i))];
 
   const spline = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: number) => {
     const t2 = t * t, t3 = t2 * t;
@@ -300,12 +336,14 @@ function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; s
     return segs;
   };
 
-  for (let i = 0; i < pts.length - 1; i++) {
+  const last = closed ? pts.length : (pts.length - 1);
+  for (let i = 0; i < last; i++) {
     const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
     if (i === 0) out.push(p1.clone());
     const seg = subdivide(p0, p1, p2, p3);
     for (const s of seg) out.push(s);
   }
+  if (closed) out.pop();
   return out;
 }
 
@@ -323,16 +361,17 @@ function sampleNormal(hm: Heightmap, wx: number, wz: number) {
 }
 
 // Build faint shoulder bands outside the road surface
-function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm: Heightmap, yOffset: number) {
+function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm: Heightmap, yOffset: number, closed = false) {
   const half = width * 0.5;
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
   const OL: Vector3[] = [], L: Vector3[] = [], R: Vector3[] = [], OR: Vector3[] = [];
-  for (let i = 0; i < path.length; i++) {
+  const N = path.length;
+  for (let i = 0; i < N; i++) {
     const p = path[i];
-    const pPrev = path[Math.max(0, i - 1)];
-    const pNext = path[Math.min(path.length - 1, i + 1)];
+    const pPrev = closed ? path[(i - 1 + N) % N] : path[Math.max(0, i - 1)];
+    const pNext = closed ? path[(i + 1) % N] : path[Math.min(N - 1, i + 1)];
     const tx = pNext.x - pPrev.x;
     const tz = pNext.y - pPrev.y;
     const len = Math.hypot(tx, tz) || 1;
@@ -363,7 +402,7 @@ function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm
     const inner = [0.53, 0.44, 0.35];
     colors.push(...outer, ...inner, ...inner, ...outer);
   }
-  for (let i = 0; i < path.length - 1; i++) {
+  for (let i = 0; i < N - 1; i++) {
     const base = i * 4;
     const next = (i + 1) * 4;
     // left shoulder quad (OL-L)
@@ -371,11 +410,17 @@ function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm
     // right shoulder quad (R-OR)
     indices.push(base + 2, next + 2, base + 3, base + 3, next + 2, next + 3);
   }
+  if (closed && N > 1) {
+    const base = (N - 1) * 4;
+    const next = 0;
+    indices.push(base + 0, next + 0, base + 1, base + 1, next + 0, next + 1);
+    indices.push(base + 2, next + 2, base + 3, base + 3, next + 2, next + 3);
+  }
   return { positions, colors, indices };
 }
 
 // Build a dashed center stripe along the midline
-function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number, gapLen: number, hm: Heightmap, yOffset: number) {
+function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number, gapLen: number, hm: Heightmap, yOffset: number, closed = false) {
   const geo = new BufferGeometry();
   const pos: number[] = [];
   const idx: number[] = [];
@@ -385,8 +430,12 @@ function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number
   let acc = 0; // accumulated distance along path in world units
   let last = path[0];
   let vert = 0;
-  for (let i = 1; i < path.length; i++) {
-    const cur = path[i];
+  const N = path.length;
+  const segCount = closed ? N : (N - 1);
+  for (let si = 0; si < segCount; si++) {
+    const aIdx = si;
+    const bIdx = (si + 1) % N;
+    const cur = path[bIdx];
     const segLen = Math.hypot(cur.x - last.x, cur.y - last.y);
     if (segLen <= 1e-6) { last = cur; continue; }
     let progressed = 0;
