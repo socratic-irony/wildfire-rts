@@ -1,0 +1,24 @@
+{
+  "// Copy this file to local.json and modify as needed": null,
+  "// Environment variables can also override config": null,
+  "// Format: WF_<SECTION>_<KEY> (e.g., WF_LOGGING_VERBOSITY=debug)": null,
+  
+  "logging": {
+    "verbosity": "debug",
+    "enableConsoleTimestamps": true,
+    "enablePerformanceLogs": true
+  },
+  "debug": {
+    "showStats": true,
+    "enableGridOverlay": true,
+    "enableWireframe": false
+  },
+  "rendering": {
+    "antialias": true,
+    "shadows": true,
+    "maxPixelRatio": 1
+  },
+  "features": {
+    "enableExperimentalFeatures": true
+  }
+}
