@@ -27,12 +27,15 @@ export class PathFollower {
   // tuning
   Lmin = 3; Lmax = 14; kLook = 0.7;
   accel = 8; brake = 12;
-  aLatMax = 5; vMaxClamp = 16; arriveDist = 6;
+  aLatMax = 5; vMaxClamp = 10; arriveDist = 6;
   laneOffset = 0;
   minGap = 2.0; timeHeadway = 1.0; // following gaps
   spacingMode: 'hybrid' | 'gap' | 'time' = 'hybrid';
   // smoothing
   prevQuat = new Quaternion();
+  // external speed cap (e.g., intersections)
+  private extCap = Infinity;
+  private extCapTimer = 0;
 
   constructor(path: Path2D, hm: Heightmap, object: Object3D, s0 = 0) {
     this.path = path; this.hm = hm; this.object = object; this.s = s0;
@@ -73,9 +76,15 @@ export class PathFollower {
   }
 
   update(dt: number) {
-    if (this.s >= this.path.length) return;
+    // For closed paths, wrap S; for open, clamp at end
+    if (this.path.closed) {
+      if (this.s >= this.path.length) this.s -= this.path.length;
+      if (this.s < 0) this.s += this.path.length;
+    } else {
+      if (this.s >= this.path.length) return;
+    }
     const L = Math.min(this.Lmax, Math.max(this.Lmin, this.Lmin + this.kLook * this.v));
-    const sampL = this.path.sample(Math.min(this.path.length, this.s + L));
+    const sampL = this.path.sample(this.s + L);
     const target = sampL.p;
     const pos = new Vector3(); this.object.matrix.decompose(pos, new Quaternion(), new Vector3());
     const toT = { x: target.x - pos.x, z: target.z - pos.z } as V2;
@@ -89,10 +98,49 @@ export class PathFollower {
     const headingErr = Math.atan2(cross, dot);
 
     // curvature and speed target
-    const kappa = Math.abs(this.path.curvature(this.s));
-    const vCurve = Math.sqrt(Math.max(0.1, this.aLatMax / Math.max(kappa, 1e-3)));
-    const vArrive = (this.path.length - this.s < this.arriveDist) ? 2 : this.vMaxClamp;
+    // curvature ahead: sample a few points to anticipate sharp turns
+    const samples = [0, Math.min(2, L * 0.33), Math.min(4, L * 0.66), Math.min(6, L)];
+    let kappaMax = 0;
+    for (const ds of samples) {
+      const k = Math.abs(this.path.curvature(this.s + ds));
+      if (k > kappaMax) kappaMax = k;
+    }
+    const vCurve = Math.sqrt(Math.max(0.1, this.aLatMax / Math.max(kappaMax, 1e-3)));
+    const vArrive = this.path.closed ? this.vMaxClamp : ((this.path.length - this.s < this.arriveDist) ? 2 : this.vMaxClamp);
     let vTarget = Math.min(this.vMaxClamp, vCurve, vArrive);
+
+    // hard slow for near-90° bends within short distance
+    const dTurn = 2.0; // meters ahead to evaluate
+    const tNow = this.path.sample(this.s).t;
+    const tNear = this.path.sample(this.s + dTurn).t;
+    const dotTN = Math.max(-1, Math.min(1, tNow.x * tNear.x + tNow.z * tNear.z));
+    const ang = Math.acos(dotTN); // radians
+    if (ang > Math.PI * 0.80) { // > 144° extremely sharp: nearly stop
+      vTarget = Math.min(vTarget, 0.15);
+    } else if (ang > Math.PI * 0.5) { // > 90° very sharp: crawl
+      vTarget = Math.min(vTarget, 0.45);
+    } else if (ang > Math.PI * 0.35) { // > 63°: slow
+      vTarget = Math.min(vTarget, 0.9);
+    }
+
+    // grade-based modulation (downhill a bit faster, uphill slower)
+    const ahead = this.path.sample(this.s + 3.0).p;
+    const now = this.path.sample(this.s).p;
+    const hNow = this.hm.sample(now.x, now.z);
+    const hAhead = this.hm.sample(ahead.x, ahead.z);
+    const dist = Math.max(0.1, Math.hypot(ahead.x - now.x, ahead.z - now.z));
+    const grade = (hAhead - hNow) / dist; // +uphill, -downhill
+    const upFactor = 1 / (1 + Math.max(0, grade) * 1.2);
+    const downFactor = 1 + Math.max(0, -grade) * 0.6;
+    const gradeFactor = Math.max(0.5, Math.min(1.35, upFactor * downFactor));
+    vTarget *= gradeFactor;
+    // external cap
+    if (this.extCapTimer > 0) {
+      this.extCapTimer -= dt;
+      vTarget = Math.min(vTarget, this.extCap);
+    } else {
+      this.extCap = Infinity;
+    }
     // Leader following: cap target speed based on gap
     if (this.leaderS != null && this.leaderS > this.s) {
       const gapS = this.leaderS - this.s;
@@ -118,7 +166,12 @@ export class PathFollower {
         : Math.max(this.minGap, this.v * this.timeHeadway);
       ds = Math.min(ds, Math.max(0, (this.leaderS - this.s) - desiredGap));
     }
-    this.s = Math.min(this.path.length, this.s + ds);
+    this.s = this.s + ds;
+    if (this.path.closed) {
+      if (this.s >= this.path.length) this.s -= this.path.length;
+    } else {
+      this.s = Math.min(this.path.length, this.s);
+    }
 
     // update pose at new s
     const { p, t } = this.path.sample(this.s);
@@ -135,5 +188,11 @@ export class PathFollower {
     m.multiply(rotY);
     this.object.matrix.copy(m);
     this.object.matrix.setPosition(newPos);
+  }
+
+  // Apply an external speed cap for a duration (seconds)
+  setSpeedCap(cap: number, duration: number) {
+    this.extCap = Math.max(0, cap);
+    this.extCapTimer = Math.max(this.extCapTimer, duration);
   }
 }

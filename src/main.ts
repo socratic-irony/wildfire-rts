@@ -168,13 +168,14 @@ loop.add((dt) => {
       yawDiv.textContent = vehicles.getDebugText(0);
     }
   } else {
+    // Intersections TBD — no special slowing logic here
     const groups = new Map<Path2D, number[]>();
     for (let i = 0; i < followers.length; i++) {
       const p = followers[i].path as Path2D;
       if (!groups.has(p)) groups.set(p, []);
       groups.get(p)!.push(i);
     }
-    for (const [, idxs] of groups) {
+  for (const [, idxs] of groups) {
       idxs.sort((a, b) => followers[a].s - followers[b].s);
       for (let k = idxs.length - 1; k >= 0; k--) {
         const i = idxs[k];
@@ -191,6 +192,7 @@ loop.add((dt) => {
   }
   renderer.render(scene, rig.camera);
   stats.update(dt, renderer);
+  // (intersection manager already ran pre-update in Frenet mode)
 });
 
 // Toggle grid overlay (G)
@@ -408,7 +410,76 @@ function rebuildPath2Ds() {
     stitched.push(cur);
   }
   for (let i = 0; i < raw.length; i++) if (!used[i]) stitched.push(raw[i]);
-  path2ds = stitched.map(pts => new Path2D(pts));
+  // Treat each smoothed midline as a closed loop if it appears to form a circuit
+  path2ds = stitched.map(pts => {
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const isClosed = Math.hypot(first.x - last.x, first.z - last.z) < hm.scale * 1.5;
+    return new Path2D(pts, { closed: isClosed });
+  });
+}
+function spawnFollowersOnAllPaths(perPath = 3) {
+  // Create visible follower objects for each path2d
+  for (const p of path2ds) {
+    const total = Math.max(1, perPath);
+    for (let k = 0; k < total; k++) {
+      const obj = new Object3D();
+      const geo = new BoxGeometry(hm.scale * 0.6, hm.scale * 0.3, hm.scale * 0.9);
+      const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
+      const mesh = new Mesh(geo, mat); mesh.castShadow = true; obj.add(mesh);
+      scene.add(obj);
+      const startS = (p.length / total) * k;
+      const follower = new PathFollower(p, hm, obj, startS);
+      follower.setSpacingMode(spacingMode);
+      followers.push(follower);
+      followerState.push({});
+    }
+  }
+}
+// Helper: rectangular road loop builder (grid cells around rectangle border)
+function buildRectLoop(x0: number, z0: number, x1: number, z1: number) {
+  const pts: Array<{ x: number; z: number }> = [];
+  for (let x = x0; x <= x1; x++) pts.push({ x, z: z0 });
+  for (let z = z0 + 1; z <= z1; z++) pts.push({ x: x1, z });
+  for (let x = x1 - 1; x >= x0; x--) pts.push({ x, z: z1 });
+  for (let z = z1 - 1; z > z0; z--) pts.push({ x: x0, z });
+  return pts;
+}
+// Seed a few random road loops and spawn vehicles on them
+function seedRandomLoopsAndVehicles(count = 2) {
+  const pad = Math.max(6, Math.floor(Math.min(hm.width, hm.height) * 0.05));
+  const loops: Array<Array<{ x: number; z: number }>> = [];
+  for (let n = 0; n < count; n++) {
+    const minW = Math.max(10, Math.floor(hm.width * 0.20));
+    const minH = Math.max(10, Math.floor(hm.height * 0.20));
+    const maxW = Math.max(minW + 6, Math.floor(hm.width * 0.55));
+    const maxH = Math.max(minH + 6, Math.floor(hm.height * 0.55));
+    const w = Math.min(maxW, minW + Math.floor(Math.random() * (maxW - minW + 1)));
+    const h = Math.min(maxH, minH + Math.floor(Math.random() * (maxH - minH + 1)));
+    const x0 = pad + Math.floor(Math.random() * Math.max(1, hm.width - w - 2 * pad));
+    const z0 = pad + Math.floor(Math.random() * Math.max(1, hm.height - h - 2 * pad));
+    const x1 = Math.min(hm.width - 1 - pad, x0 + w);
+    const z1 = Math.min(hm.height - 1 - pad, z0 + h);
+    const loop = buildRectLoop(x0, z0, x1, z1);
+    const closed = loop.concat([loop[0]]);
+    loops.push(closed);
+    roadsVis.addPath(closed);
+    rasterizePolyline(roadMask, closed, 0.9);
+  }
+  // Apply to fire grid for integration
+  applyRoadMaskToFireGrid(fireGrid, roadMask);
+  rebuildPath2Ds();
+  // Spawn grid-mode vehicles only if grid follow mode is active
+  if (followMode === 'grid') {
+    const spawnsPerLoop = Math.max(2, Math.floor(loops.length >= 2 ? 3 : 4));
+    for (const loop of loops) {
+      const step = Math.max(1, Math.floor(loop.length / spawnsPerLoop));
+      for (let i = 0; i < loop.length && i / step < spawnsPerLoop; i += step) {
+        const p = loop[i];
+        vehicles.spawnAt(p.x, p.z);
+      }
+    }
+  }
 }
 function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
@@ -438,8 +509,15 @@ scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
-// Default to Frenet: hide grid vehicles by default
+// Show grid vehicles only in grid mode
 vehicles.group.visible = (followMode === 'grid');
+
+// Seed random road loops at startup and spawn moving vehicles
+seedRandomLoopsAndVehicles(2);
+rebuildPath2Ds();
+if (followMode === 'frenet') {
+  spawnFollowersOnAllPaths(3);
+}
 
 // Click to ignite under cursor
 {

@@ -14,17 +14,23 @@ export class Path2D {
   segLens: number[] = [];
   cum: number[] = [];
   length = 0;
+  closed = false;
 
-  constructor(pts: V2[]) {
+  constructor(pts: V2[], opts?: { closed?: boolean }) {
     if (!pts || pts.length < 2) throw new Error('Path2D needs ≥2 points');
     this.pts = pts;
+    this.closed = !!opts?.closed;
     this.build();
   }
 
   private build() {
     this.segLens.length = 0; this.cum.length = 0; this.length = 0;
-    for (let i = 0; i < this.pts.length - 1; i++) {
-      const L = v2.len(v2.sub(this.pts[i + 1], this.pts[i]));
+    const n = this.pts.length;
+    const segCount = this.closed ? n : (n - 1);
+    for (let i = 0; i < segCount; i++) {
+      const a = this.pts[i];
+      const b = this.pts[(i + 1) % n];
+      const L = v2.len(v2.sub(b, a));
       const s = Math.max(L, 1e-6);
       this.segLens.push(s);
       this.cum.push(this.length);
@@ -34,16 +40,22 @@ export class Path2D {
   }
 
   sample(s: number) {
-    s = Math.max(0, Math.min(this.length, s));
+    if (this.closed) {
+      // wrap into [0, length)
+      s = ((s % this.length) + this.length) % this.length;
+    } else {
+      s = Math.max(0, Math.min(this.length, s));
+    }
     let lo = 0, hi = this.cum.length - 1;
     while (lo + 1 < hi) {
       const mid = (lo + hi) >> 1;
       if (this.cum[mid] <= s) lo = mid; else hi = mid;
     }
-    const i = Math.min(this.pts.length - 2, lo);
+    const segMax = this.closed ? this.pts.length - 1 : this.pts.length - 2;
+    const i = Math.min(segMax, lo);
     const segS = s - this.cum[i];
     const u = segS / this.segLens[i];
-    const a = this.pts[i], b = this.pts[i + 1];
+    const a = this.pts[i], b = this.pts[(i + 1) % this.pts.length];
     const p = { x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u } as const;
     const t = v2.norm(v2.sub(b, a));
     return { p, t, i, u } as const;
@@ -52,8 +64,10 @@ export class Path2D {
   project(q: V2) {
     let bestS = 0, bestD2 = Infinity, bestI = 0, bestU = 0;
     let acc = 0;
-    for (let i = 0; i < this.pts.length - 1; i++) {
-      const a = this.pts[i], b = this.pts[i + 1];
+    const n = this.pts.length;
+    const segCount = this.closed ? n : (n - 1);
+    for (let i = 0; i < segCount; i++) {
+      const a = this.pts[i], b = this.pts[(i + 1) % n];
       const ab = v2.sub(b, a); const abL2 = Math.max(1e-6, v2.dot(ab, ab));
       const aq = v2.sub(q, a);
       let u = Math.max(0, Math.min(1, v2.dot(aq, ab) / abL2));
@@ -77,4 +91,3 @@ export class Path2D {
     return ang / (2 * ds);
   }
 }
-

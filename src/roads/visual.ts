@@ -9,10 +9,29 @@ export class RoadsVisual {
   private yOffset = 0.05;
   private hm: Heightmap;
   private paths: Vector2[][] = [];
+  private cumS: number[][] = [];
+  private closedFlags: boolean[] = [];
+
+  // Spatial index for segments (uniform grid)
+  private gridCellSize = 0; // set on first path add
+  private gridW = 0; private gridH = 0;
+  private grid: number[][] = []; // cell -> segment indices
+  private segs: Array<{ path: number; i: number; a: Vector2; b: Vector2; len: number }>=[];
+
+  // Intersections cache
+  private intersections: Array<{ id: number; pos: Vector2; a:{path:number;s:number;seg:number;t:number}; b:{path:number;s:number;seg:number;t:number} }> = [];
+  private perPathIntersections: Array<Array<{ id:number; s:number; pos: Vector2; otherPath:number; otherS:number }>> = [];
   constructor(hm: Heightmap) { this.hm = hm; }
 
   clear() {
     for (const c of [...this.group.children]) this.group.remove(c);
+    this.paths = [];
+    this.cumS = [];
+    this.closedFlags = [];
+    this.grid = [];
+    this.segs = [];
+    this.intersections = [];
+    this.perPathIntersections = [];
   }
 
   // Expose smoothed midlines as world XZ arrays for controllers
@@ -24,15 +43,43 @@ export class RoadsVisual {
   addPath(points: Array<{ x: number; z: number }>, _scale?: number, _y?: number) {
     if (!points || points.length < 2) return;
     const scale = this.hm.scale;
-    const centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
-    const simplified = simplifyRDP(centers, scale * 0.2);
-    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: scale * 0.02 });
+    let centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
+    // Detect closed loop if first and last are near; remove duplicate last if repeated
+    const closed = centers.length > 2 && Math.hypot(centers[0].x - centers[centers.length - 1].x, centers[0].y - centers[centers.length - 1].y) < scale * 1.0;
+    if (closed) {
+      // remove duplicate endpoint to avoid zero-length seam
+      if (Math.hypot(centers[0].x - centers[centers.length - 1].x, centers[0].y - centers[centers.length - 1].y) < 1e-3) {
+        centers = centers.slice(0, centers.length - 1);
+      }
+    }
+    const simplified = simplifyRDP(centers, scale * 0.2, closed);
+    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: closed ? scale * 0.01 : scale * 0.02, closed });
     const width = 0.5 * scale; // approx half tile width
     // Store smoothed midline for projection queries
-    this.paths.push(smooth.map(p => p.clone()));
+    const mid = smooth.map(p => p.clone());
+    const pathIndex = this.paths.length;
+    this.paths.push(mid);
+    this.closedFlags[pathIndex] = closed;
+    // Build cumulative s for this path
+    const cum: number[] = []; let accS = 0;
+    const M = mid.length; const segCount = closed ? M : (M - 1);
+    for (let i = 0; i < segCount; i++) {
+      cum.push(accS);
+      const a = mid[i]; const b = mid[(i + 1) % M];
+      accS += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    cum.push(accS);
+    this.cumS[pathIndex] = cum;
+    // Accumulate segments for spatial index
+    for (let i = 0; i < segCount; i++) {
+      const a = mid[i]; const b = mid[(i + 1) % M];
+      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1e-6;
+      this.segs.push({ path: pathIndex, i, a, b, len });
+    }
+    this.perPathIntersections[pathIndex] = [];
     // Main road surface
     {
-      const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset);
+      const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset, closed);
       const geo = new BufferGeometry();
       geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
       geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
@@ -46,7 +93,7 @@ export class RoadsVisual {
     // Shoulders: faint dusty brown bands outside the road
     {
       const shoulder = Math.max(0.25 * scale, 0.3 * width);
-      const { positions, colors, indices } = buildShoulderBands(smooth, width, shoulder, this.hm, this.yOffset * 0.8);
+      const { positions, colors, indices } = buildShoulderBands(smooth, width, shoulder, this.hm, this.yOffset * 0.8, closed);
       const geo = new BufferGeometry();
       geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
       geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
@@ -60,11 +107,135 @@ export class RoadsVisual {
       const stripeWidth = 0.12 * scale;
       const dash = 1.2 * scale;
       const gap = 0.8 * scale;
-      const geo = buildCenterDashed(smooth, stripeWidth, dash, gap, this.hm, this.yOffset + 0.02);
+      const geo = buildCenterDashed(smooth, stripeWidth, dash, gap, this.hm, this.yOffset + 0.02, closed);
       const mesh = new Mesh(geo, this.stripeMat);
       mesh.renderOrder = 8;
       this.group.add(mesh);
     }
+  }
+
+  // Build or rebuild the spatial index and compute segment intersections
+  buildIntersections() {
+    // Init grid
+    const scale = this.hm.scale;
+    this.gridCellSize = this.gridCellSize || (scale * 2);
+    this.grid = [];
+    const W = Math.ceil(this.hm.width * scale / this.gridCellSize);
+    const H = Math.ceil(this.hm.height * scale / this.gridCellSize);
+    this.gridW = W; this.gridH = H;
+    for (let i = 0; i < W * H; i++) this.grid[i] = [];
+    const cellOf = (x: number, z: number) => {
+      const cx = Math.max(0, Math.min(W - 1, Math.floor(x / this.gridCellSize)));
+      const cz = Math.max(0, Math.min(H - 1, Math.floor(z / this.gridCellSize)));
+      return cz * W + cx;
+    };
+    // Insert segments into grid cells
+    for (let si = 0; si < this.segs.length; si++) {
+      const s = this.segs[si];
+      const minx = Math.min(s.a.x, s.b.x), maxx = Math.max(s.a.x, s.b.x);
+      const minz = Math.min(s.a.y, s.b.y), maxz = Math.max(s.a.y, s.b.y);
+      const c0x = Math.max(0, Math.floor(minx / this.gridCellSize));
+      const c1x = Math.min(W - 1, Math.floor(maxx / this.gridCellSize));
+      const c0z = Math.max(0, Math.floor(minz / this.gridCellSize));
+      const c1z = Math.min(H - 1, Math.floor(maxz / this.gridCellSize));
+      for (let cz = c0z; cz <= c1z; cz++) {
+        for (let cx = c0x; cx <= c1x; cx++) this.grid[cz * W + cx].push(si);
+      }
+    }
+    // Find intersections
+    const seen = new Set<string>();
+    this.intersections = [];
+    this.perPathIntersections = this.perPathIntersections.map(() => []);
+    const segsAtCell = (x: number, z: number) => this.grid[z * W + x];
+    const addInt = (pos: Vector2, A: typeof this.segs[number], tA: number, B: typeof this.segs[number], tB: number) => {
+      const sA = this.cumS[A.path][A.i] + tA * A.len;
+      const sB = this.cumS[B.path][B.i] + tB * B.len;
+      const id = this.intersections.length;
+      this.intersections.push({ id, pos: new Vector2(pos.x, pos.y), a: { path: A.path, s: sA, seg: A.i, t: tA }, b: { path: B.path, s: sB, seg: B.i, t: tB } });
+      this.perPathIntersections[A.path].push({ id, s: sA, pos: new Vector2(pos.x, pos.y), otherPath: B.path, otherS: sB });
+      this.perPathIntersections[B.path].push({ id, s: sB, pos: new Vector2(pos.x, pos.y), otherPath: A.path, otherS: sA });
+    };
+    const segSeg = (a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2) => {
+      const ax = a2.x - a1.x, az = a2.y - a1.y;
+      const bx = b2.x - b1.x, bz = b2.y - b1.y;
+      const den = ax * bz - az * bx;
+      if (Math.abs(den) < 1e-6) return null;
+      const dx = b1.x - a1.x, dz = b1.y - a1.y;
+      const ua = (dx * bz - dz * bx) / den; // along A
+      const ub = (dx * az - dz * ax) / den; // along B
+      if (ua < 0 || ua > 1 || ub < 0 || ub > 1) return null;
+      return { ua, ub, x: a1.x + ua * ax, y: a1.y + ua * az };
+    };
+    for (let cz = 0; cz < H; cz++) {
+      for (let cx = 0; cx < W; cx++) {
+        const list = segsAtCell(cx, cz);
+        for (let i = 0; i < list.length; i++) {
+          const ai = list[i]; const A = this.segs[ai];
+          for (let j = i + 1; j < list.length; j++) {
+            const bi = list[j]; const B = this.segs[bi];
+            // Skip adjacent segments on same path
+            if (A.path === B.path) {
+              const same = Math.abs(A.i - B.i) <= 1 || (this.closedFlags[A.path] && ((A.i === 0 && B.i === this.cumS[A.path].length - 2) || (B.i === 0 && A.i === this.cumS[A.path].length - 2)));
+              if (same) continue;
+            }
+            const key = ai < bi ? `${ai}-${bi}` : `${bi}-${ai}`;
+            if (seen.has(key)) continue; seen.add(key);
+            const res = segSeg(A.a, A.b, B.a, B.b);
+            if (res) addInt(new Vector2(res.x, res.y), A, res.ua, B, res.ub);
+          }
+        }
+      }
+    }
+    // sort per path by s
+    for (let p = 0; p < this.perPathIntersections.length; p++) this.perPathIntersections[p].sort((a,b)=>a.s-b.s);
+  }
+
+  getNextIntersection(pathIndex: number, s: number, lookahead = 6): { id:number; s:number; dist:number; pos:{x:number;z:number} } | null {
+    const list = this.perPathIntersections[pathIndex] || [];
+    if (!list.length) return null;
+    const L = this.cumS[pathIndex][this.cumS[pathIndex].length - 1] || 0;
+    // find first with s'>=s
+    let best: any = null;
+    for (const it of list) {
+      let ds = it.s - s;
+      if (this.closedFlags[pathIndex]) {
+        if (ds < 0) ds += L;
+      } else if (ds < 0) continue;
+      if (ds <= lookahead && (best == null || ds < best.dist)) best = { id: it.id, s: it.s, dist: ds, pos: { x: it.pos.x, z: it.pos.y } };
+    }
+    return best;
+  }
+
+  // Expose all intersections for a path (sorted by s)
+  getIntersectionsForPath(pathIndex: number) {
+    const list = this.perPathIntersections[pathIndex] || [];
+    return list.map(it => ({ id: it.id, s: it.s, pos: { x: it.pos.x, z: it.pos.y }, otherPath: it.otherPath, otherS: it.otherS }));
+  }
+
+  getPathLength(pathIndex: number) {
+    const p = this.paths[pathIndex];
+    if (!p) return 0;
+    // length in world meters
+    const cum = this.cumS[pathIndex];
+    return cum && cum.length ? cum[cum.length - 1] : 0;
+  }
+
+  isPathClosed(pathIndex: number) { return !!this.closedFlags[pathIndex]; }
+
+  // Enhanced projection: return s along path
+  projectToMidlineOnPathWithS(pathIndex: number, wx: number, wz: number, hintSeg?: number, window = 96) {
+    const res = this.projectToMidlineOnPath(pathIndex, wx, wz, hintSeg, window);
+    if (!res) return null;
+    const path = this.paths[pathIndex];
+    const segIndex = res.segIndex ?? 0;
+    const a = path[segIndex]; const b = path[(segIndex + 1) % path.length];
+    const abx = b.x - a.x, abz = b.y - a.y;
+    const apx = res.pos.x - a.x, apz = res.pos.z - a.y;
+    const ab2 = abx * abx + abz * abz || 1e-6;
+    const t = Math.max(0, Math.min(1, (apx * abx + apz * abz) / ab2));
+    const len = Math.hypot(abx, abz) || 1e-6;
+    const s = this.cumS[pathIndex][segIndex] + t * len;
+    return { ...res, s } as const;
   }
 
   // Project a world XZ point to the nearest point on any road midline and return pos/normal/tangent
@@ -164,7 +335,7 @@ export class RoadsVisual {
   }
 }
 
-function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset: number) {
+function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset: number, closed = false) {
   const half = width * 0.5;
   const positions: number[] = [];
   const colors: number[] = [];
@@ -176,10 +347,11 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
   const nms: Vector3[] = [];
   const nrs: Vector3[] = [];
 
-  for (let i = 0; i < path.length; i++) {
+  const N = path.length;
+  for (let i = 0; i < N; i++) {
     const p = path[i];
-    const pPrev = path[Math.max(0, i - 1)];
-    const pNext = path[Math.min(path.length - 1, i + 1)];
+    const pPrev = closed ? path[(i - 1 + N) % N] : path[Math.max(0, i - 1)];
+    const pNext = closed ? path[(i + 1) % N] : path[Math.min(N - 1, i + 1)];
     const tx = pNext.x - pPrev.x;
     const tz = pNext.y - pPrev.y;
     const len = Math.hypot(tx, tz) || 1;
@@ -214,7 +386,7 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
     colors.push(...edge, ...mid, ...edge);
   }
   // indices: stitch between (L,M,R) at i and i+1 -> four triangles (two quads)
-  for (let i = 0; i < path.length - 1; i++) {
+  for (let i = 0; i < N - 1; i++) {
     const iL = i * 3;
     const iM = i * 3 + 1;
     const iR = i * 3 + 2;
@@ -226,51 +398,97 @@ function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset
     // right quad
     indices.push(iM, jM, iR, iR, jM, jR);
   }
+  // stitch last to first if closed
+  if (closed && N > 1) {
+    const i = N - 1;
+    const iL = i * 3, iM = i * 3 + 1, iR = i * 3 + 2;
+    const jL = 0, jM = 1, jR = 2;
+    indices.push(iL, jL, iM, iM, jL, jM);
+    indices.push(iM, jM, iR, iR, jM, jR);
+  }
   return { positions, colors, indices };
 }
 
 // Ramer–Douglas–Peucker simplification on 2D points
-function simplifyRDP(pts: Vector2[], eps: number): Vector2[] {
+function simplifyRDP(pts: Vector2[], eps: number, closed = false): Vector2[] {
   if (pts.length <= 2) return pts.slice();
-  const keep = new Array(pts.length).fill(false);
-  keep[0] = keep[pts.length - 1] = true;
-  function distPointSeg(p: Vector2, a: Vector2, b: Vector2) {
-    const abx = b.x - a.x, abz = b.y - a.y;
-    const apx = p.x - a.x, apz = p.y - a.y;
-    const t = Math.max(0, Math.min(1, (apx * abx + apz * abz) / (abx * abx + abz * abz || 1)));
-    const cx = a.x + t * abx, cz = a.y + t * abz;
-    return Math.hypot(p.x - cx, p.y - cz);
-  }
-  function recurse(i0: number, i1: number) {
-    let maxD = -1, idx = -1;
-    for (let i = i0 + 1; i < i1; i++) {
-      const d = distPointSeg(pts[i], pts[i0], pts[i1]);
-      if (d > maxD) { maxD = d; idx = i; }
+  if (!closed) {
+    const keep = new Array(pts.length).fill(false);
+    keep[0] = keep[pts.length - 1] = true;
+    function distPointSeg(p: Vector2, a: Vector2, b: Vector2) {
+      const abx = b.x - a.x, abz = b.y - a.y;
+      const apx = p.x - a.x, apz = p.y - a.y;
+      const t = Math.max(0, Math.min(1, (apx * abx + apz * abz) / (abx * abx + abz * abz || 1)));
+      const cx = a.x + t * abx, cz = a.y + t * abz;
+      return Math.hypot(p.x - cx, p.y - cz);
     }
-    if (maxD > eps && idx !== -1) {
-      keep[idx] = true;
-      recurse(i0, idx);
-      recurse(idx, i1);
+    function recurse(i0: number, i1: number) {
+      let maxD = -1, idx = -1;
+      for (let i = i0 + 1; i < i1; i++) {
+        const d = distPointSeg(pts[i], pts[i0], pts[i1]);
+        if (d > maxD) { maxD = d; idx = i; }
+      }
+      if (maxD > eps && idx !== -1) {
+        keep[idx] = true;
+        recurse(i0, idx);
+        recurse(idx, i1);
+      }
     }
+    recurse(0, pts.length - 1);
+    const out: Vector2[] = [];
+    for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
+    return out;
   }
-  recurse(0, pts.length - 1);
+  // Closed: approximate by rotating, simplifying open, then rotating back
+  const N = pts.length;
+  const mid = Math.floor(N / 2);
+  const rotated = pts.slice(mid).concat(pts.slice(0, mid));
+  const open = simplifyRDP(rotated, eps, false);
+  // Rotate back to original order (find rotated[0])
+  const idx0 = open.findIndex(p => p.x === rotated[0].x && p.y === rotated[0].y);
+  const back = idx0 >= 0 ? open.slice(idx0).concat(open.slice(0, idx0)) : open;
+  // Remove potential duplicate last==first
   const out: Vector2[] = [];
-  for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
+  for (let i = 0; i < back.length; i++) {
+    const a = back[i], b = back[(i + 1) % back.length];
+    out.push(a);
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 1e-6) i++;
+  }
   return out;
 }
 
 // Catmull-Rom resampling for smoother curves
 // Catmull-Rom adaptive resampling using midpoint sag error and max segment length
-function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; sagEps: number }): Vector2[] {
+function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; sagEps: number; closed?: boolean }): Vector2[] {
   if (pts.length <= 2) return pts.slice();
   const out: Vector2[] = [];
-  const P = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+  const closed = !!opts.closed;
+  const P = (i: number) => closed ? pts[(i % pts.length + pts.length) % pts.length] : pts[Math.max(0, Math.min(pts.length - 1, i))];
 
-  const spline = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: number) => {
-    const t2 = t * t, t3 = t2 * t;
-    const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
-    const z = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
-    return new Vector2(x, z);
+  // Centripetal Catmull–Rom point evaluation (alpha=0.5)
+  const centripetalCR = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t01: number) => {
+    const alpha = 0.5;
+    const td = (a: Vector2, b: Vector2) => Math.pow(Math.hypot(b.x - a.x, b.y - a.y), alpha) || 1e-6;
+    const t0 = 0;
+    const t1 = t0 + td(p0, p1);
+    const t2 = t1 + td(p1, p2);
+    const t3 = t2 + td(p2, p3);
+    const u = t1 + t01 * (t2 - t1); // map [0,1] -> [t1,t2]
+    const lerp = (A: Vector2, B: Vector2, ta: number, tb: number) => {
+      const denom = (tb - ta) || 1e-6;
+      const w = (u - ta) / denom;
+      return new Vector2(
+        A.x + (B.x - A.x) * w,
+        A.y + (B.y - A.y) * w,
+      );
+    };
+    const A1 = lerp(p0, p1, t0, t1);
+    const A2 = lerp(p1, p2, t1, t2);
+    const A3 = lerp(p2, p3, t2, t3);
+    const B1 = lerp(A1, A2, t0, t2);
+    const B2 = lerp(A2, A3, t1, t3);
+    const C = lerp(B1, B2, t1, t2);
+    return C;
   };
 
   const subdivide = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) => {
@@ -281,7 +499,7 @@ function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; s
     while (stack.length) {
       const { t0, t1, A, B } = stack.pop()!;
       const midT = (t0 + t1) * 0.5;
-      const M = spline(p0, p1, p2, p3, midT);
+      const M = centripetalCR(p0, p1, p2, p3, midT);
       // linear midpoint between A and B
       const Lx = (A.x + B.x) * 0.5;
       const Lz = (A.y + B.y) * 0.5; // careful: Vector2.y is our z coordinate
@@ -289,8 +507,6 @@ function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; s
       const segLen = Math.hypot(B.x - A.x, B.y - A.y);
       if (sag > opts.sagEps || segLen > opts.maxSegLen) {
         // split
-        const leftMid = spline(p0, p1, p2, p3, (t0 + midT) * 0.5);
-        const rightMid = spline(p0, p1, p2, p3, (midT + t1) * 0.5);
         stack.push({ t0: midT, t1, A: M, B });
         stack.push({ t0, t1: midT, A, B: M });
       } else {
@@ -300,12 +516,14 @@ function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; s
     return segs;
   };
 
-  for (let i = 0; i < pts.length - 1; i++) {
+  const last = closed ? pts.length : (pts.length - 1);
+  for (let i = 0; i < last; i++) {
     const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
     if (i === 0) out.push(p1.clone());
     const seg = subdivide(p0, p1, p2, p3);
     for (const s of seg) out.push(s);
   }
+  if (closed) out.pop();
   return out;
 }
 
@@ -323,16 +541,17 @@ function sampleNormal(hm: Heightmap, wx: number, wz: number) {
 }
 
 // Build faint shoulder bands outside the road surface
-function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm: Heightmap, yOffset: number) {
+function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm: Heightmap, yOffset: number, closed = false) {
   const half = width * 0.5;
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
   const OL: Vector3[] = [], L: Vector3[] = [], R: Vector3[] = [], OR: Vector3[] = [];
-  for (let i = 0; i < path.length; i++) {
+  const N = path.length;
+  for (let i = 0; i < N; i++) {
     const p = path[i];
-    const pPrev = path[Math.max(0, i - 1)];
-    const pNext = path[Math.min(path.length - 1, i + 1)];
+    const pPrev = closed ? path[(i - 1 + N) % N] : path[Math.max(0, i - 1)];
+    const pNext = closed ? path[(i + 1) % N] : path[Math.min(N - 1, i + 1)];
     const tx = pNext.x - pPrev.x;
     const tz = pNext.y - pPrev.y;
     const len = Math.hypot(tx, tz) || 1;
@@ -363,7 +582,7 @@ function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm
     const inner = [0.53, 0.44, 0.35];
     colors.push(...outer, ...inner, ...inner, ...outer);
   }
-  for (let i = 0; i < path.length - 1; i++) {
+  for (let i = 0; i < N - 1; i++) {
     const base = i * 4;
     const next = (i + 1) * 4;
     // left shoulder quad (OL-L)
@@ -371,11 +590,17 @@ function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm
     // right shoulder quad (R-OR)
     indices.push(base + 2, next + 2, base + 3, base + 3, next + 2, next + 3);
   }
+  if (closed && N > 1) {
+    const base = (N - 1) * 4;
+    const next = 0;
+    indices.push(base + 0, next + 0, base + 1, base + 1, next + 0, next + 1);
+    indices.push(base + 2, next + 2, base + 3, base + 3, next + 2, next + 3);
+  }
   return { positions, colors, indices };
 }
 
 // Build a dashed center stripe along the midline
-function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number, gapLen: number, hm: Heightmap, yOffset: number) {
+function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number, gapLen: number, hm: Heightmap, yOffset: number, closed = false) {
   const geo = new BufferGeometry();
   const pos: number[] = [];
   const idx: number[] = [];
@@ -385,8 +610,12 @@ function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number
   let acc = 0; // accumulated distance along path in world units
   let last = path[0];
   let vert = 0;
-  for (let i = 1; i < path.length; i++) {
-    const cur = path[i];
+  const N = path.length;
+  const segCount = closed ? N : (N - 1);
+  for (let si = 0; si < segCount; si++) {
+    const aIdx = si;
+    const bIdx = (si + 1) % N;
+    const cur = path[bIdx];
     const segLen = Math.hypot(cur.x - last.x, cur.y - last.y);
     if (segLen <= 1e-6) { last = cur; continue; }
     let progressed = 0;
