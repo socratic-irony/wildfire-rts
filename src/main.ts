@@ -272,7 +272,7 @@ if (isFeatureEnabled('console_commands')) {
       const burning = fireGrid.bCount;
       const smoldering = fireGrid.sCount;
       const total = fireGrid.width * fireGrid.height;
-      const burned = fireGrid.tiles.filter(t => t.state === 'burned').length;
+      const burned = fireGrid.tiles.filter(t => t.state === FireState.Burned).length;
       return [
         'Fire Statistics:',
         `  Burning tiles: ${burning}`,
@@ -290,12 +290,12 @@ if (isFeatureEnabled('console_commands')) {
     execute: () => {
       // Reset fire grid by setting all tiles to unburned
       fireGrid.tiles.forEach(tile => {
-        tile.state = 'unburned';
+        tile.state = FireState.Unburned;
         tile.heat = 0;
         tile.progress = 0;
       });
-      fireGrid.burning = [];
-      fireGrid.smoldering = [];
+      fireGrid.burning = new Uint32Array(fireGrid.burning.length);
+      fireGrid.smoldering = new Uint32Array(fireGrid.smoldering.length);
       fireGrid.bCount = 0;
       fireGrid.sCount = 0;
       return 'All fires extinguished';
@@ -432,7 +432,6 @@ function spawnFollowersOnAllPaths(perPath = 3) {
       const follower = new PathFollower(p, hm, obj, startS);
       follower.setSpacingMode(spacingMode);
       followers.push(follower);
-      followerState.push({});
     }
   }
 }
@@ -510,7 +509,7 @@ let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
 // Show grid vehicles only in grid mode
-vehicles.group.visible = (followMode === 'grid');
+vehicles.group.visible = (followMode as FollowMode === 'grid');
 
 // Seed random road loops at startup and spawn moving vehicles
 seedRandomLoopsAndVehicles(2);

@@ -31,7 +31,7 @@ describe('Configuration System', () => {
   describe('configuration updates', () => {
     it('should update feature flags', () => {
       updateConfig({
-        features: { debug_overlay: false }
+        features: { debug_overlay: false, console_commands: true, advanced_metrics: true }
       });
       expect(config.features.debug_overlay).toBe(false);
       expect(config.features.console_commands).toBe(true); // unchanged
@@ -39,7 +39,7 @@ describe('Configuration System', () => {
 
     it('should update debug settings', () => {
       updateConfig({
-        debug: { overlay_visible_on_start: false }
+        debug: { overlay_visible_on_start: false, console_enabled: true, memory_metrics_enabled: true, performance_monitoring: false }
       });
       expect(config.debug.overlay_visible_on_start).toBe(false);
       expect(config.debug.memory_metrics_enabled).toBe(true); // unchanged
@@ -81,8 +81,8 @@ describe('Configuration System', () => {
     it('should reset to defaults', () => {
       // Modify config
       updateConfig({
-        features: { debug_overlay: false },
-        debug: { memory_metrics_enabled: false }
+        features: { debug_overlay: false, console_commands: true, advanced_metrics: true },
+        debug: { memory_metrics_enabled: false, overlay_visible_on_start: true, console_enabled: true, performance_monitoring: false }
       });
       
       // Verify changes

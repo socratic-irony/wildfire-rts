@@ -1,4 +1,4 @@
-import { Color, MeshStandardMaterial, Shader } from 'three';
+import { Color, MeshStandardMaterial } from 'three';
 
 export function createTerrainMaterial() {
   const mat = new MeshStandardMaterial({
@@ -8,9 +8,8 @@ export function createTerrainMaterial() {
     metalness: 0.0,
     vertexColors: true,
   });
-  mat.receiveShadow = true;
   // Inject grid overlay via shader hook
-  mat.onBeforeCompile = (shader: Shader) => {
+  mat.onBeforeCompile = (shader: any) => {
     shader.uniforms.uGridEnabled = { value: 1 };
     shader.uniforms.uGridWidth = { value: 0.03 };
     shader.uniforms.uGridColor = { value: new Color(0, 0, 0) };
@@ -37,11 +36,11 @@ export function createTerrainMaterial() {
 
   // Convenience API
   (mat as any).setGridEnabled = (on: boolean) => {
-    const s: Shader | undefined = (mat as any).userData.shader;
+    const s: any = (mat as any).userData.shader;
     if (s) s.uniforms.uGridEnabled.value = on ? 1 : 0;
   };
   (mat as any).setGridWidth = (w: number) => {
-    const s: Shader | undefined = (mat as any).userData.shader;
+    const s: any = (mat as any).userData.shader;
     if (s) s.uniforms.uGridWidth.value = w;
   };
   return mat;

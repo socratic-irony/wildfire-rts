@@ -1,4 +1,4 @@
-import { LoggingConfig } from '../config/types';
+import { LoggingConfig } from './config/types';
 
 type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'verbose';
 

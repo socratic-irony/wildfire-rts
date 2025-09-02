@@ -1,4 +1,4 @@
-import { AdditiveBlending, BufferAttribute, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, Vector3 } from 'three';
+import { AdditiveBlending, BufferAttribute, BufferGeometry, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, Vector3 } from 'three';
 
 export type ParticleSystemKind = 'flame' | 'smoke' | 'smolder';
 
@@ -36,7 +36,7 @@ export class InstancedParticleSystem {
   private aColor0: InstancedBufferAttribute;
   private aColor1: InstancedBufferAttribute;
 
-  constructor(kind: ParticleSystemKind, geom: THREE.BufferGeometry, mat: MeshStandardMaterial | MeshBasicMaterial, capacity: number) {
+  constructor(kind: ParticleSystemKind, geom: BufferGeometry, mat: MeshStandardMaterial | MeshBasicMaterial, capacity: number) {
     this.kind = kind;
     this.capacity = capacity;
     this.mesh = new InstancedMesh(geom, mat as any, capacity);

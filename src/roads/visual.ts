@@ -227,7 +227,7 @@ export class RoadsVisual {
     const res = this.projectToMidlineOnPath(pathIndex, wx, wz, hintSeg, window);
     if (!res) return null;
     const path = this.paths[pathIndex];
-    const segIndex = res.segIndex ?? 0;
+    const segIndex = ('segIndex' in res) ? res.segIndex : 0;
     const a = path[segIndex]; const b = path[(segIndex + 1) % path.length];
     const abx = b.x - a.x, abz = b.y - a.y;
     const apx = res.pos.x - a.x, apz = res.pos.z - a.y;

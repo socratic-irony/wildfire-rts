@@ -265,7 +265,7 @@ export class VehiclesManager {
             // Use projection for orientation only; keep integrated position to avoid fighting movement
             a.lastProj = { normal: res.normal, tangent: res.tangent };
             if (!a.pin) a.pin = { pathIndex: pIdx };
-            a.pin.segIndex = res.segIndex;
+            a.pin.segIndex = ('segIndex' in res) ? res.segIndex : 0;
             // Gentle lateral stickiness toward midline (XZ only)
             const lateral = new Vector3(res.pos.x - a.pos.x, 0, res.pos.z - a.pos.z);
             const alpha = 1.2; // m/s toward centerline

@@ -140,7 +140,7 @@ export class FireSim {
         p *= moistGate(tgt.wetness + tgt.fuelMoisture, tgt.retardant, baseF);
         let bf = barrierFactor(tgt.lineStrength);
         // Crown-level heat can partially bypass strong lines (embers/spotting across line)
-        if (g.tiles[i].heat > g.params.thresholds.crownHeat && tgt.fuel !== 'rock' && tgt.fuel !== 'water') {
+        if (g.tiles[i].heat > g.params.thresholds.crownHeat) {
           bf = Math.max(bf, 0.15);
         }
         p *= bf;

@@ -1,4 +1,5 @@
 import {
+  Camera,
   DataTexture,
   FloatType,
   Group,
@@ -189,7 +190,7 @@ export function createFlipbookParticles(hm: Heightmap) {
 
   function rng(i: number) { let x = i * 1664525 + 1013904223; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 0xffffffff; }
 
-  function update(grid: FireGrid, env: { windDirRad: number; windSpeed: number }, dt: number, camera: THREE.Camera) {
+  function update(grid: FireGrid, env: { windDirRad: number; windSpeed: number }, dt: number, camera: Camera) {
     // Update camera basis
     const m = (camera as any).matrixWorld.elements as number[];
     (mat.uniforms as any).cameraRight.value.set(m[0], m[1], m[2]);

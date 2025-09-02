@@ -1,4 +1,4 @@
-import { Color, Group, IcosahedronGeometry, MeshBasicMaterial, MeshStandardMaterial, Vector3 } from 'three';
+import { Camera, Color, Group, IcosahedronGeometry, MeshBasicMaterial, MeshStandardMaterial, Object3D, Vector3 } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 import type { FireGrid } from '../fire/grid';
 import { FireState } from '../fire/grid';
@@ -103,7 +103,7 @@ export function createFireParticles(hm: Heightmap) {
     }
   }
 
-  function update(grid: FireGrid, env: { windDirRad: number; windSpeed: number }, dt: number, camera: THREE.Camera) {
+  function update(grid: FireGrid, env: { windDirRad: number; windSpeed: number }, dt: number, camera: Camera) {
     if (grid.width !== width || grid.height !== height) resizeForHM(hm);
     const wx = Math.sin(env.windDirRad) * env.windSpeed;
     const wz = Math.cos(env.windDirRad) * env.windSpeed;
@@ -162,8 +162,8 @@ export function createFireParticles(hm: Heightmap) {
     smold.update(dt, wind, slopeLift);
   }
 
-  function addToScene(root: THREE.Object3D) { (root as any).add(group); }
-  function removeFromScene(root: THREE.Object3D) { (root as any).remove(group); }
+  function addToScene(root: Object3D) { (root as any).add(group); }
+  function removeFromScene(root: Object3D) { (root as any).remove(group); }
 
   function dispose() { /* three handles freed by GC; keep for completeness */ }
 
