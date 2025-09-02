@@ -111,6 +111,13 @@ loop.add((dt) => {
   const t = performance.now() / 1000;
   forest?.update(t);
   shrubs?.update(t);
+  // Periodically apply burn tint to vegetation from fire grid
+  vegTintAcc += dt;
+  if (vegTintAcc >= 0.5) {
+    vegTintAcc = 0;
+    forest?.applyFireTint?.(fireGrid as any);
+    shrubs?.applyFireTint?.(fireGrid as any);
+  }
   // Update LOD for terrain chunks
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
@@ -233,6 +240,9 @@ scene.add(rocks.inst);
 // Attach stats after actors/chunks are created so we can report counts
 const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs, rocks });
 loop.start();
+
+// Vegetation burn tint cadence accumulator
+let vegTintAcc = 0;
 
 function onResize() {
   resizeRenderer(renderer, app);

@@ -26,6 +26,7 @@ Outstanding Work (v0.1 audit)
 - Visuals:
   - Particles (flames/smoke) and burned‑ground/wetness/retardant decals.
   - Perimeter line visualization.
+  - Vegetation burn tint: trees and shrubs darken → brown → near‑black based on tile state (Burning/Smoldering/Burned), updated ~2 Hz.
 - UI/Debug:
   - Wind controls (speed/direction sliders), water/retardant/handline paint tools.
   - Stats UI: expose burning count, area burned, perimeter length, mean ROS; contained/not‑contained badge (backend exists).
@@ -256,6 +257,12 @@ For Burning tile c:
 	•	Smoke: particle sheets intensity ∝ heat * fuelLoad. Direction follows wind.
 	•	Wetness/Retardant: blue/red translucent decals with timed fade.
 	•	Perimeter: marching squares around Burning ∪ Smoldering.
+	•	Vegetation (trees/shrubs): per‑instance color multiply by state —
+	   •	Unburned: white (no change)
+	   •	Burning: slight dark/ashy multiplier (≈ [0.75, 0.65, 0.55])
+	   •	Smoldering: brown multiplier (≈ [0.60, 0.40, 0.25])
+	   •	Burned: near‑black multiplier (≈ [0.08, 0.08, 0.08])
+	   Update cadence ~0.5 s to reduce churn.
 
 ⸻
 
