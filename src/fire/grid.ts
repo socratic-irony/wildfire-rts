@@ -72,11 +72,12 @@ export function buildFireGrid(hm: Heightmap, biomes: BiomeMask, params: Partial<
     const hR = hm.data[zi * cols + (xi + 1)];
     const hD = hm.data[(zi - 1) * cols + xi];
     const hU = hm.data[(zi + 1) * cols + xi];
-    const dx = (hR - hL) * 0.5;
-    const dz = (hU - hD) * 0.5;
+    const dx = (hR - hL) * 0.5; // gradient in +X direction
+    const dz = (hU - hD) * 0.5; // gradient in +Z direction
     const tanSlope = Math.hypot(dx, dz) / (1.0 * hm.scale);
     const len = Math.hypot(dx, dz) || 1e-6;
-    return { tanSlope, downX: dx / len, downZ: dz / len };
+    // Return downslope direction (opposite of gradient)
+    return { tanSlope, downX: -dx / len, downZ: -dz / len };
   }
 
   const chooseFuel = (i: number): FuelKey => {
@@ -153,7 +154,21 @@ export function applyWaterAoE(grid: FireGrid, center: { x: number; z: number }, 
       const dx = x - center.x; const dz = z - center.z;
       if (dx * dx + dz * dz <= r2) {
         const i = coordToIndex(grid, x, z);
-        grid.tiles[i].wetness = Math.min(1, grid.tiles[i].wetness + intensity);
+        const tile = grid.tiles[i];
+        tile.wetness = Math.min(1, tile.wetness + intensity);
+        
+        // Immediate heat knockdown effect as per spec
+        if (tile.state === FireState.Burning || tile.state === FireState.Smoldering) {
+          const knockdown = 0.4 * intensity; // Reduce heat by 40% of water intensity
+          tile.heat = Math.max(0, tile.heat - knockdown);
+          
+          // Check for early extinguish if heat drops below threshold
+          if (tile.heat < grid.params.thresholds.extinguishHeat) {
+            if (tile.state === FireState.Burning) {
+              tile.state = FireState.Smoldering;
+            }
+          }
+        }
       }
     }
   }
