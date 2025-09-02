@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logging System Demo - Wildfire RTS</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+    .demo-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+    .demo-section h3 { margin-top: 0; color: #333; }
+    .console-output { background: #1e1e1e; color: #00ff00; padding: 10px; border-radius: 3px; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+    button { background: #007acc; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin: 5px; }
+    button:hover { background: #005a9e; }
+    .info { background: #e7f3ff; padding: 10px; border-radius: 3px; border-left: 4px solid #007acc; }
+  </style>
+</head>
+<body>
+  <h1>Logging System Demo</h1>
+  
+  <div class="info">
+    <strong>Note:</strong> This demo showcases the logging and error reporting wrapper created for issue #3.
+    Open your browser's developer console (F12) to see the actual log output.
+  </div>
+
+  <div class="demo-section">
+    <h3>Interactive Demo</h3>
+    <button onclick="runBasicDemo()">Basic Logging</button>
+    <button onclick="runStructuredDemo()">Structured Logging</button>
+    <button onclick="runLevelDemo()">Log Level Filtering</button>
+    <button onclick="runRotationDemo()">Log Rotation</button>
+    <button onclick="runFullDemo()">Full Demo</button>
+    <button onclick="clearConsole()">Clear Console</button>
+  </div>
+
+  <div class="demo-section">
+    <h3>Configuration Example</h3>
+    <pre id="config-display"></pre>
+    <button onclick="showConfig()">Show Current Config</button>
+  </div>
+
+  <div class="demo-section">
+    <h3>Log History</h3>
+    <div id="log-history" class="console-output">Click "Show Log History" to view stored logs</div>
+    <button onclick="showLogHistory()">Show Log History</button>
+    <button onclick="clearLogHistory()">Clear History</button>
+  </div>
+
+  <script type="module">
+    import { createLogger, getLogger } from './tools/logging/index.js';
+    import { runLoggingDemo } from './tools/logging/demo.js';
+
+    // Make logging functions available globally for buttons
+    let demoLogger;
+
+    window.initDemo = function() {
+      demoLogger = createLogger({
+        level: 'debug',
+        structured: {
+          enabled: true,
+          includeTimestamp: true,
+          includeLevel: true,
+          includeSource: true
+        }
+      });
+      console.log('%c🚀 Logging Demo Initialized', 'color: #007acc; font-weight: bold;');
+      console.log('Open this console to see logging output');
+    };
+
+    window.runBasicDemo = function() {
+      console.log('%c=== Basic Logging Demo ===', 'color: #007acc; font-weight: bold;');
+      demoLogger.debug('Debug: Application started');
+      demoLogger.info('Info: User logged in');  
+      demoLogger.warn('Warning: API rate limit approaching');
+      demoLogger.error('Error: Database connection failed');
+    };
+
+    window.runStructuredDemo = function() {
+      console.log('%c=== Structured Logging Demo ===', 'color: #007acc; font-weight: bold;');
+      demoLogger.info('User action performed', {
+        userId: 'user-123',
+        action: 'file_upload',
+        fileSize: 1024000,
+        timestamp: Date.now()
+      }, 'file.service');
+
+      demoLogger.warn('Performance warning', {
+        operation: 'database_query',
+        duration: 1500,
+        threshold: 1000,
+        query: 'SELECT * FROM users WHERE active = true'
+      }, 'db.monitor');
+    };
+
+    window.runLevelDemo = function() {
+      console.log('%c=== Log Level Filtering Demo ===', 'color: #007acc; font-weight: bold;');
+      
+      const errorLogger = createLogger({ 
+        level: 'error',
+        sinks: {
+          console: { enabled: true, format: 'simple' },
+          file: { enabled: false, path: '', format: 'json' }
+        }
+      });
+
+      console.log('Logger set to ERROR level only:');
+      errorLogger.debug('This debug message will not appear');
+      errorLogger.info('This info message will not appear');
+      errorLogger.warn('This warning will not appear');
+      errorLogger.error('This error message WILL appear');
+    };
+
+    window.runRotationDemo = function() {
+      console.log('%c=== Log Rotation Demo ===', 'color: #007acc; font-weight: bold;');
+      console.log('Generating 50 log entries to demonstrate rotation...');
+      
+      demoLogger.clearHistory();
+      for (let i = 0; i < 50; i++) {
+        demoLogger.info(\`Rotation test message \${i}\`, { iteration: i });
+      }
+      
+      const history = demoLogger.getLogHistory();
+      console.log(\`Generated \${history.length} log entries\`);
+      console.log(\`First: "\${history[0].message}"\`);
+      console.log(\`Last: "\${history[history.length - 1].message}"\`);
+    };
+
+    window.runFullDemo = function() {
+      console.log('%c=== Full Logging System Demo ===', 'color: #007acc; font-weight: bold;');
+      runLoggingDemo();
+    };
+
+    window.clearConsole = function() {
+      console.clear();
+      console.log('%c🧹 Console cleared', 'color: #007acc;');
+    };
+
+    window.showConfig = function() {
+      const config = {
+        level: 'debug',
+        structured: { enabled: true, includeTimestamp: true, includeLevel: true, includeSource: true },
+        sinks: { console: { enabled: true, format: 'json' }, file: { enabled: false, path: 'logs/app.log', format: 'json' } },
+        thirdParty: { sentry: { enabled: false, dsn: '', environment: 'demo' } }
+      };
+      document.getElementById('config-display').textContent = JSON.stringify(config, null, 2);
+    };
+
+    window.showLogHistory = function() {
+      const history = demoLogger.getLogHistory();
+      const display = document.getElementById('log-history');
+      if (history.length === 0) {
+        display.textContent = 'No log entries in history. Run some demos first!';
+        return;
+      }
+      
+      const formatted = history.slice(-10).map(entry => {
+        const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+        return \`[\${timestamp}] \${entry.level.toUpperCase()}: \${entry.message}\${entry.data ? ' | Data: ' + JSON.stringify(entry.data) : ''}\`;
+      }).join('\\n');
+      
+      display.textContent = \`Last 10 entries (of \${history.length} total):\\n\${formatted}\`;
+    };
+
+    window.clearLogHistory = function() {
+      demoLogger.clearHistory();
+      document.getElementById('log-history').textContent = 'Log history cleared.';
+    };
+
+    // Initialize on load
+    window.initDemo();
+  </script>
+</body>
+</html>
