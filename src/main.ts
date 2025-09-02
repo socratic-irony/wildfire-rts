@@ -8,15 +8,18 @@ import { buildTerrainGeometry } from './terrain/mesh';
 import { createTerrainMaterial } from './terrain/material';
 // import { RTSCameraController } from './core/rtsCamera';
 import { RTSOrbitCamera } from './core/rtsOrbit';
-import { applyBiomeVertexColors, computeBiomes } from './terrain/biomes';
+import { applyBiomeVertexColors, computeBiomes, computeBiomesTuned } from './terrain/biomes';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
 import { createRocks } from './actors/rocks';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
-import { buildFireGrid, ignite as igniteTiles } from './fire/grid';
+import { installGlobalErrorOverlay } from './ui/errorOverlay';
+import { buildFireGrid, ignite as igniteTiles, FireState } from './fire/grid';
 import { FireSim } from './fire/sim';
 import { createFireViz } from './fire/viz';
+import { createFireRibbon } from './particles/ribbon';
+import { createFlipbookParticles } from './particles/flipbook';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
@@ -36,21 +39,39 @@ const rig = createCameraRig(app);
 scene.add(rig.root);
 
 const renderer = createRenderer(app);
+installGlobalErrorOverlay(app);
+// Hover tile debug overlay state (sample at ~10 Hz)
+let _hoverAcc = 0;
+let _hoverMouseX = 0, _hoverMouseY = 0;
+let _hoverHasMouse = false;
+let _hoverTileDiv: HTMLDivElement | null = null;
+const _hoverRay = new Raycaster();
+const _hoverMouse = new Vector2();
+
+// World config used by Debug UI
+type WorldCfg = {
+  width: number; height: number;
+  noise: { seed: string | number; frequency: number; amplitude: number; octaves: number; persistence: number };
+  moisture: { seed: string | number };
+  biomes: { forestMoistureMin: number };
+  densities: { tree: number; shrub: number; rock: number; broadleafRatio: number };
+};
+let worldCfg: WorldCfg = {
+  width: 128, height: 128,
+  noise: { seed: '42', frequency: 2.0, amplitude: 8, octaves: 4, persistence: 0.5 },
+  moisture: { seed: 'moist' },
+  biomes: { forestMoistureMin: 0.55 },
+  densities: { tree: 0.30, shrub: 0.15, rock: 0.08, broadleafRatio: 0.4 },
+};
 
 // Stage B: Terrain heightmap + mesh (temporary orbit controls)
-const hm = generateHeightmap(128, 128, 1, {
-  seed: 42,
-  frequency: 2.0,
-  amplitude: 8,
-  octaves: 4,
-  persistence: 0.5,
-});
+let hm = generateHeightmap(worldCfg.width, worldCfg.height, 1, worldCfg.noise);
 // Biomes and material
-const biomes = computeBiomes(hm);
+let biomes = computeBiomesTuned(hm, { forestMoistureMin: worldCfg.biomes.forestMoistureMin }, { seed: worldCfg.moisture.seed as any });
 const terrainMat = createTerrainMaterial() as any;
 
 // Stage G: chunked terrain with basic LOD
-const chunked = buildChunkedTerrain(hm, terrainMat, 32);
+let chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
 scene.add(chunked.group);
 
 // Stage C: RTS camera controller (replaces Orbit)
@@ -94,12 +115,53 @@ loop.add((dt) => {
   const t = performance.now() / 1000;
   forest?.update(t);
   shrubs?.update(t);
+  // Periodically apply burn tint to vegetation from fire grid
+  vegTintAcc += dt;
+  if (vegTintAcc >= 0.5) {
+    vegTintAcc = 0;
+    forest?.applyFireTint?.(fireGrid as any);
+    shrubs?.applyFireTint?.(fireGrid as any);
+  }
   // Update LOD for terrain chunks
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
   // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
   fireViz.update(fireGrid, dt);
+  // Hover overlay update at ~10 Hz independent of mouse movement
+  _hoverAcc += dt;
+  if (_hoverAcc >= 0.1 && _hoverHasMouse) {
+    _hoverAcc = 0;
+    const rect = renderer.domElement.getBoundingClientRect();
+    const nx = ((_hoverMouseX - rect.left) / rect.width) * 2 - 1;
+    const ny = -((_hoverMouseY - rect.top) / rect.height) * 2 + 1;
+    _hoverMouse.set(nx, ny);
+    _hoverRay.setFromCamera(_hoverMouse as any, rig.camera);
+    const hits = _hoverRay.intersectObject(chunked.group, true);
+    if (hits.length) {
+      const p = hits[0].point;
+      const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
+      const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+      const idx = gz * fireGrid.width + gx;
+      const t0 = fireGrid.tiles[idx];
+      const stateName = ['Unburned','Igniting','Burning','Smoldering','Burned'][t0.state] || String(t0.state);
+      const th = fireGrid.params.thresholds;
+      const windDeg = ((simEnv.windDirRad * 180 / Math.PI) % 360 + 360) % 360;
+      const lines =
+        `Tile ${gx},${gz}  Fuel ${t0.fuel}\n` +
+        `State ${stateName}  Heat ${t0.heat.toFixed(2)}  Prog ${t0.progress.toFixed(2)}\n` +
+        `Moist ${t0.fuelMoisture.toFixed(2)}  Wet ${t0.wetness.toFixed(2)}  Ret ${t0.retardant.toFixed(2)}  Line ${t0.lineStrength.toFixed(2)}\n` +
+        `SlopeTan ${t0.slopeTan.toFixed(2)}  Wind ${simEnv.windSpeed.toFixed(1)} m/s @ ${windDeg.toFixed(0)}°\n` +
+        `Thresh: ExtinguishHeat ${th.extinguishHeat.toFixed(2)}  CrownHeat ${th.crownHeat.toFixed(2)}`;
+      if (_hoverTileDiv) _hoverTileDiv.textContent = lines;
+    } else {
+      if (_hoverTileDiv) _hoverTileDiv.textContent = '';
+    }
+  }
+  // Update perimeter ribbon
+  fireRibbon.update(fireGrid as any, performance.now() / 1000);
+  // Update flipbook particles (wind placeholder; can wire simEnv later)
+  fireParticles.update(fireGrid as any, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
   if (followMode === 'grid') {
     vehicles.update(dt);
     if (yawDebugOn && yawDiv) {
@@ -167,16 +229,16 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Stage F: vegetation
-const forest = createForest(hm, biomes);
+let forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
 scene.add(forest.leaves);
 scene.add(forest.trunks);
 if (forest.broadLeaves) scene.add(forest.broadLeaves);
 if (forest.broadTrunks) scene.add(forest.broadTrunks);
 
-const shrubs = createShrubs(hm, biomes);
+let shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub });
 scene.add(shrubs.inst);
 
-const rocks = createRocks(hm, biomes);
+let rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
 scene.add(rocks.inst);
 
 // Attach stats after actors/chunks are created so we can report counts
@@ -281,6 +343,9 @@ if (isFeatureEnabled('console_commands')) {
 
 loop.start();
 
+// Vegetation burn tint cadence accumulator
+let vegTintAcc = 0;
+
 function onResize() {
   resizeRenderer(renderer, app);
   resizeCamera(rig, app);
@@ -290,18 +355,25 @@ window.addEventListener('resize', onResize);
 onResize();
 
 // Stage A-L (fire behavior) — initialize grid + viz, click to ignite
-const fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
-const fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
+let fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
+let simEnv = { windDirRad: 0, windSpeed: 0 };
+let fireSim = new FireSim(fireGrid, simEnv);
 // Fire visualization controller
-const fireViz = createFireViz(hm, chunked.group);
+let fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);
 fireViz.setMode('vertex');
+// Flipbook billboard particles (flame/smoke)
+let fireParticles = createFlipbookParticles(hm);
+scene.add((fireParticles as any).group);
+// Perimeter ribbon (animated strip)
+let fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 });
+scene.add(fireRibbon.mesh);
 
 // Roads — cost field + visual + input state
-const roadCost = buildTerrainCost(hm);
-const roadsVis = new RoadsVisual(hm);
+let roadCost = buildTerrainCost(hm);
+let roadsVis = new RoadsVisual(hm);
 scene.add(roadsVis.group);
-const roadMask = createRoadMask(hm.width, hm.height);
+let roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 type FollowMode = 'grid' | 'frenet';
@@ -361,7 +433,7 @@ function spawnFollowerAtCamera() {
 }
 
 // Vehicles — manager uses terrain cost and road mask
-const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
+let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
 scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
@@ -374,6 +446,21 @@ vehicles.group.visible = (followMode === 'grid');
   const ray = new Raycaster();
   const mouse = new Vector2();
   const dom = renderer.domElement;
+  // Hover tile debug overlay (lower-left)
+  const ensureTileDiv = () => {
+    if (!_hoverTileDiv) {
+      _hoverTileDiv = document.createElement('div');
+      _hoverTileDiv.style.position = 'absolute';
+      _hoverTileDiv.style.left = '12px';
+      _hoverTileDiv.style.bottom = '12px';
+      _hoverTileDiv.style.padding = '6px 8px';
+      _hoverTileDiv.style.background = 'rgba(0,0,0,0.5)';
+      _hoverTileDiv.style.color = '#e5e7eb';
+      _hoverTileDiv.style.whiteSpace = 'pre';
+      _hoverTileDiv.style.font = '12px/1.2 system-ui, sans-serif';
+      app.appendChild(_hoverTileDiv);
+    }
+  };
   const ndcFromClient = (cx: number, cy: number) => {
     const rect = dom.getBoundingClientRect();
     mouse.x = ((cx - rect.left) / rect.width) * 2 - 1;
@@ -393,6 +480,14 @@ vehicles.group.visible = (followMode === 'grid');
     igniteTiles(fireGrid, [{ x: gx, z: gz }], 0.8);
     return true;
   }
+  dom.addEventListener('mousemove', (e) => {
+    // Record cursor pos; overlay updates at 10 Hz from main loop
+    ensureTileDiv();
+    _hoverHasMouse = true;
+    _hoverMouseX = (e as MouseEvent).clientX;
+    _hoverMouseY = (e as MouseEvent).clientY;
+  });
+
   dom.addEventListener('click', (e) => {
     getMouseNDC(e);
     // Roads placement when enabled
@@ -474,6 +569,12 @@ vehicles.group.visible = (followMode === 'grid');
       toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
       clear: () => { roadsVis.clear(); roadEndpoints = []; clearFollowers(); rebuildPath2Ds(); }
     },
+    ribbon: {
+      setVisible: (on) => (fireRibbon as any).setVisible?.(on),
+      setWidth: (w) => (fireRibbon as any).setWidth?.(w),
+      setOpacity: (o) => (fireRibbon as any).setOpacity?.(o),
+      setSpeed: (v) => (fireRibbon as any).setSpeed?.(v),
+    },
     vehicles: {
       spawn: () => {
         if (followMode === 'grid') {
@@ -522,6 +623,76 @@ vehicles.group.visible = (followMode === 'grid');
           yawDiv = null;
         }
       },
+    },
+    config: {
+      get: () => ({ ...worldCfg }),
+      set: (partial: any) => {
+        worldCfg = {
+          ...worldCfg,
+          ...partial,
+          noise: { ...worldCfg.noise, ...(partial?.noise || {}) },
+          moisture: { ...worldCfg.moisture, ...(partial?.moisture || {}) },
+          biomes: { ...worldCfg.biomes, ...(partial?.biomes || {}) },
+          densities: { ...worldCfg.densities, ...(partial?.densities || {}) },
+        };
+      },
+      regenerate: () => {
+        // Remove old nodes from scene
+        if (forest) { scene.remove(forest.leaves); scene.remove(forest.trunks); if (forest.broadLeaves) scene.remove(forest.broadLeaves); if (forest.broadTrunks) scene.remove(forest.broadTrunks); }
+        if (shrubs) scene.remove(shrubs.inst);
+        if (rocks) scene.remove(rocks.inst);
+        if (chunked) scene.remove(chunked.group);
+        if (roadsVis) scene.remove(roadsVis.group);
+        if (vehicles) scene.remove(vehicles.group);
+        const prevMode = fireViz.getMode();
+        if (fireViz) fireViz.removeFromScene(scene as any);
+
+        // Rebuild world
+        hm = generateHeightmap(worldCfg.width, worldCfg.height, 1, worldCfg.noise);
+        biomes = computeBiomesTuned(hm, { forestMoistureMin: worldCfg.biomes.forestMoistureMin }, { seed: worldCfg.moisture.seed as any });
+        chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
+        scene.add(chunked.group);
+
+        forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
+        scene.add(forest.leaves); scene.add(forest.trunks);
+        if (forest.broadLeaves) scene.add(forest.broadLeaves);
+        if (forest.broadTrunks) scene.add(forest.broadTrunks);
+        shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub });
+        scene.add(shrubs.inst);
+        rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
+        scene.add(rocks.inst);
+
+        // Update stats references
+        stats.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks });
+
+        // Roads/vehicles
+        roadCost = buildTerrainCost(hm);
+        roadsVis = new RoadsVisual(hm);
+        scene.add(roadsVis.group);
+        roadMask = createRoadMask(hm.width, hm.height);
+        path2ds = [];
+        followers.forEach(f => scene.remove(f.object));
+        followers = [];
+        vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
+        scene.add(vehicles.group);
+        vehicles.group.visible = (followMode === 'grid');
+
+        // Fire
+        fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
+        fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
+        fireViz = createFireViz(hm, chunked.group);
+        fireViz.addToScene(scene as any);
+        fireViz.setMode(prevMode);
+        // Particles
+        // Recreate flipbook particles for new heightmap
+        scene.remove((fireParticles as any).group);
+        fireParticles = createFlipbookParticles(hm) as any;
+        scene.add((fireParticles as any).group);
+        // Recreate ribbon for new heightmap
+        scene.remove((fireRibbon as any).mesh);
+        fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 }) as any;
+        scene.add((fireRibbon as any).mesh);
+      }
     }
   });
 }

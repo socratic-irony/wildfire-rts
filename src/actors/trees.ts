@@ -11,6 +11,13 @@ import {
 } from 'three';
 import { Heightmap } from '../terrain/heightmap';
 import { BiomeMask } from '../terrain/biomes';
+import type { FireGrid } from '../fire/grid';
+import { FireState } from '../fire/grid';
+
+type ForestOpts = {
+  density?: number;         // probability per 2x2 tile in forest biome
+  broadleafRatio?: number;  // 0..1 chance of broadleaf vs conifer
+};
 
 function seededRng(seed: number) {
   let s = seed >>> 0;
@@ -20,7 +27,7 @@ function seededRng(seed: number) {
   };
 }
 
-export function createForest(hm: Heightmap, biomes: BiomeMask) {
+export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts = {}) {
   // Conifer: 2-stack cone leaves + cylinder trunk
   const conLeafGeo = new ConeGeometry(0.6, 1.6, 6, 1);
   const conTrunkGeo = new CylinderGeometry(0.15, 0.2, 0.6, 6, 1);
@@ -61,19 +68,25 @@ export function createForest(hm: Heightmap, biomes: BiomeMask) {
   const rng = seededRng(12345);
   const cols = hm.width;
   const rows = hm.height;
-  const conifers: { x: number; z: number; y: number; rot: number; scale: number }[] = [];
-  const broad: { x: number; z: number; y: number; rot: number; scale: number }[] = [];
+  const conifers: { x: number; z: number; y: number; rot: number; scale: number; gx: number; gz: number }[] = [];
+  const broad: { x: number; z: number; y: number; rot: number; scale: number; gx: number; gz: number }[] = [];
+  const density = opts.density ?? 0.30;
+  const broadleafRatio = opts.broadleafRatio ?? 0.4; // default 60/40 conifer/broad
   for (let z = 1; z < rows; z += 2) {
     for (let x = 1; x < cols; x += 2) {
       const i = z * (cols + 1) + x;
       if (!biomes.forest[i]) continue;
-      if (rng() < 0.30) {
-        const wx = (x + (rng() - 0.5) * 0.6) * hm.scale;
-        const wz = (z + (rng() - 0.5) * 0.6) * hm.scale;
+      if (rng() < density) {
+        const jx = (rng() - 0.5) * 0.6;
+        const jz = (rng() - 0.5) * 0.6;
+        const wx = (x + jx) * hm.scale;
+        const wz = (z + jz) * hm.scale;
         const wy = hm.sample(wx, wz);
-        // Species split ~60/40 conifer/broadleaf
-        if (rng() < 0.6) conifers.push({ x: wx, z: wz, y: wy, rot: rng() * Math.PI * 2, scale: 0.85 + rng() * 0.6 });
-        else broad.push({ x: wx, z: wz, y: wy, rot: rng() * Math.PI * 2, scale: 0.9 + rng() * 0.7 });
+        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(wx / hm.scale)));
+        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(wz / hm.scale)));
+        // Species split using ratio
+        if (rng() >= broadleafRatio) conifers.push({ x: wx, z: wz, y: wy, rot: rng() * Math.PI * 2, scale: 0.85 + rng() * 0.6, gx, gz });
+        else broad.push({ x: wx, z: wz, y: wy, rot: rng() * Math.PI * 2, scale: 0.9 + rng() * 0.7, gx, gz });
       }
     }
   }
@@ -100,6 +113,9 @@ export function createForest(hm: Heightmap, biomes: BiomeMask) {
     temp.updateMatrix();
     m.copy(temp.matrix);
     trunks.setMatrixAt(i, m);
+    // initialize instance colors to white (no tint)
+    ;(leaves as any).setColorAt(i, new Color(1,1,1));
+    ;(trunks as any).setColorAt(i, new Color(1,1,1));
   }
   for (let i = 0; i < broad.length; i++) {
     const it = broad[i];
@@ -115,7 +131,14 @@ export function createForest(hm: Heightmap, biomes: BiomeMask) {
     temp.updateMatrix();
     m.copy(temp.matrix);
     broadTrunks.setMatrixAt(i, m);
+    // initialize instance colors to white (no tint)
+    ;(broadLeaves as any).setColorAt(i, new Color(1,1,1));
+    ;(broadTrunks as any).setColorAt(i, new Color(1,1,1));
   }
+  if (leaves.instanceColor) (leaves.instanceColor as any).needsUpdate = true;
+  if (trunks.instanceColor) (trunks.instanceColor as any).needsUpdate = true;
+  if (broadLeaves.instanceColor) (broadLeaves.instanceColor as any).needsUpdate = true;
+  if (broadTrunks.instanceColor) (broadTrunks.instanceColor as any).needsUpdate = true;
 
   const update = (time: number) => {
     const sL = (conLeafMat as any).userData?.shader;
@@ -128,5 +151,43 @@ export function createForest(hm: Heightmap, biomes: BiomeMask) {
     if (sBT) sBT.uniforms.uTime.value = time;
   };
 
-  return { leaves, trunks, broadLeaves, broadTrunks, update };
+  // Burn tinting per instance using FireGrid state
+  const applyFireTint = (grid: FireGrid) => {
+    let any = false;
+    // Helper for color factors
+    const colForState = (state: FireState): Color => {
+      if (state === FireState.Burned) return new Color(0.08, 0.08, 0.08);
+      if (state === FireState.Smoldering) return new Color(0.60, 0.40, 0.25);
+      if (state === FireState.Burning) return new Color(0.75, 0.65, 0.55); // slight dark/ashy
+      return new Color(1, 1, 1);
+    };
+    // Conifers
+    for (let i = 0; i < conifers.length; i++) {
+      const it = conifers[i];
+      const idx = it.gz * grid.width + it.gx;
+      const state = grid.tiles[idx]?.state ?? 0;
+      const c = colForState(state);
+      (leaves as any).setColorAt(i, c);
+      (trunks as any).setColorAt(i, c);
+      any = true;
+    }
+    // Broadleaf
+    for (let i = 0; i < broad.length; i++) {
+      const it = broad[i];
+      const idx = it.gz * grid.width + it.gx;
+      const state = grid.tiles[idx]?.state ?? 0;
+      const c = colForState(state);
+      (broadLeaves as any).setColorAt(i, c);
+      (broadTrunks as any).setColorAt(i, c);
+      any = true;
+    }
+    if (any) {
+      if (leaves.instanceColor) (leaves.instanceColor as any).needsUpdate = true;
+      if (trunks.instanceColor) (trunks.instanceColor as any).needsUpdate = true;
+      if (broadLeaves.instanceColor) (broadLeaves.instanceColor as any).needsUpdate = true;
+      if (broadTrunks.instanceColor) (broadTrunks.instanceColor as any).needsUpdate = true;
+    }
+  };
+
+  return { leaves, trunks, broadLeaves, broadTrunks, update, applyFireTint };
 }

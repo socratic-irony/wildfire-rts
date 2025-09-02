@@ -10,7 +10,7 @@ function seededRng(seed: number) {
   };
 }
 
-export function createRocks(hm: Heightmap, biomes: BiomeMask) {
+export function createRocks(hm: Heightmap, biomes: BiomeMask, opts: { density?: number } = {}) {
   // Distorted low-poly rock: start from icosahedron, apply slight vertex jitter
   const baseGeo = new IcosahedronGeometry(0.5, 0);
   const pos = baseGeo.getAttribute('position');
@@ -32,12 +32,13 @@ export function createRocks(hm: Heightmap, biomes: BiomeMask) {
   const cols = hm.width;
   const rows = hm.height;
   const instances: { x: number; z: number; y: number; rot: number; sx: number; sy: number; sz: number }[] = [];
+  const density = opts.density ?? 0.08;
   for (let z = 2; z < rows; z += 2) {
     for (let x = 2; x < cols; x += 2) {
       const i = z * (cols + 1) + x;
       const rockish = biomes.rock[i] || (hm.data[i] > 6 ? 1 : 0);
       if (!rockish) continue;
-      if (rng() < 0.08) {
+      if (rng() < density) {
         const wx = (x + (rng() - 0.5) * 0.6) * hm.scale;
         const wz = (z + (rng() - 0.5) * 0.6) * hm.scale;
         const wy = hm.sample(wx, wz);
@@ -71,4 +72,3 @@ export function createRocks(hm: Heightmap, biomes: BiomeMask) {
   const update = (_time: number) => { /* rocks are static */ };
   return { inst, update };
 }
-

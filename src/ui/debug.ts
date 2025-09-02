@@ -9,9 +9,16 @@ export type StatsHandle = {
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
+    ribbon?: { setVisible?: (on:boolean)=>void; setWidth?: (w:number)=>void; setOpacity?: (o:number)=>void; setSpeed?: (v:number)=>void };
     vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
+    config?: {
+      get?: () => any;
+      set?: (partial: any) => void;
+      regenerate?: () => void;
+    };
   }) => void;
+  setRefs?: (opts: DebugOpts) => void;
 };
 
 type DebugOpts = {
@@ -34,7 +41,29 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   el.style.whiteSpace = 'pre';
   el.style.pointerEvents = 'auto';
   el.title = 'F1 to toggle';
+  // Columns container
+  const cols = document.createElement('div');
+  cols.style.display = 'flex';
+  cols.style.gap = '8px';
   container.appendChild(el);
+  el.appendChild(cols);
+
+  // Helper to create collapsible section (column)
+  const makeSection = (title: string, open = false) => {
+    const col = document.createElement('div');
+    col.style.minWidth = '180px';
+    const header = document.createElement('a');
+    header.href = '#';
+    header.style.cssText = 'display:block;color:#93c5fd;text-decoration:underline;cursor:pointer;margin-bottom:4px;';
+    const body = document.createElement('div');
+    body.style.display = open ? 'block' : 'none';
+    const setTitle = () => header.textContent = (open ? 'Hide ' : 'Show ') + title;
+    setTitle();
+    header.onclick = (e) => { e.preventDefault(); open = !open; body.style.display = open ? 'block' : 'none'; setTitle(); };
+    col.appendChild(header); col.appendChild(body);
+    cols.appendChild(col);
+    return { col, header, body, setOpen: (v:boolean) => { open = v; body.style.display = open?'block':'none'; setTitle(); } };
+  };
 
   let acc = 0;
   let frames = 0;
@@ -45,9 +74,13 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     igniteCenter?: () => void;
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
+    ribbon?: { setVisible?: (on:boolean)=>void; setWidth?: (w:number)=>void; setOpacity?: (o:number)=>void; setSpeed?: (v:number)=>void };
     vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
+    config?: { get?: () => any; set?: (partial: any) => void; regenerate?: () => void };
   } = {};
+
+  // Sections
 
   // Initialize visibility based on config
   el.style.display = visible ? 'block' : 'none';
@@ -60,6 +93,13 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   const row = document.createElement('div');
   row.style.marginBottom = '4px';
   const linkStyle = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-right:8px;';
+  const fireSec = makeSection('Fire', true);
+  const roadsSec = makeSection('Roads', false);
+  const vehSec = makeSection('Vehicles', false);
+  const biomesSec = makeSection('Biomes & Terrain', false);
+  const statsSec = makeSection('CPU / Stats', false);
+
+  // Fire controls
   const igniteToggle = document.createElement('a');
   igniteToggle.href = '#';
   igniteToggle.style.cssText = linkStyle;
@@ -77,8 +117,8 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     e.preventDefault();
     actions.igniteCenter?.();
   });
-  row.appendChild(igniteToggle);
-  row.appendChild(igniteCenter);
+  fireSec.body.appendChild(igniteToggle);
+  fireSec.body.appendChild(igniteCenter);
   // Fire viz mode dropdown
   const vizLabel = document.createElement('span');
   vizLabel.textContent = 'Fire Viz:';
@@ -94,8 +134,25 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   }
   select.value = 'vertex';
   select.addEventListener('change', () => actions.setVizMode?.(select.value as any));
-  row.appendChild(vizLabel);
-  row.appendChild(select);
+  fireSec.body.appendChild(vizLabel);
+  fireSec.body.appendChild(select);
+  // Ribbon controls
+  const rbLabel = document.createElement('div'); rbLabel.textContent = "Ribbon"; rbLabel.style.color = "#cbd5e1"; rbLabel.style.marginTop = "6px";
+  const rbToggle = document.createElement('a'); rbToggle.href = "#"; rbToggle.style.cssText = linkStyle; let rbOn = true; rbToggle.textContent = "On";
+  rbToggle.onclick = (e) => { e.preventDefault(); rbOn = !rbOn; rbToggle.textContent = rbOn?'On':'Off'; actions.ribbon?.setVisible?.(rbOn); };
+  const rbWidth = document.createElement('input'); rbWidth.type='range'; rbWidth.min='0.2'; rbWidth.max='1.5'; rbWidth.step='0.05'; rbWidth.value='0.9'; rbWidth.style.width='140px';
+  rbWidth.oninput = () => actions.ribbon?.setWidth?.(Number(rbWidth.value));
+  const rbOpacity = document.createElement('input'); rbOpacity.type='range'; rbOpacity.min='0.1'; rbOpacity.max='1.0'; rbOpacity.step='0.05'; rbOpacity.value='0.85'; rbOpacity.style.width='140px';
+  rbOpacity.oninput = () => actions.ribbon?.setOpacity?.(Number(rbOpacity.value));
+  const rbSpeed = document.createElement('input'); rbSpeed.type='range'; rbSpeed.min='0.05'; rbSpeed.max='1.0'; rbSpeed.step='0.05'; rbSpeed.value='0.35'; rbSpeed.style.width='140px';
+  rbSpeed.oninput = () => actions.ribbon?.setSpeed?.(Number(rbSpeed.value));
+  const rbRow = document.createElement('div'); rbRow.style.marginTop='2px';
+  rbRow.appendChild(rbToggle);
+  const wSpan = document.createElement('span'); wSpan.textContent = " Width"; wSpan.style.margin="0 6px 0 8px"; wSpan.style.color="#cbd5e1";
+  const oSpan = document.createElement('span'); oSpan.textContent = " Opacity"; oSpan.style.margin="0 6px 0 8px"; oSpan.style.color="#cbd5e1";
+  const sSpan = document.createElement('span'); sSpan.textContent = " Speed"; sSpan.style.margin="0 6px 0 8px"; sSpan.style.color="#cbd5e1";
+  rbRow.appendChild(wSpan); rbRow.appendChild(rbWidth); rbRow.appendChild(oSpan); rbRow.appendChild(rbOpacity); rbRow.appendChild(sSpan); rbRow.appendChild(rbSpeed);
+  fireSec.body.appendChild(rbLabel); fireSec.body.appendChild(rbRow);
   // Roads controls
   const roadsLabel = document.createElement('span');
   roadsLabel.textContent = 'Roads:';
@@ -118,9 +175,9 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   roadsClear.style.cssText = linkStyle;
   roadsClear.textContent = 'Clear Roads';
   roadsClear.addEventListener('click', (e) => { e.preventDefault(); actions.roads?.clear?.(); });
-  row.appendChild(roadsLabel);
-  row.appendChild(roadsToggle);
-  row.appendChild(roadsClear);
+  roadsSec.body.appendChild(roadsLabel);
+  roadsSec.body.appendChild(roadsToggle);
+  roadsSec.body.appendChild(roadsClear);
 
   // Map preset selector (added dynamically if provided by caller)
   let presetInjected = false;
@@ -143,8 +200,8 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     }
     presetSelect.value = 'loop';
     presetSelect.addEventListener('change', () => actions.preset?.set?.(presetSelect.value as any));
-    row.appendChild(presetLabel);
-    row.appendChild(presetSelect);
+    fireSec.body.appendChild(presetLabel);
+    fireSec.body.appendChild(presetSelect);
     presetInjected = true;
   };
 
@@ -215,10 +272,10 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     yawSmooth.textContent = `Yaw Smooth: ${yawSmoothOn ? 'On' : 'Off'}`;
     actions.vehicles?.toggleYawSmoothing?.(yawSmoothOn);
   });
-  row.appendChild(vehLabel);
-  row.appendChild(vehSpawn);
-  row.appendChild(vehMove);
-  row.appendChild(vehClear);
+  vehSec.body.appendChild(vehLabel);
+  vehSec.body.appendChild(vehSpawn);
+  vehSec.body.appendChild(vehMove);
+  vehSec.body.appendChild(vehClear);
   const yawDbg = document.createElement('a');
   yawDbg.href = '#';
   yawDbg.style.cssText = linkStyle;
@@ -230,14 +287,105 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     yawDbg.textContent = `Yaw Debug: ${yawOn ? 'On' : 'Off'}`;
     actions.vehicles?.toggleYawDebug?.(yawOn);
   });
-  row.appendChild(yawDbg);
+  vehSec.body.appendChild(yawDbg);
   // (Turn selector removed)
-  row.appendChild(followLabel);
-  row.appendChild(followSelect);
-  row.appendChild(spaceLabel);
-  row.appendChild(spaceSelect);
-  row.appendChild(yawSmooth);
-  el.appendChild(row);
+  vehSec.body.appendChild(followLabel);
+  vehSec.body.appendChild(followSelect);
+  vehSec.body.appendChild(spaceLabel);
+  vehSec.body.appendChild(spaceSelect);
+  vehSec.body.appendChild(yawSmooth);
+
+  // Biomes & Terrain sliders
+  const panel = biomesSec.body;
+  const mkLabel = (text: string) => { const s = document.createElement('div'); s.textContent = text; s.style.color = '#cbd5e1'; s.style.margin = '6px 0 2px'; return s; };
+  const mkRange = (id: string, min: number, max: number, step: number, val: number) => {
+    const wrap = document.createElement('div');
+    const input = document.createElement('input');
+    input.type = 'range'; input.min = String(min); input.max = String(max); input.step = String(step); input.value = String(val);
+    input.style.width = '180px'; input.style.verticalAlign = 'middle'; input.id = id;
+    const span = document.createElement('span'); span.style.marginLeft = '8px'; span.textContent = String(val);
+    input.addEventListener('input', () => { span.textContent = input.value; });
+    wrap.appendChild(input); wrap.appendChild(span);
+    return { wrap, input };
+  };
+  const mkText = (id: string, val: string) => {
+    const wrap = document.createElement('div');
+    const input = document.createElement('input');
+    input.type = 'text'; input.value = val; input.id = id;
+    input.style.cssText = 'width:120px;background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 4px;';
+    wrap.appendChild(input);
+    return { wrap, input };
+  };
+  const cfg = () => actions.config?.get?.() ?? {};
+
+  // Terrain size (regenerate required)
+  panel.appendChild(mkLabel('Terrain Size'));
+  const size = mkRange('terrainSize', 64, 512, 32, cfg().width ?? 128);
+  panel.appendChild(size.wrap);
+
+  // Noise controls
+  panel.appendChild(mkLabel('Noise: frequency / amplitude'));
+  const freq = mkRange('noiseFreq', 0.2, 6.0, 0.1, cfg().noise?.frequency ?? 2.0);
+  const amp = mkRange('noiseAmp', 1, 20, 1, cfg().noise?.amplitude ?? 8);
+  panel.appendChild(freq.wrap); panel.appendChild(amp.wrap);
+  // Noise seed
+  panel.appendChild(mkLabel('Noise Seed'));
+  const noiseSeed = mkText('noiseSeed', String(cfg().noise?.seed ?? '42'));
+  const nsRand = document.createElement('a'); nsRand.href = '#'; nsRand.textContent = 'Randomize'; nsRand.style.cssText = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-left:8px;';
+  nsRand.onclick = (e) => { e.preventDefault(); noiseSeed.input.value = Math.random().toString(36).slice(2, 8); };
+  const nsRow = document.createElement('div'); nsRow.appendChild(noiseSeed.wrap); nsRow.appendChild(nsRand); panel.appendChild(nsRow);
+
+  // Biome moisture threshold
+  panel.appendChild(mkLabel('Forest Moisture Min'));
+  const fmoist = mkRange('forestMoist', 0.0, 1.0, 0.01, cfg().biomes?.forestMoistureMin ?? 0.55);
+  panel.appendChild(fmoist.wrap);
+  // Moisture seed
+  panel.appendChild(mkLabel('Moisture Seed'));
+  const moistSeed = mkText('moistSeed', String(cfg().moisture?.seed ?? 'moist'));
+  const msRand = document.createElement('a'); msRand.href = '#'; msRand.textContent = 'Randomize'; msRand.style.cssText = 'color:#93c5fd; text-decoration:underline; cursor:pointer; margin-left:8px;';
+  msRand.onclick = (e) => { e.preventDefault(); moistSeed.input.value = Math.random().toString(36).slice(2, 8); };
+  const msRow = document.createElement('div'); msRow.appendChild(moistSeed.wrap); msRow.appendChild(msRand); panel.appendChild(msRow);
+
+  // Densities
+  panel.appendChild(mkLabel('Densities: trees / shrubs / rocks'));
+  const dTrees = mkRange('densTrees', 0.0, 0.6, 0.01, cfg().densities?.tree ?? 0.30);
+  const dShrubs = mkRange('densShrubs', 0.0, 0.4, 0.01, cfg().densities?.shrub ?? 0.15);
+  const dRocks = mkRange('densRocks', 0.0, 0.2, 0.01, cfg().densities?.rock ?? 0.08);
+  panel.appendChild(dTrees.wrap); panel.appendChild(dShrubs.wrap); panel.appendChild(dRocks.wrap);
+
+  // Broadleaf ratio
+  panel.appendChild(mkLabel('Broadleaf Ratio'));
+  const broadRatio = mkRange('broadRatio', 0.0, 1.0, 0.01, cfg().densities?.broadleafRatio ?? 0.4);
+  panel.appendChild(broadRatio.wrap);
+
+  // Apply + Regenerate buttons
+  const btnRow = document.createElement('div');
+  btnRow.style.marginTop = '6px';
+  const applyBtn = document.createElement('button');
+  applyBtn.textContent = 'Apply (no regen)';
+  applyBtn.style.cssText = 'margin-right:8px;background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 6px;cursor:pointer;';
+  const regenBtn = document.createElement('button');
+  regenBtn.textContent = 'Regenerate Terrain';
+  regenBtn.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 6px;cursor:pointer;';
+  const readVals = () => ({
+    width: Number(size.input.value), height: Number(size.input.value),
+    noise: { frequency: Number(freq.input.value), amplitude: Number(amp.input.value), seed: noiseSeed.input.value },
+    moisture: { seed: moistSeed.input.value },
+    biomes: { forestMoistureMin: Number(fmoist.input.value) },
+    densities: { tree: Number(dTrees.input.value), shrub: Number(dShrubs.input.value), rock: Number(dRocks.input.value), broadleafRatio: Number(broadRatio.input.value) }
+  });
+  applyBtn.onclick = () => actions.config?.set?.(readVals());
+  regenBtn.onclick = () => { actions.config?.set?.(readVals()); actions.config?.regenerate?.(); };
+  // Randomize both seeds helper
+  const randBoth = document.createElement('button');
+  randBoth.textContent = 'Randomize Seeds + Regen';
+  randBoth.style.cssText = 'margin-left:8px;background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 6px;cursor:pointer;';
+  randBoth.onclick = () => { noiseSeed.input.value = Math.random().toString(36).slice(2, 8); moistSeed.input.value = Math.random().toString(36).slice(2, 8); actions.config?.set?.(readVals()); actions.config?.regenerate?.(); };
+  btnRow.appendChild(applyBtn); btnRow.appendChild(regenBtn);
+  btnRow.appendChild(randBoth);
+  panel.appendChild(btnRow);
+
+  // Done building biomes panel inside biomesSec
 
   // Toggle with F1 (only if feature is enabled)
   window.addEventListener('keydown', (e) => {
@@ -300,13 +448,12 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       
       statsText += (opts.chunkGroup ? `Chunks ${chunksVis}/${chunks}  LOD H:${lodHi} L:${lodLo}\n` : '') +
         (opts.forest || opts.shrubs || opts.rocks ? `Instances Trees ${treeCount}${treeBroad?` (broad ${treeBroad})`:''}  Shrubs ${shrubCount}  Rocks ${rockCount}` : '');
-      
-      // Ensure stats lines sit below controls row
-      let lines = el.querySelector('.lines') as HTMLDivElement | null;
+      // CPU/Stats section lines
+      let lines = statsSec.body.querySelector('.lines') as HTMLDivElement | null;
       if (!lines) {
         lines = document.createElement('div');
         lines.className = 'lines';
-        el.appendChild(lines);
+        statsSec.body.appendChild(lines);
       }
       lines.textContent = statsText;
 
@@ -314,11 +461,13 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       info.reset();
     },
     getIgniteMode() { return igniteMode; },
+
+    setActions(a) { actions = a; maybeInjectPreset(); },
+    setRefs(o) { opts = o; }
     setVisible(vis: boolean) { 
       visible = vis; 
       el.style.display = visible ? 'block' : 'none';
     },
     isVisible() { return visible; },
-    setActions(a) { actions = a; maybeInjectPreset(); }
   };
 }
