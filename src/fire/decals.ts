@@ -1,4 +1,4 @@
-import { Color, DoubleSide, InstancedBufferAttribute, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Vector3 } from 'three';
+import { Color, DoubleSide, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Vector3 } from 'three';
 import { Heightmap } from '../terrain/heightmap';
 import { FireGrid, indexToCoord } from './grid';
 
@@ -11,8 +11,7 @@ export function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; dept
     transparent: true, 
     opacity: 0.6, 
     depthWrite: false,
-    side: DoubleSide, // DoubleSide
-    vertexColors: false
+    side: DoubleSide
   });
   
   if (opts && typeof opts.depthTest === 'boolean') mat.depthTest = opts.depthTest;
@@ -23,9 +22,6 @@ export function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; dept
   (inst as any).count = 0;
   inst.frustumCulled = false;
   if (opts?.renderOrder !== undefined) inst.renderOrder = opts.renderOrder;
-  
-  // Enable instance colors (required for setColorAt to work)
-  inst.instanceColor = new InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
 
   const tmp = new Object3D();
   const m = new Matrix4();
@@ -58,18 +54,12 @@ export function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; dept
           tmp.updateMatrix();
           m.copy(tmp.matrix);
           inst.setMatrixAt(idx++, m);
-          
-          // Color intensity based on wetness level
-          const col = new Color('#87CEEB');
-          col.multiplyScalar(0.7 + intensity * 0.3); // Brighten with more wetness
-          inst.setColorAt(idx - 1, col);
         }
       }
     }
 
     (inst as any).count = idx;
     inst.instanceMatrix.needsUpdate = true;
-    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   };
 
   const setOffsetY = (y: number) => { yOffset = y; };
@@ -87,8 +77,7 @@ export function createRetardantDecals(hm: Heightmap, opts?: { offsetY?: number; 
     transparent: true, 
     opacity: 0.7, 
     depthWrite: false,
-    side: DoubleSide, // DoubleSide
-    vertexColors: false
+    side: DoubleSide
   });
   
   if (opts && typeof opts.depthTest === 'boolean') mat.depthTest = opts.depthTest;
@@ -99,9 +88,6 @@ export function createRetardantDecals(hm: Heightmap, opts?: { offsetY?: number; 
   (inst as any).count = 0;
   inst.frustumCulled = false;
   if (opts?.renderOrder !== undefined) inst.renderOrder = opts.renderOrder;
-  
-  // Enable instance colors (required for setColorAt to work)
-  inst.instanceColor = new InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
 
   const tmp = new Object3D();
   const m = new Matrix4();
@@ -134,18 +120,12 @@ export function createRetardantDecals(hm: Heightmap, opts?: { offsetY?: number; 
           tmp.updateMatrix();
           m.copy(tmp.matrix);
           inst.setMatrixAt(idx++, m);
-          
-          // Color intensity based on retardant level - deeper red with more retardant
-          const col = new Color('#8B0000');
-          col.multiplyScalar(0.8 + intensity * 0.2); // Slightly brighten with more retardant
-          inst.setColorAt(idx - 1, col);
         }
       }
     }
 
     (inst as any).count = idx;
     inst.instanceMatrix.needsUpdate = true;
-    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   };
 
   const setOffsetY = (y: number) => { yOffset = y; };
