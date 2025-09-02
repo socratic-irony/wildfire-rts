@@ -341,11 +341,9 @@ vehicles.group.visible = (followMode === 'grid');
 // Seed random road loops at startup and spawn moving vehicles
 seedRandomLoopsAndVehicles(2);
 rebuildPath2Ds();
-roadsVis.buildIntersections();
 if (followMode === 'frenet') {
   spawnFollowersOnAllPaths(3);
 }
-let interMgr = new IntersectionManager(roadsVis as any, path2dIndexMap);
 
 // Click to ignite under cursor
 {
