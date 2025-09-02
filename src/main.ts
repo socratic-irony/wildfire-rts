@@ -24,7 +24,6 @@ import { applyRoadMaskToFireGrid, createRoadMask, rasterizePolyline } from './ro
 import { VehiclesManager } from './vehicles/vehicles';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
-import { IntersectionManager } from './vehicles/intersections';
 // import { createFireTexture } from './fire/texture';
 
 const app = document.getElementById('app')!;
@@ -103,8 +102,7 @@ loop.add((dt) => {
       yawDiv.textContent = vehicles.getDebugText(0);
     }
   } else {
-    // Update intersection manager before follower integration to influence this frame
-    try { interMgr.update(dt, followers as any); } catch {}
+    // Intersections TBD — no special slowing logic here
     const groups = new Map<Path2D, number[]>();
     for (let i = 0; i < followers.length; i++) {
       const p = followers[i].path as Path2D;
@@ -210,11 +208,6 @@ type FollowMode = 'grid' | 'frenet';
 let followMode: FollowMode = 'frenet';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
-let path2dIndexMap: Map<Path2D, number> = new Map();
-type InterRes = { reservedBy: number; startS: number; startTime: number; pathIndex: number };
-const interReservations = new Map<number, InterRes>();
-type FState = { currentIntId?: number; targetS?: number; stopTimer?: number };
-let followerState: FState[] = [];
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
 
@@ -250,8 +243,6 @@ function rebuildPath2Ds() {
     const isClosed = Math.hypot(first.x - last.x, first.z - last.z) < hm.scale * 1.5;
     return new Path2D(pts, { closed: isClosed });
   });
-  path2dIndexMap = new Map();
-  for (let i = 0; i < path2ds.length; i++) path2dIndexMap.set(path2ds[i], i);
 }
 function spawnFollowersOnAllPaths(perPath = 3) {
   // Create visible follower objects for each path2d

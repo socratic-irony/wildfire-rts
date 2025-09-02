@@ -1,5 +1,9 @@
 Intersection Logic Spec (Vehicles on Procedural Roads)
 
+Status
+
+- TBD in code: Intersection logic is not currently enabled. A simple all‑way stop manager was explored but removed for now due to tuning issues. The next iteration will implement the “All‑Way Stop” method described here (queues, deterministic ordering, spillback check), followed by tokenized conflict zones.
+
 0) Goals
 	•	No collisions, no deadlocks, no jitter.
 	•	Deterministic & scalable for many vehicles.
