@@ -13,7 +13,7 @@ import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
 import { createRocks } from './actors/rocks';
 import { buildChunkedTerrain } from './terrain/chunks';
-import { attachStats } from './ui/debug';
+// import { attachStats } from './ui/debug'; // Removed - functionality moved to menubar
 import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { createMenubar } from './ui/menubar';
 import { createPaintSystem } from './ui/paint';
@@ -204,7 +204,8 @@ loop.add((dt) => {
     }
   }
   
-  stats.update(dt, renderer);
+  // Update unified menubar/debug interface
+  menubar.update(dt, renderer, { chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
   // (intersection manager already ran pre-update in Frenet mode)
 });
 
@@ -256,10 +257,7 @@ scene.add(shrubs.inst);
 let rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
 scene.add(rocks.inst);
 
-// Attach stats after actors/chunks are created so we can report counts  
-const stats = attachStats(app, { chunkGroup: chunked.group, forest, shrubs, rocks });
-
-// Create menubar for painting tools
+// Create unified menubar/debug interface
 const menubar = createMenubar(app);
 
 // Create paint system (will be initialized after fire grid is available)
@@ -395,7 +393,7 @@ let fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 });
 scene.add(fireRibbon.mesh);
 
 // Update debug interface with fireGrid reference now that it's available
-stats.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
+menubar.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
 
 // Roads — cost field + visual + input state
 let roadCost = buildTerrainCost(hm);
@@ -672,156 +670,12 @@ if (followMode === 'frenet') {
       return;
     }
     // Ignite when toggle is on
-    if (stats.getIgniteMode()) {
+    if (menubar.getIgniteMode()) {
       igniteFromNDC(mouse.x, mouse.y);
     }
   });
 
-  // Wire Debug UI: Ignite Center + Viz Mode action
-  stats.setActions({
-    igniteCenter: () => {
-      // Screen center is NDC (0,0)
-      igniteFromNDC(0, 0);
-    },
-    setVizMode: (mode) => fireViz.setMode(mode),
-    roads: {
-      toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
-      clear: () => { roadsVis.clear(); roadEndpoints = []; clearFollowers(); rebuildPath2Ds(); }
-    },
-    ribbon: {
-      setVisible: (on) => (fireRibbon as any).setVisible?.(on),
-      setWidth: (w) => (fireRibbon as any).setWidth?.(w),
-      setOpacity: (o) => (fireRibbon as any).setOpacity?.(o),
-      setSpeed: (v) => (fireRibbon as any).setSpeed?.(v),
-    },
-    vehicles: {
-      spawn: () => {
-        if (followMode === 'grid') {
-          const camPos = rig.camera.getWorldPosition(new Vector3());
-          const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
-          const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
-          vehicles.spawnAt(gx, gz);
-        } else {
-          rebuildPath2Ds();
-          spawnFollowerAtCamera();
-        }
-      },
-      moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
-      clear: () => { vehicles.clear(); clearFollowers(); },
-      toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
-      setSpacingMode: (m: 'hybrid' | 'gap' | 'time') => { spacingMode = m; },
-      setFollowMode: (m: FollowMode) => {
-        followMode = m;
-        if (followMode === 'grid') {
-          vehicles.group.visible = true;
-          followers.forEach(f => f.object.visible = false);
-        } else {
-          vehicles.group.visible = false;
-          rebuildPath2Ds();
-          followers.forEach(f => f.object.visible = true);
-        }
-      },
-      toggleYawDebug: (on) => {
-        yawDebugOn = on;
-        vehicles.setYawDebug(on);
-        if (on) {
-          if (!yawDiv) {
-            yawDiv = document.createElement('div');
-            yawDiv.style.position = 'absolute';
-            yawDiv.style.left = '12px';
-            yawDiv.style.bottom = '12px';
-            yawDiv.style.padding = '6px 8px';
-            yawDiv.style.background = 'rgba(0,0,0,0.5)';
-            yawDiv.style.color = '#e5e7eb';
-            yawDiv.style.whiteSpace = 'pre';
-            yawDiv.style.font = '12px/1.2 system-ui, sans-serif';
-            app.appendChild(yawDiv);
-          }
-        } else {
-          if (yawDiv && yawDiv.parentElement) { yawDiv.parentElement.removeChild(yawDiv); }
-          yawDiv = null;
-        }
-      },
-    },
-    config: {
-      get: () => ({ ...worldCfg }),
-      set: (partial: any) => {
-        worldCfg = {
-          ...worldCfg,
-          ...partial,
-          noise: { ...worldCfg.noise, ...(partial?.noise || {}) },
-          moisture: { ...worldCfg.moisture, ...(partial?.moisture || {}) },
-          biomes: { ...worldCfg.biomes, ...(partial?.biomes || {}) },
-          densities: { ...worldCfg.densities, ...(partial?.densities || {}) },
-        };
-      },
-      regenerate: () => {
-        // Remove old nodes from scene
-        if (forest) { scene.remove(forest.leaves); scene.remove(forest.trunks); if (forest.broadLeaves) scene.remove(forest.broadLeaves); if (forest.broadTrunks) scene.remove(forest.broadTrunks); }
-        if (shrubs) scene.remove(shrubs.inst);
-        if (rocks) scene.remove(rocks.inst);
-        if (chunked) scene.remove(chunked.group);
-        if (roadsVis) scene.remove(roadsVis.group);
-        if (vehicles) scene.remove(vehicles.group);
-        const prevMode = fireViz.getMode();
-        if (fireViz) fireViz.removeFromScene(scene as any);
-
-        // Rebuild world
-        hm = generateHeightmap(worldCfg.width, worldCfg.height, 1, worldCfg.noise);
-        biomes = computeBiomesTuned(hm, { forestMoistureMin: worldCfg.biomes.forestMoistureMin }, { seed: worldCfg.moisture.seed as any });
-        chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
-        scene.add(chunked.group);
-
-        forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
-        scene.add(forest.leaves); scene.add(forest.trunks);
-        if (forest.broadLeaves) scene.add(forest.broadLeaves);
-        if (forest.broadTrunks) scene.add(forest.broadTrunks);
-        shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub });
-        scene.add(shrubs.inst);
-        rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
-        scene.add(rocks.inst);
-
-        // Update stats references
-        stats.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks });
-
-        // Roads/vehicles
-        roadCost = buildTerrainCost(hm);
-        roadsVis = new RoadsVisual(hm);
-        scene.add(roadsVis.group);
-        roadMask = createRoadMask(hm.width, hm.height);
-        path2ds = [];
-        followers.forEach(f => scene.remove(f.object));
-        followers = [];
-        vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
-        scene.add(vehicles.group);
-        vehicles.group.visible = (followMode === 'grid');
-
-        // Fire
-        fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
-        fireSim = new FireSim(fireGrid, { windDirRad: 0, windSpeed: 0 });
-        fireViz = createFireViz(hm, chunked.group);
-        fireViz.addToScene(scene as any);
-        fireViz.setMode(prevMode);
-        
-        // Update paint system with new fire grid and terrain
-        if (paintSystem) {
-          paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, hm, fireGrid);
-        }
-        
-        // Update debug interface with new fireGrid reference
-        stats.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
-        // Particles
-        // Recreate flipbook particles for new heightmap
-        scene.remove((fireParticles as any).group);
-        fireParticles = createFlipbookParticles(hm) as any;
-        scene.add((fireParticles as any).group);
-        // Recreate ribbon for new heightmap
-        scene.remove((fireRibbon as any).mesh);
-        fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 }) as any;
-        scene.add((fireRibbon as any).mesh);
-      }
-    }
-  });
+  // Old duplicate stats.setActions call removed - functionality moved to menubar
 
   // Wire menubar actions
   menubar.setActions({
@@ -861,12 +715,6 @@ if (followMode === 'frenet') {
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => { vehicles.clear(); clearFollowers(); }
-    },
-    stats: {
-      toggleOverlay: () => {
-        const currentlyVisible = stats.isVisible();
-        stats.setVisible(!currentlyVisible);
-      }
     }
   });
 }

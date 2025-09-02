@@ -1,37 +1,49 @@
 # Debug Tools
 
-The wildfire RTS engine provides a comprehensive debug overlay and command console system for development and introspection.
+The wildfire RTS engine provides a unified debug toolbar and command console system for development and introspection.
 
-## Debug Overlay
+## Unified Debug Toolbar
 
-The debug overlay displays real-time metrics and provides interactive controls for development. It can be toggled with the `F1` key or controlled via the feature flag system.
+The debug interface has been unified into a single, comprehensive toolbar that eliminates competing overlays. The toolbar displays real-time metrics and provides interactive controls for development. It can be toggled with the `F1` key or controlled via the feature flag system.
 
-### Metrics Displayed
+### Main Toolbar Features
+
+- **Emoji-based tool buttons**: Intuitive icons for quick access to tools
+  - 🔥 **Ignite/Fire**: Toggle ignite mode or ignite at center
+  - 💧 **Water**: Apply water for fire suppression
+  - 🧪 **Retardant**: Apply fire retardant
+  - 🛣️ **Roads**: Toggle road placement mode
+  - 🚗 **Spawn**: Spawn vehicles
+  - 🗑️ **Clear**: Clear roads or vehicles
+- **Real-time performance stats**: FPS, memory usage, draw calls, instance counts displayed inline
+- **Settings button** (⚙️): Expands detailed configuration panels
+
+### Performance Metrics Displayed
 
 - **Frame Rate**: Current FPS
-- **Render Stats**: Draw calls, triangles rendered
+- **Render Stats**: Draw calls, triangles rendered  
 - **Memory Usage**: Heap size, used memory, available memory (when available)
 - **Terrain**: Chunk count, LOD distribution (high/low detail)
 - **Instances**: Tree count (conifer + broadleaf), shrub count, rock count
-- **System**: Performance timing information
 
-### Interactive Controls
+### Expandable Controls
 
-- **Fire System**: Ignite mode toggle, ignite center action, visualization mode selection
-- **Roads**: Toggle road placement mode, clear all roads
-- **Vehicles**: Spawn vehicles, toggle movement mode, clear all vehicles
-- **Configuration**: Follow mode selection, spacing mode, yaw debug options
+Click the ⚙️ settings button to access detailed configuration panels for:
+
+- **🔥 Fire System**: Fire visualization mode, ribbon controls, fire statistics
+- **🚗 Vehicles**: Movement controls, path following modes, debug options  
+- **🏔️ Terrain**: World generation parameters, biome settings, regeneration controls
 
 ### Feature Flag Integration
 
-The debug overlay can be controlled via the config system:
+The unified toolbar can be controlled via the config system:
 
 ```typescript
 import { config } from './config/features';
 
 // Check if debug overlay is enabled
 if (config.features.debug_overlay) {
-  // Debug overlay will be shown
+  // Unified debug toolbar will be shown
 }
 ```
 
