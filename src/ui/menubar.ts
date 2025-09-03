@@ -166,7 +166,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     flex-direction: column;
     gap: 12px;
     min-width: 600px;
-    max-height: 70vh;
+    max-height: 85vh;
     overflow-y: auto;
     z-index: 1001;
   `;
@@ -487,7 +487,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
 
     // Terrain Configuration Section
     const terrainControls = document.createElement('div');
-    terrainControls.style.cssText = 'display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;';
+    terrainControls.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
     
     const cfg = () => actions.config?.get?.() ?? {};
     
@@ -524,15 +524,36 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
       return row;
     };
 
-    // Add terrain controls with current config values
+    // Add terrain controls with current config values and proper callbacks
     const currentCfg = cfg();
-    terrainControls.appendChild(createRange('Size', 64, 512, 32, currentCfg.width ?? 128, () => {}));
-    terrainControls.appendChild(createRange('Noise Freq', 0.2, 6.0, 0.1, currentCfg.noise?.frequency ?? 2.0, () => {}));
-    terrainControls.appendChild(createRange('Noise Amp', 1, 20, 1, currentCfg.noise?.amplitude ?? 8, () => {}));
-    terrainControls.appendChild(createRange('Forest Min', 0.0, 1.0, 0.01, currentCfg.biomes?.forestMoistureMin ?? 0.55, () => {}));
-    terrainControls.appendChild(createRange('Trees', 0.0, 0.6, 0.01, currentCfg.densities?.tree ?? 0.30, () => {}));
-    terrainControls.appendChild(createRange('Shrubs', 0.0, 0.4, 0.01, currentCfg.densities?.shrub ?? 0.15, () => {}));
-    terrainControls.appendChild(createRange('Rocks', 0.0, 0.2, 0.01, currentCfg.densities?.rock ?? 0.08, () => {}));
+    terrainControls.appendChild(createRange('Size', 64, 512, 32, currentCfg.width ?? 128, (v) => {
+      const newCfg = { ...currentCfg, width: v, height: v };
+      actions.config?.set?.(newCfg);
+    }));
+    terrainControls.appendChild(createRange('Noise Freq', 0.2, 6.0, 0.1, currentCfg.noise?.frequency ?? 2.0, (v) => {
+      const newCfg = { ...currentCfg, noise: { ...currentCfg.noise, frequency: v } };
+      actions.config?.set?.(newCfg);
+    }));
+    terrainControls.appendChild(createRange('Noise Amp', 1, 20, 1, currentCfg.noise?.amplitude ?? 8, (v) => {
+      const newCfg = { ...currentCfg, noise: { ...currentCfg.noise, amplitude: v } };
+      actions.config?.set?.(newCfg);
+    }));
+    terrainControls.appendChild(createRange('Forest Min', 0.0, 1.0, 0.01, currentCfg.biomes?.forestMoistureMin ?? 0.55, (v) => {
+      const newCfg = { ...currentCfg, biomes: { ...currentCfg.biomes, forestMoistureMin: v } };
+      actions.config?.set?.(newCfg);
+    }));
+    terrainControls.appendChild(createRange('Trees', 0.0, 0.6, 0.01, currentCfg.densities?.tree ?? 0.30, (v) => {
+      const newCfg = { ...currentCfg, densities: { ...currentCfg.densities, tree: v } };
+      actions.config?.set?.(newCfg);
+    }));
+    terrainControls.appendChild(createRange('Shrubs', 0.0, 0.4, 0.01, currentCfg.densities?.shrub ?? 0.15, (v) => {
+      const newCfg = { ...currentCfg, densities: { ...currentCfg.densities, shrub: v } };
+      actions.config?.set?.(newCfg);
+    }));
+    terrainControls.appendChild(createRange('Rocks', 0.0, 0.2, 0.01, currentCfg.densities?.rock ?? 0.08, (v) => {
+      const newCfg = { ...currentCfg, densities: { ...currentCfg.densities, rock: v } };
+      actions.config?.set?.(newCfg);
+    }));
 
     // Regenerate button
     const regenBtn = document.createElement('button');

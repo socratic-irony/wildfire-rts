@@ -721,6 +721,54 @@ if (followMode === 'frenet') {
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => { vehicles.clear(); clearFollowers(); }
+    },
+    config: {
+      get: () => worldCfg,
+      set: (partial) => { Object.assign(worldCfg, partial); },
+      regenerate: () => {
+        // Regenerate heightmap and biomes from current config
+        hm = generateHeightmap(worldCfg.width, worldCfg.height, 1, worldCfg.noise);
+        biomes = computeBiomesTuned(hm, { forestMoistureMin: worldCfg.biomes.forestMoistureMin }, { seed: worldCfg.moisture.seed as any });
+        
+        // Remove old terrain and rebuild
+        scene.remove(chunked.group);
+        chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
+        scene.add(chunked.group);
+        
+        // Rebuild vegetation
+        if (forest.leaves.parent) scene.remove(forest.leaves);
+        if (forest.trunks.parent) scene.remove(forest.trunks);
+        if (forest.broadLeaves?.parent) scene.remove(forest.broadLeaves);
+        if (forest.broadTrunks?.parent) scene.remove(forest.broadTrunks);
+        if (shrubs.inst.parent) scene.remove(shrubs.inst);
+        if (rocks.inst.parent) scene.remove(rocks.inst);
+        
+        forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
+        scene.add(forest.leaves);
+        scene.add(forest.trunks);
+        if (forest.broadLeaves) scene.add(forest.broadLeaves);
+        if (forest.broadTrunks) scene.add(forest.broadTrunks);
+        
+        shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub });
+        scene.add(shrubs.inst);
+        
+        rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
+        scene.add(rocks.inst);
+        
+        // Rebuild fire grid and related systems
+        fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
+        fireSim = new FireSim(fireGrid, simEnv);
+        
+        // Update paint system and other references
+        if (paintSystem) paintSystem.updateReferences?.(hm, fireGrid);
+        fireViz.updateTerrain?.(hm, chunked.group);
+        suppressionDecals.updateTerrain?.(hm);
+        fireParticles.updateTerrain?.(hm);
+        fireRibbon.updateTerrain?.(hm);
+        
+        // Update menubar references
+        menubar.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
+      }
     }
   });
 }
