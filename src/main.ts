@@ -790,7 +790,7 @@ if (followMode === 'frenet') {
         fireSim = new FireSim(fireGrid, simEnv);
         
         // Update paint system and other references
-        if (paintSystem) paintSystem.updateReferences?.(hm, fireGrid);
+        if (paintSystem) paintSystem.updateReferences(hm, fireGrid);
         fireViz.updateTerrain?.(hm, chunked.group);
         suppressionDecals.updateTerrain?.(hm);
         fireParticles.updateTerrain?.(hm);
