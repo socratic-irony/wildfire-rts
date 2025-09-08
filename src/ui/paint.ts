@@ -10,7 +10,8 @@ export type PaintSystemHandle = {
   getCurrentTool: () => ToolMode;
   setEnabled: (enabled: boolean) => void;
   isEnabled: () => boolean;
-  updateReferences?: (heightmap: Heightmap, fireGrid: FireGrid) => void;
+  isActivePainting: () => boolean; // New method to check if actively painting
+  updateReferences: (newHeightmap: Heightmap, newFireGrid: FireGrid) => void;
 };
 
 export function createPaintSystem(
@@ -24,6 +25,10 @@ export function createPaintSystem(
   let enabled = true;
   let isMouseDown = false;
   let lastPaintPos: { x: number; z: number } | null = null;
+  
+  // Mutable references that can be updated when terrain is regenerated
+  let hm = heightmap;
+  let grid = fireGrid;
   
   const raycaster = new Raycaster();
   const mouse = new Vector2();
@@ -55,13 +60,13 @@ export function createPaintSystem(
     
     if (intersects.length > 0) {
       const point = intersects[0].point;
-      // Convert to grid coordinates
-      const gridX = point.x / heightmap.scale;
-      const gridZ = point.z / heightmap.scale;
+      // Convert to grid coordinates using current heightmap scale
+      const gridX = point.x / hm.scale;
+      const gridZ = point.z / hm.scale;
       
-      // Clamp to valid grid bounds
-      const clampedX = Math.max(0, Math.min(fireGrid.width - 1, gridX));
-      const clampedZ = Math.max(0, Math.min(fireGrid.height - 1, gridZ));
+      // Clamp to valid grid bounds using current grid dimensions
+      const clampedX = Math.max(0, Math.min(grid.width - 1, gridX));
+      const clampedZ = Math.max(0, Math.min(grid.height - 1, gridZ));
       
       return { x: clampedX, z: clampedZ };
     }
@@ -73,7 +78,7 @@ export function createPaintSystem(
   const applyPaint = (tool: ToolMode, pos: { x: number; z: number }) => {
     switch (tool) {
       case 'water':
-        applyWaterAoE(fireGrid, pos, PAINT_SETTINGS.water.radius, PAINT_SETTINGS.water.intensity);
+        applyWaterAoE(grid, pos, PAINT_SETTINGS.water.radius, PAINT_SETTINGS.water.intensity);
         console.log(`Applied water at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)}) radius=${PAINT_SETTINGS.water.radius}`);
         break;
       
@@ -82,14 +87,14 @@ export function createPaintSystem(
         if (lastPaintPos && Math.hypot(pos.x - lastPaintPos.x, pos.z - lastPaintPos.z) > 0.1) {
           // Create a short line from last position to current
           const polyline = [lastPaintPos, pos];
-          applyRetardantLine(fireGrid, polyline, PAINT_SETTINGS.retardant.radius, PAINT_SETTINGS.retardant.intensity);
+          applyRetardantLine(grid, polyline, PAINT_SETTINGS.retardant.radius, PAINT_SETTINGS.retardant.intensity);
           console.log(`Applied retardant line from (${lastPaintPos.x.toFixed(1)}, ${lastPaintPos.z.toFixed(1)}) to (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
         } else {
           // Single point application
-          applyWaterAoE(fireGrid, pos, PAINT_SETTINGS.retardant.radius, 0); // Use water function for circular area
-          const i = Math.floor(pos.z) * fireGrid.width + Math.floor(pos.x);
-          if (i >= 0 && i < fireGrid.tiles.length) {
-            fireGrid.tiles[i].retardant = Math.max(fireGrid.tiles[i].retardant, PAINT_SETTINGS.retardant.intensity);
+          applyWaterAoE(grid, pos, PAINT_SETTINGS.retardant.radius, 0); // Use water function for circular area
+          const i = Math.floor(pos.z) * grid.width + Math.floor(pos.x);
+          if (i >= 0 && i < grid.tiles.length) {
+            grid.tiles[i].retardant = Math.max(grid.tiles[i].retardant, PAINT_SETTINGS.retardant.intensity);
             console.log(`Applied retardant at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)}) radius=${PAINT_SETTINGS.retardant.radius}`);
           }
         }
@@ -199,10 +204,17 @@ export function createPaintSystem(
       return enabled;
     },
     
+    isActivePainting() {
+      return enabled && isMouseDown && (currentTool === 'water' || currentTool === 'retardant');
+    },
+    
     updateReferences(newHeightmap: Heightmap, newFireGrid: FireGrid) {
       // Update internal references when terrain is regenerated
-      // Note: This is a minimal implementation - the paint system
-      // will continue to work with the references passed to the functions
-    }
+      hm = newHeightmap;
+      grid = newFireGrid;
+      // Reset painting state to avoid issues with stale coordinates
+      isMouseDown = false;
+      lastPaintPos = null;
+    },
   };
 }
