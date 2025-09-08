@@ -23,6 +23,7 @@ Status (current - v0.1 base features)
 - Update: baseline road-follow now prefers 4-neighbor (N/E/S/W) turns, considering diagonals only when needed, for clearer cornering. Added a small heading “weathervane” debug marker per agent for quick orientation diagnostics.
 - Intersection routing: auto-follow uses the road midline tangent to pick the correct branch at crossings, keeping vehicles on their intended road.
 - Intersections behave as four-way stops: vehicles queue, pause briefly, and proceed one at a time to avoid collisions.
+- Lane-based spacing prevents vehicles from entering occupied road cells, allowing basic convoy behavior and eliminating overlap.
 - Road visuals: adaptive smoothed ribbon that hugs terrain via normal offset, dusty shoulders, dashed center stripe; polygon offset to avoid z-fighting.
 - Road building: cost field includes slope penalty and hard block for steep tiles; turn penalty biases A* to reduce sharp curves; rasterized road mask integrates with fire grid.
 - Reverted (pending rework): projecting vehicle position/orientation directly to road midline each frame (caused freezes under some conditions).
@@ -140,7 +141,6 @@ The foundational multi-vehicle type system is complete and ready for handoff. Fu
   - Current status: orientation uses midline projection with a gentle lateral nudge; a per-road spatial index and stable segment pinning are next.
 - Steering/yaw smoothing: Reapply forward vector smoothing (lerp/slerp) once projection is stable to get visually pleasing steering through curves.
 - Speed model: Modulate speed by grade, curvature, and road class; cap speed on steep slopes and sharp turns.
-- Collision/spacing: Four-way stop queues reduce intersection collisions; lane-based spacing and smarter convoy behavior remain.
 - Laneing/width: Optional lanes and side-of-road offsets; passability width vs terrain slope.
 - Robust spawn: Ensure spawn locks to the intended road polyline and valid segment; fallback if none.
 - Telemetry/Debug: Add per-frame timings for road projection (when reintroduced), active agents, and path lengths; draw path overlays for diagnostics.
@@ -149,10 +149,11 @@ Acceptance Criteria (v0.2)
 
 **✅ COMPLETED**:
 - Multiple vehicle types spawn with distinct appearances (colors, sizes)
-- Each vehicle type uses separate InstancedMesh for optimal performance  
+- Each vehicle type uses separate InstancedMesh for optimal performance
 - Random vehicle type selection distributes variety across road network
 - All vehicle types follow roads correctly and maintain original movement behavior
 - No performance degradation with multiple vehicle types active
+- Vehicles queue and maintain lane-based spacing to avoid collisions
 
 **Previous v0.1 Criteria (also maintained)**:
 - Spawned vehicle appears immediately and follows connected road tiles without freezing.

@@ -334,6 +334,11 @@ export class VehiclesManager {
   update(dt: number) {
     this.lastDt = dt;
     const s = this.cellSize;
+    // Track which grid cells are occupied to enforce lane-based spacing
+    const occupancy = new Map<string, number>();
+    for (let idx = 0; idx < this.agents.length; idx++) {
+      occupancy.set(this.cellKey(this.agents[idx].grid), idx);
+    }
     for (let i = 0; i < this.agents.length; i++) {
       const a = this.agents[i];
       // Clear stale intersection wait if path changed
@@ -389,6 +394,13 @@ export class VehiclesManager {
         let remainStep = a.speedTilesPerSec * dt * s * speedFactor;
         while (remainStep > 1e-6 && a.pathIdx < a.path.length - 1) {
           const nxt = a.path[a.pathIdx + 1];
+          const nxtKey = this.cellKey(nxt);
+          // Stop if the next cell is already occupied by another agent
+          const occ = occupancy.get(nxtKey);
+          if (occ != null && occ !== i) {
+            remainStep = 0;
+            break;
+          }
           if (this.isIntersection(nxt) && !this.canEnterIntersection(i, nxt, dt)) {
             remainStep = 0;
             break;
@@ -397,6 +409,9 @@ export class VehiclesManager {
           const toNext = new Vector3().subVectors(nxtPos, a.pos);
           const remain = Math.max(1e-6, toNext.length());
           if (remainStep >= remain) {
+            const prevKey = this.cellKey(a.grid);
+            occupancy.delete(prevKey);
+            occupancy.set(nxtKey, i);
             a.prev = { ...a.grid };
             a.grid = { x: nxt.x, z: nxt.z };
             a.pos.copy(nxtPos).y += 0.18;
