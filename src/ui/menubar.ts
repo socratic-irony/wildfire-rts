@@ -399,7 +399,8 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
 
     // Fire statistics display
     const fireStats = document.createElement('div');
-    fireStats.style.cssText = 'margin-top: 6px; font-size: 11px; color: #94a3b8; line-height: 1.3;';
+    fireStats.style.cssText =
+      'margin-top: 6px; font-size: 11px; color: #94a3b8; line-height: 1.3; font-family: ui-monospace, monospace; white-space: pre;';
     fireStats.className = 'fire-stats';
     fireStats.textContent = 'No fire activity';
     fireControls.appendChild(fireStats);
@@ -699,19 +700,26 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
       // Update fire statistics
       if (opts.fireGrid) {
         const fireStats = computeFireStats(opts.fireGrid);
-        const fireStatsDiv = controlsPanel.querySelector('.fire-stats') as HTMLDivElement | null;
-        if (fireStatsDiv) {
-          if (fireStats.active === 0 && fireStats.burnedTiles === 0) {
-            fireStatsDiv.textContent = 'No fire activity';
-          } else {
-            const burnedAreaHa = fireStats.burnedAreaWorld / 10000; // Convert m² to hectares
-            const perimeterKm = fireStats.perimeterWorld / 1000;   // Convert m to km
-            fireStatsDiv.textContent = [
-              `Burning: ${fireStats.burning} tiles`,
-              `Burned area: ${burnedAreaHa.toFixed(1)} ha`,
-              `Perimeter: ${perimeterKm.toFixed(2)} km`
-            ].join('\n');
-          }
+        let fireStatsDiv = controlsPanel.querySelector('.fire-stats') as HTMLDivElement | null;
+        // Lazily create stats container if absent (legacy overlays)
+        if (!fireStatsDiv) {
+          fireStatsDiv = document.createElement('div');
+          fireStatsDiv.className = 'fire-stats';
+          fireStatsDiv.style.cssText =
+            'margin-top: 6px; font-size: 11px; color: #94a3b8; line-height: 1.3; font-family: ui-monospace, monospace; white-space: pre;';
+          fireStatsDiv.textContent = 'No fire activity';
+          controlsPanel.appendChild(fireStatsDiv);
+        }
+        if (fireStats.active === 0 && fireStats.burnedTiles === 0) {
+          fireStatsDiv.textContent = 'No fire activity';
+        } else {
+          const burnedAreaHa = fireStats.burnedAreaWorld / 10000; // Convert m² to hectares
+          const perimeterKm = fireStats.perimeterWorld / 1000; // Convert m to km
+          fireStatsDiv.textContent = [
+            `Burning: ${fireStats.burning} tiles`,
+            `Burned area: ${burnedAreaHa.toFixed(1)} ha`,
+            `Perimeter: ${perimeterKm.toFixed(2)} km`
+          ].join('\n');
         }
       }
 
