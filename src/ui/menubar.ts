@@ -9,6 +9,9 @@ const ICONS = {
   retardant: '🧪',
   road: '🛣️',
   vehicle: '🚗',
+  firetruck: '🚒',
+  bulldozer: '🚜',
+  waterTender: '🚛',
   terrain: '🏔️',
   stats: '📊',
   settings: '⚙️',
@@ -17,6 +20,17 @@ const ICONS = {
   play: '▶️',
   pause: '⏸️',
   clear: '🗑️',
+  dropdown: '▼',
+} as const;
+
+// Vehicle types available for spawning
+export type VehicleType = 'firetruck' | 'bulldozer' | 'waterTender' | 'generic';
+
+export const VEHICLE_TYPES = {
+  firetruck: { name: 'Fire Truck', icon: ICONS.firetruck, description: 'Fast response vehicle for water delivery' },
+  bulldozer: { name: 'Bulldozer', icon: ICONS.bulldozer, description: 'Heavy vehicle for creating firebreaks' },
+  waterTender: { name: 'Water Tender', icon: ICONS.waterTender, description: 'Large capacity water transport' },
+  generic: { name: 'Generic Vehicle', icon: ICONS.vehicle, description: 'Standard utility vehicle' },
 } as const;
 
 export type ToolMode = 
@@ -55,7 +69,7 @@ export type MenubarActions = {
     clear?: () => void;
   };
   vehicles?: {
-    spawn?: () => void;
+    spawn?: (type?: VehicleType) => void;
     moveModeToggle?: (on: boolean) => void;
     clear?: () => void;
     toggleYawDebug?: (on: boolean) => void;
@@ -85,6 +99,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   let actions: MenubarActions = {};
   let igniteMode = false;
   let opts: any = {};
+  let selectedVehicleType: VehicleType = 'generic';
 
   // Performance tracking
   let acc = 0;
@@ -276,6 +291,143 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     return sep;
   };
 
+  // Helper to create dropdown button with vehicle types
+  const createVehicleDropdown = () => {
+    const container = document.createElement('div');
+    container.style.cssText = 'position: relative; display: inline-block;';
+    
+    const mainBtn = document.createElement('button');
+    mainBtn.style.cssText = `
+      background: rgba(55, 65, 81, 0.8);
+      border: 1px solid rgba(75, 85, 99, 0.8);
+      border-radius: 6px 0 0 6px;
+      padding: 6px 8px;
+      color: #e5e7eb;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      transition: all 0.2s ease;
+    `;
+    
+    const updateMainButton = () => {
+      const vehicleData = VEHICLE_TYPES[selectedVehicleType];
+      mainBtn.innerHTML = `<span>${vehicleData.icon}</span><span>${vehicleData.name}</span>`;
+      mainBtn.title = vehicleData.description;
+    };
+    
+    updateMainButton();
+    
+    const dropdownBtn = document.createElement('button');
+    dropdownBtn.style.cssText = `
+      background: rgba(55, 65, 81, 0.8);
+      border: 1px solid rgba(75, 85, 99, 0.8);
+      border-left: none;
+      border-radius: 0 6px 6px 0;
+      padding: 6px 4px;
+      color: #e5e7eb;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      font-size: 10px;
+      transition: all 0.2s ease;
+    `;
+    dropdownBtn.innerHTML = ICONS.dropdown;
+    dropdownBtn.title = 'Select vehicle type';
+    
+    const dropdown = document.createElement('div');
+    dropdown.style.cssText = `
+      position: absolute;
+      top: 100%;
+      left: 0;
+      background: rgba(17, 24, 39, 0.95);
+      border: 1px solid rgba(75, 85, 99, 0.8);
+      border-radius: 6px;
+      min-width: 180px;
+      z-index: 1000;
+      display: none;
+      margin-top: 2px;
+    `;
+    
+    // Create dropdown options
+    Object.entries(VEHICLE_TYPES).forEach(([type, data]) => {
+      const option = document.createElement('button');
+      option.style.cssText = `
+        width: 100%;
+        padding: 8px 12px;
+        background: none;
+        border: none;
+        color: #e5e7eb;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        text-align: left;
+        transition: background 0.2s ease;
+      `;
+      option.innerHTML = `<span>${data.icon}</span><span>${data.name}</span>`;
+      option.title = data.description;
+      
+      option.addEventListener('mouseenter', () => {
+        option.style.background = 'rgba(59, 130, 246, 0.2)';
+      });
+      option.addEventListener('mouseleave', () => {
+        option.style.background = 'none';
+      });
+      
+      option.addEventListener('click', () => {
+        selectedVehicleType = type as VehicleType;
+        updateMainButton();
+        dropdown.style.display = 'none';
+        // Update the selected state visually
+        dropdown.querySelectorAll('button').forEach(btn => btn.style.fontWeight = 'normal');
+        option.style.fontWeight = 'bold';
+      });
+      
+      if (type === selectedVehicleType) {
+        option.style.fontWeight = 'bold';
+      }
+      
+      dropdown.appendChild(option);
+    });
+    
+    // Main button click - spawn vehicle
+    mainBtn.addEventListener('click', () => {
+      actions.vehicles?.spawn?.(selectedVehicleType);
+    });
+    
+    // Dropdown button click - toggle dropdown
+    dropdownBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!container.contains(e.target as Node)) {
+        dropdown.style.display = 'none';
+      }
+    });
+    
+    // Hover effects
+    [mainBtn, dropdownBtn].forEach(btn => {
+      btn.addEventListener('mouseenter', () => {
+        btn.style.background = 'rgba(75, 85, 99, 0.9)';
+      });
+      btn.addEventListener('mouseleave', () => {
+        btn.style.background = 'rgba(55, 65, 81, 0.8)';
+      });
+    });
+    
+    container.appendChild(mainBtn);
+    container.appendChild(dropdownBtn);
+    container.appendChild(dropdown);
+    
+    return container;
+  };
+
   // Create tool buttons
   const igniteBtn = createToolButton(ICONS.fire, 'Ignite', 'ignite');
   const waterBtn = createToolButton(ICONS.water, 'Water', 'water');
@@ -285,7 +437,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   // Create action buttons
   const igniteCenterBtn = createActionButton(ICONS.fire, 'Center', () => actions.fire?.igniteCenter?.());
   const clearRoadsBtn = createActionButton(ICONS.clear, 'Clear', () => actions.roads?.clear?.());
-  const spawnVehicleBtn = createActionButton(ICONS.vehicle, 'Spawn', () => actions.vehicles?.spawn?.());
+  const spawnVehicleDropdown = createVehicleDropdown();
   const clearVehiclesBtn = createActionButton(ICONS.clear, 'Clear', () => actions.vehicles?.clear?.());
 
   // Build main toolbar layout
@@ -298,7 +450,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   toolsSection.appendChild(roadsBtn);
   toolsSection.appendChild(clearRoadsBtn);
   toolsSection.appendChild(createSeparator());
-  toolsSection.appendChild(spawnVehicleBtn);
+  toolsSection.appendChild(spawnVehicleDropdown);
   toolsSection.appendChild(clearVehiclesBtn);
 
   // Current tool indicator in toolbar
