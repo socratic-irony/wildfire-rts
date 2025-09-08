@@ -119,7 +119,7 @@ This project follows spec-first development:
 ### Near-term (v0.2)
 - [ ] Complete fire system crown behavior and early extinguish rules
 - [ ] Implement vehicle intersection logic (well-specified in `specs/driving.md`)
-- [ ] Add water/retardant paint tools for fire suppression
+ - [x] Add water/retardant paint tools for fire suppression
 - [ ] Wire fire statistics into debug UI
 
 ### Medium-term (v0.3)

@@ -2,8 +2,8 @@ specs/fire_behavior.md
 
 Status (current)
 
-- Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope and moisture damping, simple spotting, Igniting→Burning promotion timer, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), tile-based `lineStrength` barriering, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex‑tint fire viz modes, thin perimeter outline render. Analytics: perimeter extraction (`computePerimeter`) and `computeFireStats` (active counts, burned tiles/area, perimeter length).
-- Not yet (high level): edge‑based firelines, crown fire mode, particle flames/smoke, burned‑ground decals, water/retardant/handline paint UI, wind tuning UI, save/load.
+- Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope and moisture damping, simple spotting, Igniting→Burning promotion timer, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), water/retardant paint tools via menubar, tile-based `lineStrength` barriering, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex‑tint fire viz modes, thin perimeter outline render. Analytics: perimeter extraction (`computePerimeter`) and `computeFireStats` (active counts, burned tiles/area, perimeter length).
+- Not yet (high level): edge‑based firelines, crown fire mode, particle flames/smoke, burned‑ground decals, handline paint UI, wind tuning UI, save/load.
 
 Outstanding Work (v0.1 audit)
 
@@ -28,7 +28,7 @@ Outstanding Work (v0.1 audit)
   - Perimeter line visualization.
   - Vegetation burn tint: trees and shrubs darken → brown → near‑black based on tile state (Burning/Smoldering/Burned), updated ~2 Hz.
 - UI/Debug:
-  - Wind controls (speed/direction sliders), water/retardant/handline paint tools.
+  - Wind controls (speed/direction sliders), handline paint tool.
   - Stats UI: expose burning count, area burned, perimeter length, mean ROS; contained/not‑contained badge (backend exists).
   - Overlays: slope/wind vectors, wetness/retardant.
 - Serialization:
@@ -467,7 +467,7 @@ export const DEFAULT_FIRE_PARAMS: FireParams = {
 	•	[x] Grid overlay + terrain already running.
 	•	[x] Fire grid built; click to ignite a tile.
 	•	[ ] Wind slider (speed, direction) visibly changes head spread (engine supports wind; UI pending).
-	•	[ ] Wet/retardant debug tools paint into the grid (APIs exist; UI pending).
+	•	[x] Wet/retardant debug tools paint into the grid.
 	•	[ ] Handline paint tool that increases lineStrength along a polyline (API exists: `writeFirelineEdges`; UI pending).
 	•	[ ] Perimeter display + contained/not-contained badge (heuristic exists; perimeter pending).
 	•	[ ] Stats: active tiles, area burned (tiles × cell area), mean ROS (computed from perimeter growth).

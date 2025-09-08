@@ -129,7 +129,7 @@ LLM Orientation Checklist
 
 Open Opportunities / Next Items
 
-- Fire: edge-based line strength; crown behavior; UI paint tools; wire stats into UI.
+- Fire: edge-based line strength; crown behavior; wire stats into UI.
 - Roads: adaptive planning using curvature + slope fields; optional lane metadata; intersections routing.
 - Vehicles: safe road midline projector with spatial index; yaw smoothing; spacing/collision; speed model by grade/curvature.
 - Persistence: save/load scenarios (terrain seed, fire seed, roads, vehicles).
