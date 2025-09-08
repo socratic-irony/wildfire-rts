@@ -22,6 +22,9 @@ type Agent = {
   pin?: { pathIndex: number; segIndex?: number };
   lastProj?: { normal: Vector3; tangent: Vector3 };
   prevTan?: Vector3;
+  waitingFor?: string; // intersection key queued at
+  intersection?: string; // intersection key being crossed
+  stopTimer?: number; // remaining stop time before entering intersection
   debug?: {
     yawMode: string;
     usedProj: boolean;
@@ -62,6 +65,9 @@ export class VehiclesManager {
   private yawArrow?: ArrowHelper;
   private lastDt = 0;
   private smoothYaw = true;
+  private intersectionQueues = new Map<string, number[]>();
+  private intersectionOccupants = new Map<string, number>();
+  private stopDuration = 0.5; // seconds to wait at four-way stops
 
   constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64, roadsVis?: RoadsVisual) {
     this.hm = hm; this.terrain = terrain; this.roadMask = roadMask; this.maxAgents = maxAgents;
@@ -193,9 +199,21 @@ export class VehiclesManager {
     const s = this.cellSize;
     for (let i = 0; i < this.agents.length; i++) {
       const a = this.agents[i];
+      // Clear stale intersection wait if path changed
+      const nxtCheck = a.path[a.pathIdx + 1];
+      if (a.waitingFor && (!nxtCheck || typeof nxtCheck.x !== 'number' || typeof nxtCheck.z !== 'number' || this.cellKey(nxtCheck) !== a.waitingFor)) {
+        const q = this.intersectionQueues.get(a.waitingFor);
+        if (q) {
+          const qi = q.indexOf(i);
+          if (qi >= 0) q.splice(qi, 1);
+          if (!q.length) this.intersectionQueues.delete(a.waitingFor);
+        }
+        a.waitingFor = undefined;
+        a.stopTimer = undefined;
+      }
       // Ensure we have a target segment: for road-follow, keep extending along road
     if (a.autoFollowRoad && a.path.length - 1 <= a.pathIdx) {
-      const next = this.chooseNextRoadNeighbor(a.grid, a.prev);
+      const next = this.chooseNextRoadNeighbor(a.grid, a.prev, a.lastProj?.tangent);
       if (next) {
         a.path = [a.grid, next];
         a.pathIdx = 0;
@@ -234,6 +252,10 @@ export class VehiclesManager {
         let remainStep = a.speedTilesPerSec * dt * s * speedFactor;
         while (remainStep > 1e-6 && a.pathIdx < a.path.length - 1) {
           const nxt = a.path[a.pathIdx + 1];
+          if (this.isIntersection(nxt) && !this.canEnterIntersection(i, nxt, dt)) {
+            remainStep = 0;
+            break;
+          }
           const nxtPos = new Vector3((nxt.x + 0.5) * s, this.hm.sample((nxt.x + 0.5) * s, (nxt.z + 0.5) * s), (nxt.z + 0.5) * s);
           const toNext = new Vector3().subVectors(nxtPos, a.pos);
           const remain = Math.max(1e-6, toNext.length());
@@ -243,14 +265,16 @@ export class VehiclesManager {
             a.pos.copy(nxtPos).y += 0.18;
             a.pathIdx++;
             remainStep -= remain;
+            this.releaseIntersection(a);
           } else {
             a.pos.addScaledVector(toNext.normalize(), remainStep);
             a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18;
             remainStep = 0;
           }
         }
+        this.releaseIntersection(a);
       }
-
+      
       // Midline projection: snap to visual road and capture tangent/normal for pose
       a.lastProj = undefined;
       if (this.roadsVis) {
@@ -411,7 +435,66 @@ export class VehiclesManager {
     return n;
   }
 
-  private chooseNextRoadNeighbor(cur: GridPoint, prev?: GridPoint): GridPoint | undefined {
+  private cellKey(g: GridPoint): string {
+    return `${g.x},${g.z}`;
+  }
+
+  private isIntersection(g: GridPoint): boolean {
+    const W = this.terrain.width, H = this.terrain.height;
+    let count = 0;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dz) continue;
+      const nx = g.x + dx, nz = g.z + dz;
+      if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
+      if (this.roadMask.mask[nz * W + nx] === 1) count++;
+    }
+    return count > 2;
+  }
+
+  private canEnterIntersection(i: number, next: GridPoint, dt: number): boolean {
+    const a = this.agents[i];
+    const key = this.cellKey(next);
+    if (a.intersection === key) return true;
+    let queue = this.intersectionQueues.get(key);
+    if (!queue) { queue = []; this.intersectionQueues.set(key, queue); }
+    const occupant = this.intersectionOccupants.get(key);
+    if (!a.waitingFor || a.waitingFor !== key) {
+      a.waitingFor = key;
+      a.stopTimer = this.stopDuration;
+      if (!queue.includes(i)) queue.push(i);
+      return false;
+    }
+    if (a.stopTimer != null && a.stopTimer > 0) {
+      a.stopTimer -= dt;
+      return false;
+    }
+    if (occupant != null && occupant !== i) {
+      if (!queue.includes(i)) queue.push(i);
+      return false;
+    }
+    if (queue.length && queue[0] !== i) {
+      if (!queue.includes(i)) queue.push(i);
+      return false;
+    }
+    if (queue.length && queue[0] === i) queue.shift();
+    this.intersectionOccupants.set(key, i);
+    a.intersection = key;
+    a.waitingFor = undefined;
+    return true;
+  }
+
+  private releaseIntersection(a: Agent) {
+    if (!a.intersection) return;
+    const [ix, iz] = a.intersection.split(',').map(Number);
+    if (a.grid.x !== ix || a.grid.z !== iz) {
+      this.intersectionOccupants.delete(a.intersection);
+      const q = this.intersectionQueues.get(a.intersection);
+      if (q && q.length === 0) this.intersectionQueues.delete(a.intersection);
+      a.intersection = undefined;
+    }
+  }
+
+  private chooseNextRoadNeighbor(cur: GridPoint, prev?: GridPoint, tangent?: Vector3): GridPoint | undefined {
     const W = this.terrain.width, H = this.terrain.height;
     const x = cur.x, z = cur.z;
     const neigh4: GridPoint[] = [];
@@ -432,6 +515,18 @@ export class VehiclesManager {
       return undefined;
     }
     if (neigh.length === 1) return neigh[0];
+    // If we have a projected tangent from the road midline, follow the neighbor most aligned with it
+    if (tangent) {
+      let best: GridPoint | undefined;
+      let bestDot = -Infinity;
+      for (const n of neigh) {
+        const dx = n.x - x, dz = n.z - z;
+        const denom = Math.hypot(dx, dz) * Math.hypot(tangent.x, tangent.z);
+        const dot = (dx * tangent.x + dz * tangent.z) / (denom === 0 ? 1 : denom);
+        if (dot > bestDot) { bestDot = dot; best = n; }
+      }
+      if (best) return best;
+    }
     // If we don't have a previous direction, choose the neighbor with the strongest continuation (highest road degree)
     const roadDegree = (cx: number, cz: number, ex?: number, ez?: number) => {
       let d = 0;
