@@ -1,4 +1,4 @@
-import { ArrowHelper, Color, Group, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D, Quaternion, Vector3 } from 'three';
+import { ArrowHelper, Color, Group, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry } from 'three';
 import { BoxGeometry } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 import type { RoadMask } from '../roads/state';
@@ -8,7 +8,17 @@ import { aStarPath } from '../roads/astar';
 
 type GridPoint = { x: number; z: number };
 
+export enum VehicleType {
+  CAR = 'car',
+  FIRETRUCK = 'firetruck', 
+  BULLDOZER = 'bulldozer',
+  HELICOPTER = 'helicopter',
+  AIRPLANE = 'airplane',
+  FIREFIGHTER = 'firefighter'
+}
+
 type Agent = {
+  vehicleType: VehicleType;
   pos: Vector3;
   prevPos?: Vector3;
   grid: GridPoint; // current nearest grid cell
@@ -50,7 +60,8 @@ export class VehiclesManager {
   private terrain: TerrainCost;
   private maxAgents: number;
   private agents: Agent[] = [];
-  private inst: InstancedMesh;
+  private vehicleInstances = new Map<VehicleType, InstancedMesh>();
+  private vehicleCounts = new Map<VehicleType, number>();
   private instVane: InstancedMesh;
   private tmpObj = new Object3D();
   private tmpObj2 = new Object3D();
@@ -73,15 +84,14 @@ export class VehiclesManager {
     this.hm = hm; this.terrain = terrain; this.roadMask = roadMask; this.maxAgents = maxAgents;
     this.cellSize = hm.scale;
     this.roadsVis = roadsVis;
-    const geo = new BoxGeometry(this.cellSize * 0.6, this.cellSize * 0.3, this.cellSize * 0.9);
-    const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1, emissive: new Color(0x0a1a2a), emissiveIntensity: 0.2 });
-    this.inst = new InstancedMesh(geo, mat, maxAgents);
-    this.inst.instanceMatrix.setUsage(35048); // DynamicDrawUsage
-    // InstancedMesh uses a single bounding volume; disable frustum culling to avoid missing off-center instances
-    this.inst.frustumCulled = false;
-    this.inst.castShadow = true;
-    this.inst.receiveShadow = false;
-    this.group.add(this.inst);
+    
+    // Initialize vehicle counts
+    for (const vehicleType of Object.values(VehicleType)) {
+      this.vehicleCounts.set(vehicleType, 0);
+    }
+    
+    // Create instanced meshes for each vehicle type
+    this.createVehicleInstances(maxAgents);
 
     // Heading indicator (weathervane) above vehicle for debugging orientation
     const vaneGeo = new BoxGeometry(this.cellSize * 0.12, this.cellSize * 0.28, this.cellSize * 0.12);
@@ -94,9 +104,87 @@ export class VehiclesManager {
     this.group.add(this.instVane);
   }
 
+  private createVehicleInstances(maxAgents: number) {
+    // CAR (original blue prism)
+    const carGeo = new BoxGeometry(this.cellSize * 0.6, this.cellSize * 0.3, this.cellSize * 0.9);
+    const carMat = new MeshStandardMaterial({ 
+      color: new Color(0x1e90ff), 
+      roughness: 0.7, 
+      metalness: 0.1, 
+      emissive: new Color(0x0a1a2a), 
+      emissiveIntensity: 0.2 
+    });
+    this.createVehicleInstance(VehicleType.CAR, carGeo, carMat, maxAgents);
+
+    // FIRETRUCK (big red block)
+    const firetruckGeo = new BoxGeometry(this.cellSize * 0.8, this.cellSize * 0.5, this.cellSize * 1.4);
+    const firetruckMat = new MeshStandardMaterial({ 
+      color: new Color(0xcc0000), 
+      roughness: 0.6, 
+      metalness: 0.2, 
+      emissive: new Color(0x220000), 
+      emissiveIntensity: 0.3 
+    });
+    this.createVehicleInstance(VehicleType.FIRETRUCK, firetruckGeo, firetruckMat, maxAgents);
+
+    // BULLDOZER (squat yellow cube)
+    const bulldozerGeo = new BoxGeometry(this.cellSize * 0.7, this.cellSize * 0.35, this.cellSize * 0.8);
+    const bulldozerMat = new MeshStandardMaterial({ 
+      color: new Color(0xffdd00), 
+      roughness: 0.8, 
+      metalness: 0.3, 
+      emissive: new Color(0x332200), 
+      emissiveIntensity: 0.2 
+    });
+    this.createVehicleInstance(VehicleType.BULLDOZER, bulldozerGeo, bulldozerMat, maxAgents);
+
+    // HELICOPTER (sphere body + disk blades + tail stick) - simplified to sphere for now
+    const helicopterGeo = new BoxGeometry(this.cellSize * 0.5, this.cellSize * 0.4, this.cellSize * 0.6);
+    const helicopterMat = new MeshStandardMaterial({ 
+      color: new Color(0x444444), 
+      roughness: 0.5, 
+      metalness: 0.4, 
+      emissive: new Color(0x111111), 
+      emissiveIntensity: 0.2 
+    });
+    this.createVehicleInstance(VehicleType.HELICOPTER, helicopterGeo, helicopterMat, maxAgents);
+
+    // AIRPLANE (T-shape with wings and tail) - simplified to rectangular body for now
+    const airplaneGeo = new BoxGeometry(this.cellSize * 0.4, this.cellSize * 0.2, this.cellSize * 1.2);
+    const airplaneMat = new MeshStandardMaterial({ 
+      color: new Color(0x666666), 
+      roughness: 0.4, 
+      metalness: 0.6, 
+      emissive: new Color(0x111111), 
+      emissiveIntensity: 0.1 
+    });
+    this.createVehicleInstance(VehicleType.AIRPLANE, airplaneGeo, airplaneMat, maxAgents);
+
+    // FIREFIGHTER (three orange/red sticks) - simplified to small orange cube for now
+    const firefighterGeo = new BoxGeometry(this.cellSize * 0.15, this.cellSize * 0.4, this.cellSize * 0.15);
+    const firefighterMat = new MeshStandardMaterial({ 
+      color: new Color(0xff6600), 
+      roughness: 0.9, 
+      metalness: 0.0, 
+      emissive: new Color(0x330000), 
+      emissiveIntensity: 0.4 
+    });
+    this.createVehicleInstance(VehicleType.FIREFIGHTER, firefighterGeo, firefighterMat, maxAgents);
+  }
+
+  private createVehicleInstance(vehicleType: VehicleType, geometry: any, material: MeshStandardMaterial, maxAgents: number) {
+    const inst = new InstancedMesh(geometry, material, maxAgents);
+    inst.instanceMatrix.setUsage(35048); // DynamicDrawUsage
+    inst.frustumCulled = false;
+    inst.castShadow = true;
+    inst.receiveShadow = false;
+    this.vehicleInstances.set(vehicleType, inst);
+    this.group.add(inst);
+  }
+
   get count() { return this.agents.length; }
 
-  spawnAt(gx: number, gz: number) {
+  spawnAt(gx: number, gz: number, vehicleType?: VehicleType) {
     if (this.agents.length >= this.maxAgents) return;
     gx = clamp(Math.round(gx), 0, this.hm.width - 1);
     gz = clamp(Math.round(gz), 0, this.hm.height - 1);
@@ -110,7 +198,19 @@ export class VehiclesManager {
     const wz2 = (spawnCell.z + 0.5) * this.cellSize;
     const y2 = this.hm.sample(wx2, wz2);
     const pos2 = new Vector3(wx2, y2 + 0.22, wz2);
-    const agent: Agent = { pos: pos2, grid: spawnCell, path: [], pathIdx: 0, speedTilesPerSec: 3.2, autoFollowRoad: true };
+    
+    // Select vehicle type (randomly if not specified)
+    const selectedVehicleType = vehicleType ?? this.getRandomVehicleType();
+    
+    const agent: Agent = { 
+      vehicleType: selectedVehicleType,
+      pos: pos2, 
+      grid: spawnCell, 
+      path: [], 
+      pathIdx: 0, 
+      speedTilesPerSec: 3.2, 
+      autoFollowRoad: true 
+    };
     agent.prevPos = pos2.clone();
     // Initialize pin to nearest visual road path for midline projection (if available)
     if (this.roadsVis) {
@@ -121,8 +221,36 @@ export class VehiclesManager {
     const next = this.chooseNextRoadNeighbor(agent.grid, agent.prev);
     if (next) { agent.path = [agent.grid, next]; agent.pathIdx = 0; agent.prev = agent.grid; }
     this.agents.push(agent);
+    
+    // Update the count for this vehicle type
+    const currentCount = this.vehicleCounts.get(selectedVehicleType) || 0;
+    this.vehicleCounts.set(selectedVehicleType, currentCount + 1);
+    
     this.syncInstance(this.agents.length - 1);
-    this.inst.instanceMatrix.needsUpdate = true;
+    
+    // Update instance matrices for the specific vehicle type and vane
+    const vehicleInstance = this.vehicleInstances.get(selectedVehicleType);
+    if (vehicleInstance) {
+      vehicleInstance.instanceMatrix.needsUpdate = true;
+    }
+    this.instVane.instanceMatrix.needsUpdate = true;
+  }
+
+  private getVehicleTypeIndex(vehicleType: VehicleType, agentIndex: number): number {
+    // Count how many vehicles of this type exist before this agent
+    let typeIndex = 0;
+    for (let i = 0; i < agentIndex; i++) {
+      if (this.agents[i].vehicleType === vehicleType) {
+        typeIndex++;
+      }
+    }
+    return typeIndex;
+  }
+
+  private getRandomVehicleType(): VehicleType {
+    const vehicleTypes = Object.values(VehicleType);
+    const randomIndex = Math.floor(Math.random() * vehicleTypes.length);
+    return vehicleTypes[randomIndex];
   }
 
   setYawMode(mode: 'grid' | 'midline' | 'velocity' | 'lookahead') { this.yawMode = mode; }
@@ -154,8 +282,17 @@ export class VehiclesManager {
 
   clear() {
     this.agents.length = 0;
-    this.inst.count = 0 as any;
-    this.inst.instanceMatrix.needsUpdate = true;
+    // Reset all vehicle instance counts
+    for (const vehicleInstance of this.vehicleInstances.values()) {
+      vehicleInstance.count = 0 as any;
+      vehicleInstance.instanceMatrix.needsUpdate = true;
+    }
+    // Reset vehicle type counts
+    for (const vehicleType of Object.values(VehicleType)) {
+      this.vehicleCounts.set(vehicleType, 0);
+    }
+    this.instVane.count = 0 as any;
+    this.instVane.instanceMatrix.needsUpdate = true;
   }
 
   // Plan path for one or all agents to a destination grid cell
@@ -308,7 +445,10 @@ export class VehiclesManager {
       if (a.lastProj?.tangent) a.prevTan = a.lastProj.tangent.clone();
       a.prevPos = a.pos.clone();
     }
-    this.inst.instanceMatrix.needsUpdate = true;
+    // Update all vehicle instance matrices
+    for (const vehicleInstance of this.vehicleInstances.values()) {
+      vehicleInstance.instanceMatrix.needsUpdate = true;
+    }
     this.instVane.instanceMatrix.needsUpdate = true;
   }
 
@@ -398,8 +538,15 @@ export class VehiclesManager {
     // Construct rotation matrix columns (right, up, forward)
     this.tmpObj.quaternion.copy(a.prevQuat);
     this.tmpObj.updateMatrix();
-    this.inst.setMatrixAt(i, this.tmpObj.matrix as Matrix4);
-    this.inst.count = Math.max(this.inst.count as any as number, i + 1) as any;
+    
+    // Get the appropriate vehicle instance for this agent
+    const vehicleInstance = this.vehicleInstances.get(a.vehicleType);
+    if (vehicleInstance) {
+      // Find the index for this vehicle type
+      const typeIndex = this.getVehicleTypeIndex(a.vehicleType, i);
+      vehicleInstance.setMatrixAt(typeIndex, this.tmpObj.matrix as Matrix4);
+      vehicleInstance.count = Math.max(vehicleInstance.count as any as number, typeIndex + 1) as any;
+    }
 
     // Vane: place a small marker above and slightly ahead to visualize yaw clearly
     this.tmpObj2.position
