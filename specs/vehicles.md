@@ -1,10 +1,10 @@
 # Vehicles Spec (v0.1)
 
-# Vehicles Spec (v0.2) - Multi-Vehicle Types
+# Vehicles Spec (v0.3) - Visual Polish
 
 ## 🎯 STATUS: HANDOFF READY 
 
-**Core multi-vehicle type system is complete and functional.** The architecture now supports 6 distinct vehicle types with separate InstancedMesh rendering. Random spawning distributes vehicle variety across the road network. Performance is maintained and the system is ready for future enhancement work by other agents.
+**Multi-vehicle system with visual polish is complete and functional.** The architecture now supports 6 distinct vehicle types with separate InstancedMesh rendering, animated effects, and lights. Random spawning distributes vehicle variety across the road network. Performance is maintained and the system is ready for future enhancement work by other agents.
 
 ### ✅ COMPLETED v0.2 Features:
 - **6 Vehicle Types**: CAR, FIRETRUCK, BULLDOZER, HELICOPTER, AIRPLANE, FIREFIGHTER
@@ -13,6 +13,12 @@
 - **Distinct colors and basic geometries** for each vehicle type
 - **Vehicle type tracking** in manager with counts per type
 - **Extended API** to support optional vehicle type specification
+
+### ✅ COMPLETED v0.3 Visual Polish
+- Animated rotors for helicopters
+- Smoke trails for aircraft
+- Turn signals, headlights, emergency flashers
+- Particle effects for dust and water spray
 
 ---
 
@@ -126,11 +132,6 @@ The foundational multi-vehicle type system is complete and ready for handoff. Fu
 - Vehicle-specific speed/handling (helicopters fly over obstacles, bulldozers slower)
 - Water spraying for firetrucks, fire suppression abilities
 - Landing zones for aircraft, different movement patterns
-
-### Next Chunk 3: Visual Polish
-- Animated rotors for helicopters, smoke trails for aircraft
-- Turn signals, headlights, emergency flashers
-- Particle effects for dust, water spray, etc.
 
 ---
 
