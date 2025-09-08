@@ -138,6 +138,8 @@ export class FireSim {
       const i = g.burning[bi];
       const c = indexToCoord(g, i);
       const baseF = fuel(g, i);
+      const src = g.tiles[i];
+      const isCrown = src.heat > g.params.thresholds.crownHeat;
       for (const n of NEIGH) {
         const nx = c.x + n.dx; const nz = c.z + n.dz;
         if (nx < 0 || nz < 0 || nx >= g.width || nz >= g.height) continue;
@@ -151,15 +153,14 @@ export class FireSim {
         // Convert fractional advance to probability via Poisson arrival
         // adv >= 1 -> ignite almost certainly, adv small -> small chance
         let p = 1 - Math.exp(-clamp(adv, 0, 10));
-        // Hard moisture gate and damping
+        // Hard moisture gate and damping (crown fire can partially bypass)
         const fuelMoistEff = clamp(tgt.fuelMoisture + tgt.wetness + 0.6 * tgt.retardant, 0, 1);
-        if (fuelMoistEff > 0.9) continue;
-        p *= moistGate(tgt.wetness + tgt.fuelMoisture, tgt.retardant, baseF);
+        if (fuelMoistEff > 0.9 && !isCrown) continue;
+        const m = moistGate(tgt.wetness + tgt.fuelMoisture, tgt.retardant, baseF);
+        p *= isCrown ? Math.max(m, 0.25) : m;
         let bf = barrierFactor(tgt.lineStrength);
         // Crown-level heat can partially bypass strong lines (embers/spotting across line)
-        if (g.tiles[i].heat > g.params.thresholds.crownHeat) {
-          bf = Math.max(bf, 0.15);
-        }
+        if (isCrown) bf = Math.max(bf, 0.15);
         p *= bf;
         p = clamp(p, 0, 1);
         // Deterministic hash as RNG; compare to probability
@@ -211,18 +212,18 @@ export class FireSim {
       const rise = dt / Math.max(1, F.flameDur * 0.5);
       t.heat = clamp(t.heat + rise * (1 - t.heat), 0, 1);
       t.progress += dt / Math.max(1e-3, F.flameDur + F.smolderDur);
-      // Early extinguish: if heat below threshold and no burning neighbor
-      let isolated = true;
+      // Early extinguish: push to Smoldering when cool and isolated
+      let isolated = false;
       if (t.heat < g.params.thresholds.extinguishHeat) {
+        isolated = true;
         const c = indexToCoord(g, i);
         for (const n of NEIGH) {
           const nx = c.x + n.dx, nz = c.z + n.dz;
           if (nx < 0 || nz < 0 || nx >= g.width || nz >= g.height) continue;
           const j = coordToIndex(g, nx, nz);
-          if (g.tiles[j].state === FireState.Burning) { isolated = false; break; }
+          const s = g.tiles[j].state;
+          if (s === FireState.Burning || s === FireState.Igniting) { isolated = false; break; }
         }
-      } else {
-        isolated = false;
       }
       if (isolated || t.progress >= F.flameDur / (F.flameDur + F.smolderDur)) {
         t.state = FireState.Smoldering;
