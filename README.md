@@ -111,8 +111,8 @@ This project follows spec-first development:
 - **Fire System**: Crown fire behavior and edge-based firelines not fully implemented
 - **Vehicles**: Intersection logic specified but not yet implemented
 - **Particles**: Using placeholder textures, soft particles not implemented
-- **Persistence**: Save/load scenarios not yet available
-- **Multiplayer**: Single-player prototype only
+- **Persistence**: Scenario save/load out of scope for v1
+- **Multiplayer**: Out of scope; single-player only
 
 ## Roadmap
 
@@ -123,16 +123,18 @@ This project follows spec-first development:
 - [ ] Wire fire statistics into debug UI
 
 ### Medium-term (v0.3)
-- [ ] Save/load scenarios (terrain seed, fire seed, roads, vehicles)
 - [ ] Replace placeholder particle assets with proper flame/smoke textures
 - [ ] Add soft particles with depth-fade for terrain intersections
 - [ ] Implement telemetry system with per-subsystem timing
 
 ### Future
-- [ ] Multiplayer infrastructure planning
 - [ ] Advanced postprocessing effects
 - [ ] Hero plume particles for dramatic fire events
 - [ ] Mission/scenario scripting system
+
+### Long-term (v2.0+)
+- [ ] Scenario persistence (save/load)
+- [ ] Multiplayer support
 
 ## Contributing
 

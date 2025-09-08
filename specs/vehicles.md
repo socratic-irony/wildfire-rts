@@ -100,7 +100,6 @@ Performance Targets
 - Collision/spacing: Simple follow-the-leader or separation to avoid overlapping agents on same road.
 - Laneing/width: Optional lanes and side-of-road offsets; passability width vs terrain slope.
 - Robust spawn: Ensure spawn locks to the intended road polyline and valid segment; fallback if none.
-- Serialization: Save/load agent states, destinations, and road network.
 - Telemetry/Debug: Add per-frame timings for road projection (when reintroduced), active agents, and path lengths; draw path overlays for diagnostics.
 
 Acceptance Criteria (v0.1)
@@ -116,5 +115,4 @@ Roadmap (next)
 1) Safe midline projector + per-road spatial index; re-enable road-hugging pose.
 2) Intersection routing + path pinning to a specific polyline.
 3) Basic spacing/avoidance and speed modulation by grade/curvature.
-4) Save/load of vehicles and roads; debug overlay with counts/timings.
-5) Unit abilities (water/retardant) integrated with fire grid.
+4) Unit abilities (water/retardant) integrated with fire grid.
