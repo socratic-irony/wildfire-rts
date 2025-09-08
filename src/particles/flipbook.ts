@@ -305,5 +305,14 @@ export function createFlipbookParticles(hm: Heightmap) {
     (mesh.geometry.getAttribute('iPack3') as any).needsUpdate = true;
   }
 
-  return { group, update, setQuality, setEnabled } as const;
+  return { 
+    group, 
+    update, 
+    setQuality, 
+    setEnabled,
+    updateTerrain: (newHeightmap: Heightmap) => {
+      // Update internal heightmap reference
+      hm = newHeightmap;
+    }
+  } as const;
 }

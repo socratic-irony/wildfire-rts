@@ -164,6 +164,11 @@ export function createSuppressionDecals(hm: Heightmap, opts?: { offsetY?: number
     update, 
     addToScene, 
     setOffsetY, 
-    setDepthTest 
+    setDepthTest,
+    updateTerrain: (newHeightmap: Heightmap) => {
+      // The decals system doesn't store heightmap reference internally,
+      // it receives it through the grid parameter in update calls
+      // This is a no-op for compatibility
+    }
   } as const;
 }

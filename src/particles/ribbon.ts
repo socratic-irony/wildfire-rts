@@ -92,5 +92,11 @@ export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset
   const setOpacity = (o: number) => { mat.opacity = Math.max(0, Math.min(1, o)); mat.needsUpdate = true; };
   const setWidth = (w: number) => { widthW = Math.max(0.05 * hm.scale, w * hm.scale); };
   const setSpeed = (v: number) => { const sh = (mat as any).userData.shader; if (sh) sh.uniforms.uSpeed.value = v; };
-  return { mesh, update, setVisible, setOpacity, setWidth, setSpeed } as const;
+  const updateTerrain = (newHeightmap: Heightmap) => {
+    // Update internal heightmap reference
+    hm = newHeightmap;
+    // Update width with new scale
+    widthW = (widthW / hm.scale) * newHeightmap.scale;
+  };
+  return { mesh, update, setVisible, setOpacity, setWidth, setSpeed, updateTerrain } as const;
 }

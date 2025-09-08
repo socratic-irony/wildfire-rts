@@ -108,5 +108,16 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
     perimeter.update(grid);
   };
 
-  return { overlay, setMode, update, addToScene, getMode: () => mode, removeFromScene } as const;
+  return { 
+    overlay, 
+    setMode, 
+    update, 
+    addToScene, 
+    getMode: () => mode, 
+    removeFromScene,
+    updateTerrain: (newHeightmap: Heightmap, newChunkGroup: Group) => {
+      // Update internal reference to chunk group for vertex mode
+      chunkGroup = newChunkGroup;
+    }
+  } as const;
 }
