@@ -522,7 +522,7 @@ function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
   followers = [];
 }
-function spawnFollowerAtCamera() {
+function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
   if (!path2ds.length) return;
   const camPos = rig.camera.getWorldPosition(new Vector3());
   const start = { x: camPos.x, z: camPos.z };
@@ -533,7 +533,34 @@ function spawnFollowerAtCamera() {
   }
   const obj = new Object3D();
   const geo = new BoxGeometry(hm.scale * 0.6, hm.scale * 0.3, hm.scale * 0.9);
-  const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
+  
+  // Create vehicle-specific appearance based on type
+  let mat: MeshStandardMaterial;
+  switch (vehicleType) {
+    case VManagerVehicleType.FIRETRUCK:
+      mat = new MeshStandardMaterial({ 
+        color: new Color(0xcc0000), 
+        roughness: 0.6, 
+        metalness: 0.2, 
+        emissive: new Color(0x220000), 
+        emissiveIntensity: 0.3 
+      });
+      break;
+    case VManagerVehicleType.BULLDOZER:
+      mat = new MeshStandardMaterial({ 
+        color: new Color(0xffdd00), 
+        roughness: 0.8, 
+        metalness: 0.3, 
+        emissive: new Color(0x332200), 
+        emissiveIntensity: 0.2 
+      });
+      break;
+    case VManagerVehicleType.CAR:
+    default:
+      mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
+      break;
+  }
+  
   const mesh = new Mesh(geo, mat); mesh.castShadow = true; obj.add(mesh);
   scene.add(obj);
   const follower = new PathFollower(path2ds[bestIdx], hm, obj, bestS);
@@ -747,7 +774,7 @@ if (followMode === 'frenet') {
           vehicles.spawnAt(gx, gz, vehicleType);
         } else {
           rebuildPath2Ds();
-          spawnFollowerAtCamera();
+          spawnFollowerAtCamera(vehicleType);
         }
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
