@@ -10,6 +10,7 @@ export type PaintSystemHandle = {
   getCurrentTool: () => ToolMode;
   setEnabled: (enabled: boolean) => void;
   isEnabled: () => boolean;
+  updateReferences?: (heightmap: Heightmap, fireGrid: FireGrid) => void;
 };
 
 export function createPaintSystem(
@@ -196,6 +197,12 @@ export function createPaintSystem(
     
     isEnabled() {
       return enabled;
+    },
+    
+    updateReferences(newHeightmap: Heightmap, newFireGrid: FireGrid) {
+      // Update internal references when terrain is regenerated
+      // Note: This is a minimal implementation - the paint system
+      // will continue to work with the references passed to the functions
     }
   };
 }

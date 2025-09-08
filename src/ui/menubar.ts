@@ -11,6 +11,7 @@ const ICONS = {
   firetruck: '🚒',
   bulldozer: '🚜',
   waterTender: '🚛',
+  vehicle: '🚐',
   hydrant: '🚰',
   terrain: '🏔️',
   stats: '📊',
