@@ -201,7 +201,7 @@ export class VehiclesManager {
       const a = this.agents[i];
       // Clear stale intersection wait if path changed
       const nxtCheck = a.path[a.pathIdx + 1];
-      if (a.waitingFor && (!nxtCheck || this.cellKey(nxtCheck) !== a.waitingFor)) {
+      if (a.waitingFor && (!nxtCheck || typeof nxtCheck.x !== 'number' || typeof nxtCheck.z !== 'number' || this.cellKey(nxtCheck) !== a.waitingFor)) {
         const q = this.intersectionQueues.get(a.waitingFor);
         if (q) {
           const qi = q.indexOf(i);
