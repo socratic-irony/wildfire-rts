@@ -3,7 +3,7 @@ specs/fire_behavior.md
 Status (current)
 
 - Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope and moisture damping, simple spotting, Igniting→Burning promotion timer, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), tile-based `lineStrength` barriering, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex‑tint fire viz modes, thin perimeter outline render. Analytics: perimeter extraction (`computePerimeter`) and `computeFireStats` (active counts, burned tiles/area, perimeter length).
-- Not yet (high level): edge‑based firelines, crown fire mode, particle flames/smoke, burned‑ground decals, water/retardant/handline paint UI, wind tuning UI, save/load.
+- Not yet (high level): edge‑based firelines, crown fire mode, particle flames/smoke, burned‑ground decals, water/retardant/handline paint UI, wind tuning UI.
 
 Outstanding Work (v0.1 audit)
 
@@ -31,8 +31,6 @@ Outstanding Work (v0.1 audit)
   - Wind controls (speed/direction sliders), water/retardant/handline paint tools.
   - Stats UI: expose burning count, area burned, perimeter length, mean ROS; contained/not‑contained badge (backend exists).
   - Overlays: slope/wind vectors, wetness/retardant.
-- Serialization:
-  - Save/load of sparse tile deltas and env/params (`FireSave`).
 
 0) Purpose & Scope
 
@@ -395,7 +393,7 @@ function step(grid: FireGrid, env: Env, dt: number) {
 	•	Heatmap (H), Spread probability arrows from hovered tile (P), Wetness/retardant (R).
 	•	Slope and wind vectors toggle.
 	•	Counters: burning count, perimeter length, area burned (ha), spread rate sample.
-	•	Repro: seedable RNG; print seed on start; store in save file.
+	•	Repro: seedable RNG; print seed on start.
 	•	Determinism test: run headless 1000 ticks twice → identical perimeter lengths.
 
 ⸻
@@ -407,33 +405,15 @@ function step(grid: FireGrid, env: Env, dt: number) {
 	•	Handline drawn around a small ignition plus light helicopter support contains in < 2 minutes of sim time on 128² grass/chaparral mix.
 	•	256² grid at 4 Hz with ~1–3% burning tiles runs ≥ 60 FPS (frontier iteration).
 
-⸻
 
-16) Serialization (Scenario Save)
-
-interface FireSave {
-  version: 1;
-  seed: number;
-  params: Partial<FireParams>;
-  env: Env;
-  tiles: Array<{
-    x:number, z:number, state:FireState, heat:number,
-    burnProgress:number, wetness:number, retardant:number, lineStrength:number
-  }>; // sparse: only non-default tiles stored
-  ignitions: Array<{x:number,z:number,t:number}>;
-}
-
-
-⸻
-
-17) Roadmap Beyond v0.1
+16) Roadmap Beyond v0.1
 	•	v0.2: Edge-based lineStrength (separate from tile), crown fire mode, diurnal wind shift preset, structure protection (assets with HP, defensible space).
 	•	v0.3: Backburn system, spotfire detection UI, embers that accumulate on roofs/leaf litter (urban WUI).
-	•	v0.4: Multiplayer co-op scenario, result scoring (area saved, cost, time).
+          •       v2.0+: Scenario persistence and multiplayer co-op (out of scope for v1).
 
 ⸻
 
-18) Default Constants (quick copy block)
+17) Default Constants (quick copy block)
 
 export const DEFAULT_FIRE_PARAMS: FireParams = {
   cellSize: 2,
@@ -455,7 +435,7 @@ export const DEFAULT_FIRE_PARAMS: FireParams = {
 
 ⸻
 
-19) Implementation Notes
+18) Implementation Notes
 	•	Keep neighbor loops branch-light; use lookup tables for neighbor d̂, azimuth, and distance (1 for orthogonal, √2 for diagonal if you want distance-weighted advances).
 	•	Consider precomputing tanSlope, upslopeDir per tile.
 	•	Frontier lists: burning[], smoldering[], igniting[]. Avoid removing by splice; mark-dead and compact periodically.
