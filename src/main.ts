@@ -547,7 +547,7 @@ let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
 // Show grid vehicles only in grid mode
-vehicles.group.visible = (followMode as FollowMode === 'grid');
+vehicles.group.visible = (followMode as string === 'grid');
 
 // Fire Hydrants — automatic placement along roads
 let hydrantSystem = createHydrantSystem(roadMask, hm.scale);
@@ -728,7 +728,7 @@ if (followMode === 'frenet') {
       spawn: (type) => {
         // For now, vehicle type affects color/visual but uses same spawn logic
         console.log(`Spawning ${type || 'generic'} vehicle`);
-        if (followMode === 'grid') {
+        if ((followMode as string) === 'grid') {
           const camPos = rig.camera.getWorldPosition(new Vector3());
           const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
           const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));

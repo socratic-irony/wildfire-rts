@@ -215,6 +215,6 @@ export function createPaintSystem(
       // Reset painting state to avoid issues with stale coordinates
       isMouseDown = false;
       lastPaintPos = null;
-    }
+    },
   };
 }
