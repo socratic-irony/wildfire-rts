@@ -108,7 +108,7 @@ This project follows spec-first development:
 
 ## Current Limitations
 
-- **Fire System**: Crown fire behavior and edge-based firelines not fully implemented
+- **Fire System**: Edge-based firelines not yet implemented
 - **Vehicles**: Intersection logic specified but not yet implemented
 - **Particles**: Using placeholder textures, soft particles not implemented
 - **Persistence**: Save/load scenarios not yet available
@@ -117,7 +117,7 @@ This project follows spec-first development:
 ## Roadmap
 
 ### Near-term (v0.2)
-- [ ] Complete fire system crown behavior and early extinguish rules
+- [x] Complete fire system crown behavior and early extinguish rules
 - [ ] Implement vehicle intersection logic (well-specified in `specs/driving.md`)
 - [ ] Add water/retardant paint tools for fire suppression
 - [ ] Wire fire statistics into debug UI

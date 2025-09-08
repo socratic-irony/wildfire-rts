@@ -2,18 +2,16 @@ specs/fire_behavior.md
 
 Status (current)
 
-- Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope and moisture damping, simple spotting, Igniting→Burning promotion timer, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), tile-based `lineStrength` barriering, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex‑tint fire viz modes, thin perimeter outline render. Analytics: perimeter extraction (`computePerimeter`) and `computeFireStats` (active counts, burned tiles/area, perimeter length).
-- Not yet (high level): edge‑based firelines, crown fire mode, particle flames/smoke, burned‑ground decals, water/retardant/handline paint UI, wind tuning UI, save/load.
+- Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope and moisture damping, simple spotting, Igniting→Burning promotion timer, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), tile-based `lineStrength` barriering with crown-heat moisture/line bypass, early extinguish of isolated low-heat tiles, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex‑tint fire viz modes, thin perimeter outline render. Analytics: perimeter extraction (`computePerimeter`) and `computeFireStats` (active counts, burned tiles/area, perimeter length).
+- Not yet (high level): edge‑based firelines, particle flames/smoke, burned‑ground decals, water/retardant/handline paint UI, wind tuning UI, save/load.
 
 Outstanding Work (v0.1 audit)
 
 - Core engine:
   - Igniting stage: tuned timings/UX (baseline implemented with `tIgnite` and `lastIgnitedAt`).
-  - Early extinguish: rule to push Burning → Smoldering when `heat < thresholds.extinguishHeat` and isolated.
   - Moisture gating: hard gate on ignition when effective moisture is very high (e.g., `fuelMoistureEff < 0.9`) — currently only soft damping.
   - Fuel moisture & humidity: per‑tile `fuelMoisture` and slow drift toward `Env.humidity` not applied.
-  - Line barriers: edge‑based line field (separate from tile `lineStrength`) and crown‑threshold bypass behavior.
-  - Crown fire: behavior switches tied to `thresholds.crownHeat`.
+  - Line barriers: edge‑based line field (separate from tile `lineStrength`).
   - Perimeter: visualization polish (thickness, color ramp) and optional smoothing; UI counters wired to stats.
   - Data layout: current AoS objects; optional SoA typed arrays if/when perf dictates.
 - Spread/probability:
@@ -139,6 +137,7 @@ Burned
 Special rules:
 	•	Wetness/Retardant delay or block ignition; can push Burning → Smoldering if heat is forced < extinguish threshold (see §7.5).
 	•	LineStrength lives on a tile and/or edge (optional edge field). If lineStrength on edge ≥ 0.8, block cross-edge spread unless intensity is “crown-level.”
+        •       Crown fire: when heat > crownHeat, moisture damping floor 0.25 and line barriers floor at 0.15.
 
 ⸻
 
@@ -210,7 +209,7 @@ For Burning tile c:
 	•	When water applied at rate Q, do heat -= k_ext * Q * dt / (1 + burnProgress) (harder to put out fully involved cells). Clamp heat ≥ 0.
 	•	If heat < extinguishThreshold (default 0.12) and no burning neighbors within 1 tile, transition:
 	•	Burning → Smoldering early.
-	•	Wet ignition gating: At ignition test time, require fuelMoistureEff < 0.9.
+	•	Wet ignition gating: At ignition test time, require fuelMoistureEff < 0.9; crown fire bypasses this gate with moisture damping floored at 0.25.
 
 ⸻
 
