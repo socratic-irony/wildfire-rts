@@ -14,7 +14,9 @@ function makeHeightmap(width: number, height: number, scale: number, data: Float
 
 describe('buildTerrainCost', () => {
   it('normalizes elevation and computes uniform slope for planar gradient', () => {
-    const width = 3, height = 3, scale = 1;
+    const width = 3;
+    const height = 3;
+    const scale = 1;
     const cols = width + 1, rows = height + 1;
     const data = new Float32Array(cols * rows);
     for (let z = 0; z < rows; z++) {
