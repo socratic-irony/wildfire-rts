@@ -2,7 +2,7 @@
 
 Status (current)
 
-- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint, instanced trees (conifer + broadleaf variants) and shrubs with light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (A* over valley-favoring cost) rendered as ground-hugging smoothed ribbons at ~½-tile width.
+- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor) with drag lock during paint tools, biome masks + per-vertex ground tint, instanced trees (conifer + broadleaf variants) and shrubs with light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (A* over valley-favoring cost) rendered as ground-hugging smoothed ribbons at ~½-tile width.
 - In progress/available toggles: grid on/off, fire visualization modes (overlay/raised/vertex) for the separate fire spec work.
 - Not yet: advanced postprocessing, full biome tuning UI, decal-based road materials, networked path graph tools.
 
@@ -187,6 +187,7 @@ Start with **shader projection** for clarity/perf; make toggleable.
 * **Tilt**: Right drag + modifier (or middle drag) pitch clamped (e.g., 15°–75°).
 * **Zoom**: Wheel zoom **to cursor** using raycast → interpolate camera target & distance. Clamp min/max distance.
 * **Terrain collision**: Maintain minimum clearance to terrain along camera forward vector; if intersection, push camera up along normal.
+* **Tool interaction**: Disable camera rotation while painting roads, water, or retardant to avoid unintended view changes.
 
 **Implementation**
 

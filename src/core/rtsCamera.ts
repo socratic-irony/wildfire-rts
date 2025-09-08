@@ -21,6 +21,7 @@ export class RTSCameraController {
   private speed = 25;     // units/sec base
   private raycaster = new Raycaster();
   private leftDown = false;
+  private dragEnabled = true;
   private lastX = 0;
   private lastY = 0;
 
@@ -66,8 +67,10 @@ export class RTSCameraController {
   }
 
   private onPointerDown = (e: PointerEvent) => {
-    if (e.button === 0) this.leftDown = true; // left
-    this.lastX = e.clientX; this.lastY = e.clientY;
+    if (e.button === 0 && this.dragEnabled) {
+      this.leftDown = true; // left
+      this.lastX = e.clientX; this.lastY = e.clientY;
+    }
   };
 
   private onPointerUp = (_e: PointerEvent) => {
@@ -83,6 +86,11 @@ export class RTSCameraController {
     this.yaw.rotation.y -= dx * rotSpeed;
     this.pitch.rotation.x = Math.min(this.maxPitch, Math.max(this.minPitch, this.pitch.rotation.x + dy * rotSpeed));
   };
+
+  setDragEnabled(on: boolean) {
+    this.dragEnabled = on;
+    if (!on) this.leftDown = false;
+  }
 
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();

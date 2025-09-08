@@ -32,6 +32,7 @@ export class RTSOrbitCamera {
   private defaultDist = 40;
 
   private dragging = false;
+  private dragEnabled = true;
   private lastX = 0;
   private lastY = 0;
 
@@ -57,7 +58,7 @@ export class RTSOrbitCamera {
   }
 
   private onDown = (e: PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !this.dragEnabled) return;
     this.dragging = true;
     this.lastX = e.clientX;
     this.lastY = e.clientY;
@@ -102,6 +103,11 @@ export class RTSOrbitCamera {
       e.preventDefault();
     }
   };
+
+  setDragEnabled(on: boolean) {
+    this.dragEnabled = on;
+    if (!on) this.dragging = false;
+  }
 
   private getMouseNDC(ev: PointerEvent | WheelEvent) {
     const rect = this.dom.getBoundingClientRect();

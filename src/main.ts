@@ -197,16 +197,17 @@ loop.add((dt) => {
   }
   renderer.render(scene, rig.camera);
   
-  // Update paint system
+  // Sync paint tool and disable camera drag while painting
+  const menubarTool = menubar.getCurrentTool();
   if (paintSystem) {
     paintSystem.update(dt);
-    // Sync tool between menubar and paint system
-    const menubarTool = menubar.getCurrentTool();
     if (paintSystem.getCurrentTool() !== menubarTool) {
       paintSystem.setCurrentTool(menubarTool);
     }
   }
-  
+  const painting = menubarTool === 'water' || menubarTool === 'retardant' || menubarTool === 'roads';
+  orbit.setDragEnabled(!painting);
+
   // Update unified menubar/debug interface
   menubar.update(dt, renderer, { chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
   // (intersection manager already ran pre-update in Frenet mode)
