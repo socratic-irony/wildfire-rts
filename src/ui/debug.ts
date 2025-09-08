@@ -43,7 +43,8 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   el.style.padding = '6px 8px';
   el.style.background = 'rgba(0,0,0,0.45)';
   el.style.backdropFilter = 'blur(2px)';
-  el.style.font = '12px/1.2 system-ui, sans-serif';
+  // Use fixed-width font for aligned debug readouts
+  el.style.font = '12px/1.2 ui-monospace, monospace';
   el.style.color = '#e5e7eb';
   el.style.whiteSpace = 'pre';
   el.style.pointerEvents = 'auto';
@@ -159,6 +160,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   fireStatsDiv.style.fontSize = '11px';
   fireStatsDiv.style.color = '#94a3b8';
   fireStatsDiv.style.lineHeight = '1.3';
+  fireStatsDiv.style.fontFamily = 'ui-monospace, monospace';
   fireStatsDiv.textContent = 'No fire activity';
   fireSec.body.appendChild(fireStatsDiv);
   // Roads controls
@@ -478,19 +480,28 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
       // Update fire statistics if fireGrid is available
       if (opts.fireGrid) {
         const fireStats = computeFireStats(opts.fireGrid);
-        const fireStatsDiv = fireSec.body.querySelector('.fire-stats') as HTMLDivElement | null;
-        if (fireStatsDiv) {
-          if (fireStats.active === 0 && fireStats.burnedTiles === 0) {
-            fireStatsDiv.textContent = 'No fire activity';
-          } else {
-            const burnedAreaHa = fireStats.burnedAreaWorld / 10000; // Convert m² to hectares
-            const perimeterKm = fireStats.perimeterWorld / 1000;   // Convert m to km
-            fireStatsDiv.textContent = [
-              `Burning: ${fireStats.burning} tiles`,
-              `Burned area: ${burnedAreaHa.toFixed(1)} ha`,
-              `Perimeter: ${perimeterKm.toFixed(2)} km`
-            ].join('\n');
-          }
+        let fireStatsDiv = fireSec.body.querySelector('.fire-stats') as HTMLDivElement | null;
+        // Ensure stats container exists
+        if (!fireStatsDiv) {
+          fireStatsDiv = document.createElement('div');
+          fireStatsDiv.className = 'fire-stats';
+          fireStatsDiv.style.fontSize = '11px';
+          fireStatsDiv.style.color = '#94a3b8';
+          fireStatsDiv.style.lineHeight = '1.3';
+          fireStatsDiv.style.fontFamily = 'ui-monospace, monospace';
+          fireStatsDiv.textContent = 'No fire activity';
+          fireSec.body.appendChild(fireStatsDiv);
+        }
+        if (fireStats.active === 0 && fireStats.burnedTiles === 0) {
+          fireStatsDiv.textContent = 'No fire activity';
+        } else {
+          const burnedAreaHa = fireStats.burnedAreaWorld / 10000; // Convert m² to hectares
+          const perimeterKm = fireStats.perimeterWorld / 1000; // Convert m to km
+          fireStatsDiv.textContent = [
+            `Burning: ${fireStats.burning} tiles`,
+            `Burned area: ${burnedAreaHa.toFixed(1)} ha`,
+            `Perimeter: ${perimeterKm.toFixed(2)} km`
+          ].join('\n');
         }
       }
 

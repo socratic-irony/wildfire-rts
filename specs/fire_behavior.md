@@ -29,7 +29,7 @@ Outstanding Work (v0.1 audit)
   - Vegetation burn tint: trees and shrubs darken → brown → near‑black based on tile state (Burning/Smoldering/Burned), updated ~2 Hz.
 - UI/Debug:
   - Wind controls (speed/direction sliders), water/retardant/handline paint tools.
-  - Stats UI: expose burning count, area burned, perimeter length, mean ROS; contained/not‑contained badge (backend exists).
+  - Stats UI: burning count, burned area, perimeter length shown in debug overlay (monospace). Mean ROS and contained/not‑contained badge pending.
   - Overlays: slope/wind vectors, wetness/retardant.
 - Serialization:
   - Save/load of sparse tile deltas and env/params (`FireSave`).
