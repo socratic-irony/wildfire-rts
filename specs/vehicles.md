@@ -5,6 +5,8 @@ Status (current)
 - Implemented: instanced vehicles with a simple grid-follow model constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction), spawn near nearest road, road-only A* for explicit destinations, and an auto-follow mode that advances along connected road tiles. UI hooks to spawn/move/clear. Vehicles render reliably after rollback to terrain-only alignment.
 - Demo seeding (vehicles branch): at startup, the main app auto-seeds 1–2 random rectangular road loops and spawns a few vehicles on them so behavior is visible immediately. Clear via debug UI to draw your own roads.
 - Update: baseline road-follow now prefers 4-neighbor (N/E/S/W) turns, considering diagonals only when needed, for clearer cornering. Added a small heading “weathervane” debug marker per agent for quick orientation diagnostics.
+- Intersection routing: auto-follow uses the road midline tangent to pick the correct branch at crossings, keeping vehicles on their intended road.
+- Intersections behave as four-way stops: vehicles queue, pause briefly, and proceed one at a time to avoid collisions.
 - Road visuals: adaptive smoothed ribbon that hugs terrain via normal offset, dusty shoulders, dashed center stripe; polygon offset to avoid z-fighting.
 - Road building: cost field includes slope penalty and hard block for steep tiles; turn penalty biases A* to reduce sharp curves; rasterized road mask integrates with fire grid.
 - Reverted (pending rework): projecting vehicle position/orientation directly to road midline each frame (caused freezes under some conditions).
@@ -94,10 +96,9 @@ Performance Targets
 
 - Midline projection (safe): Reintroduce vehicle projection/orientation to road midline using a spatial index (grid or BVH) per road to avoid O(N·M) scans. Maintain per-agent path+segment hints for O(1) neighborhood queries. Guard against degenerate segments (zero length).
   - Current status: orientation uses midline projection with a gentle lateral nudge; a per-road spatial index and stable segment pinning are next.
-- Intersections & branching: Pin each agent to the intended polyline; resolve choice at intersections; avoid snapping to parallel/nearby roads.
 - Steering/yaw smoothing: Reapply forward vector smoothing (lerp/slerp) once projection is stable to get visually pleasing steering through curves.
 - Speed model: Modulate speed by grade, curvature, and road class; cap speed on steep slopes and sharp turns.
-- Collision/spacing: Simple follow-the-leader or separation to avoid overlapping agents on same road.
+- Collision/spacing: Four-way stop queues reduce intersection collisions; lane-based spacing and smarter convoy behavior remain.
 - Laneing/width: Optional lanes and side-of-road offsets; passability width vs terrain slope.
 - Robust spawn: Ensure spawn locks to the intended road polyline and valid segment; fallback if none.
 - Serialization: Save/load agent states, destinations, and road network.
@@ -114,7 +115,7 @@ Acceptance Criteria (v0.1)
 Roadmap (next)
 
 1) Safe midline projector + per-road spatial index; re-enable road-hugging pose.
-2) Intersection routing + path pinning to a specific polyline.
+2) Robust path pinning to a specific polyline for complex intersections.
 3) Basic spacing/avoidance and speed modulation by grade/curvature.
 4) Save/load of vehicles and roads; debug overlay with counts/timings.
 5) Unit abilities (water/retardant) integrated with fire grid.
