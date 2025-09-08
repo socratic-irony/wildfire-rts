@@ -23,6 +23,8 @@ import { createFireViz } from './fire/viz';
 import { createFireRibbon } from './particles/ribbon';
 import { createFlipbookParticles } from './particles/flipbook';
 import { createSuppressionDecals } from './fire/decals';
+import { createHydrantSystem, updateHydrantPlacement, clearHydrants } from './fire/hydrants';
+import { HydrantVisual } from './fire/hydrantVisual';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
@@ -497,6 +499,9 @@ function seedRandomLoopsAndVehicles(count = 2) {
   }
   // Apply to fire grid for integration
   applyRoadMaskToFireGrid(fireGrid, roadMask);
+  // Update hydrant placement for new roads
+  updateHydrantPlacement(hydrantSystem);
+  hydrantVisual.update(hydrantSystem);
   rebuildPath2Ds();
   // Spawn grid-mode vehicles only if grid follow mode is active
   if (followMode === 'grid') {
@@ -533,13 +538,19 @@ function spawnFollowerAtCamera() {
 }
 
 // Vehicles — manager uses terrain cost and road mask
-let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
+let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
 scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
 // Show grid vehicles only in grid mode
 vehicles.group.visible = (followMode as FollowMode === 'grid');
+
+// Fire Hydrants — automatic placement along roads
+let hydrantSystem = createHydrantSystem(roadMask, hm.scale);
+let hydrantVisual = new HydrantVisual(hm);
+scene.add(hydrantVisual.group);
+hydrantVisual.setVisible(true); // Initially visible
 
 // Seed random road loops at startup and spawn moving vehicles
 seedRandomLoopsAndVehicles(2);
@@ -656,6 +667,9 @@ if (followMode === 'frenet') {
             roadsVis.addPath(path);
             rasterizePolyline(roadMask, path, 0.9);
             applyRoadMaskToFireGrid(fireGrid, roadMask);
+            // Update hydrant placement for new roads
+            updateHydrantPlacement(hydrantSystem);
+            hydrantVisual.update(hydrantSystem);
             rebuildPath2Ds();
           }
         }
@@ -723,6 +737,17 @@ if (followMode === 'frenet') {
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => { vehicles.clear(); clearFollowers(); }
+    },
+    hydrants: {
+      toggle: (on) => { hydrantVisual.setVisible(on); },
+      update: () => { 
+        updateHydrantPlacement(hydrantSystem); 
+        hydrantVisual.update(hydrantSystem); 
+      },
+      clear: () => { 
+        clearHydrants(hydrantSystem); 
+        hydrantVisual.update(hydrantSystem); 
+      }
     },
     config: {
       get: () => worldCfg,

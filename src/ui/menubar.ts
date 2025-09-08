@@ -8,10 +8,10 @@ const ICONS = {
   water: '💧', 
   retardant: '🧪',
   road: '🛣️',
-  vehicle: '🚗',
   firetruck: '🚒',
   bulldozer: '🚜',
   waterTender: '🚛',
+  hydrant: '🚰',
   terrain: '🏔️',
   stats: '📊',
   settings: '⚙️',
@@ -76,6 +76,11 @@ export type MenubarActions = {
     toggleYawSmoothing?: (on: boolean) => void;
     setFollowMode?: (m: 'grid' | 'frenet') => void;
     setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void;
+  };
+  hydrants?: {
+    toggle?: (on: boolean) => void;
+    update?: () => void;
+    clear?: () => void;
   };
   ribbon?: {
     setVisible?: (on: boolean) => void;
@@ -637,6 +642,36 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     vehicleControls.appendChild(spacingWrapper);
 
     controlsPanel.appendChild(createSection('🚗 Vehicles', vehicleControls));
+
+    // Fire Hydrants Section
+    const hydrantControls = document.createElement('div');
+    hydrantControls.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+
+    const hydrantVisBtn = document.createElement('button');
+    hydrantVisBtn.style.cssText = 'background: #111827; color: #e5e7eb; border: 1px solid #374151; border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;';
+    let hydrantsVisible = true;
+    hydrantVisBtn.textContent = 'Visible: On';
+    hydrantVisBtn.addEventListener('click', () => {
+      hydrantsVisible = !hydrantsVisible;
+      hydrantVisBtn.textContent = `Visible: ${hydrantsVisible ? 'On' : 'Off'}`;
+      actions.hydrants?.toggle?.(hydrantsVisible);
+    });
+
+    const hydrantUpdateBtn = document.createElement('button');
+    hydrantUpdateBtn.style.cssText = 'background: #111827; color: #e5e7eb; border: 1px solid #374151; border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;';
+    hydrantUpdateBtn.textContent = 'Update Placement';
+    hydrantUpdateBtn.addEventListener('click', () => actions.hydrants?.update?.());
+
+    const hydrantClearBtn = document.createElement('button');
+    hydrantClearBtn.style.cssText = 'background: #dc2626; color: #ffffff; border: 1px solid #dc2626; border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;';
+    hydrantClearBtn.textContent = 'Clear All';
+    hydrantClearBtn.addEventListener('click', () => actions.hydrants?.clear?.());
+
+    hydrantControls.appendChild(hydrantVisBtn);
+    hydrantControls.appendChild(hydrantUpdateBtn);
+    hydrantControls.appendChild(hydrantClearBtn);
+
+    controlsPanel.appendChild(createSection('🚰 Hydrants', hydrantControls));
 
     // Terrain Configuration Section
     const terrainControls = document.createElement('div');
