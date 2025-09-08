@@ -39,7 +39,7 @@ Repository Topology
   - `astar.ts`: grid A* (4/8-neigh), cost callback, with diag support.
   - `visual.ts`: smoothed ribbon mesh (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe.
   - `state.ts`: rasterization of road paths to a road mask; integration hooks (e.g., fire grid fuel adjustments).
-- Vehicles: `src/vehicles/vehicles.ts`: instanced agents, road-only pathing, terrain-aligned pose. Simple and stable baseline.
+- Vehicles: `src/vehicles/vehicles.ts`: instanced agents with road and air pathing, terrain-aligned pose, and fire-suppression hooks.
 - **Fire Hydrants (HIGH PRIORITY)**: `src/fire/hydrants.ts`: automatic placement along roads (50m spacing, 100+ tiles min), coverage areas (~10m), integration with suppression system to enable firefighter deployment from road tiles within coverage.
 - UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
 - Specs: `specs/` contains domain specs (terrain, fire_behavior, vehicles, architecture).
@@ -109,7 +109,7 @@ Extensibility Hooks
 - Fire suppression: `applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`; tile fields (`wetness,retardant,lineStrength`).
 - Fire queries: `isContained`, `sampleTile` (and planned perimeter polyline export).
 - **Fire hydrants**: `canSuppressAt`, `findNearestHydrant`, coverage calculation; automatic placement on road network changes.
-- Vehicles: future “water/retardant” actions will call FireGrid APIs; laneing/speed modifiers are straightforward extensions to `update()`.
+- Vehicles: water/retardant actions can call FireGrid APIs; per-type speed and handling implemented; laneing and advanced spacing remain future work.
 - Roads: attach metadata (class/type) and vary width/material; expose midline for more advanced AI.
 
 Testing Strategy (planned)

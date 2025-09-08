@@ -4,6 +4,8 @@ import type { Heightmap } from '../terrain/heightmap';
 import type { RoadMask } from '../roads/state';
 import type { RoadsVisual } from '../roads/visual';
 import type { TerrainCost } from '../roads/cost';
+import type { FireGrid } from '../fire/grid';
+import { applyWaterAoE } from '../fire/grid';
 import { aStarPath } from '../roads/astar';
 
 type GridPoint = { x: number; z: number };
@@ -35,6 +37,7 @@ type Agent = {
   waitingFor?: string; // intersection key queued at
   intersection?: string; // intersection key being crossed
   stopTimer?: number; // remaining stop time before entering intersection
+  altitude?: number; // height offset for airborne vehicles
   debug?: {
     yawMode: string;
     usedProj: boolean;
@@ -67,6 +70,8 @@ export class VehiclesManager {
   private tmpObj2 = new Object3D();
   private cellSize: number; // hm.scale
   private roadsVis?: RoadsVisual;
+  private fireGrid?: FireGrid;
+  private landingZones: GridPoint[] = [];
   private yawMode: 'grid' | 'midline' | 'velocity' | 'lookahead' = 'midline';
   private speedCurviness = 0.6; // weight for curvature speed reduction
   private speedMinFactor = 0.45;
@@ -80,10 +85,11 @@ export class VehiclesManager {
   private intersectionOccupants = new Map<string, number>();
   private stopDuration = 0.5; // seconds to wait at four-way stops
 
-  constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64, roadsVis?: RoadsVisual) {
+  constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64, roadsVis?: RoadsVisual, fireGrid?: FireGrid) {
     this.hm = hm; this.terrain = terrain; this.roadMask = roadMask; this.maxAgents = maxAgents;
     this.cellSize = hm.scale;
     this.roadsVis = roadsVis;
+    this.fireGrid = fireGrid;
     
     // Initialize vehicle counts
     for (const vehicleType of Object.values(VehicleType)) {
@@ -191,6 +197,33 @@ export class VehiclesManager {
     const wx = (gx + 0.5) * this.cellSize;
     const wz = (gz + 0.5) * this.cellSize;
     const y = this.hm.sample(wx, wz);
+
+    const selectedVehicleType = vehicleType ?? this.getRandomVehicleType();
+
+    if (selectedVehicleType === VehicleType.HELICOPTER || selectedVehicleType === VehicleType.AIRPLANE) {
+      const altitude = selectedVehicleType === VehicleType.HELICOPTER ? 5 : 8;
+      const posAir = new Vector3(wx, y + altitude, wz);
+      const agent: Agent = {
+        vehicleType: selectedVehicleType,
+        pos: posAir,
+        grid: { x: gx, z: gz },
+        path: [{ x: gx, z: gz }],
+        pathIdx: 0,
+        speedTilesPerSec: this.getDefaultSpeed(selectedVehicleType),
+        autoFollowRoad: false,
+        altitude
+      };
+      agent.prevPos = posAir.clone();
+      this.agents.push(agent);
+      const current = this.vehicleCounts.get(selectedVehicleType) || 0;
+      this.vehicleCounts.set(selectedVehicleType, current + 1);
+      this.syncInstance(this.agents.length - 1);
+      const inst = this.vehicleInstances.get(selectedVehicleType);
+      if (inst) inst.instanceMatrix.needsUpdate = true;
+      this.instVane.instanceMatrix.needsUpdate = true;
+      return;
+    }
+
     const pos = new Vector3(wx, y + 0.2, wz);
     // If roads exist, snap spawn to nearest road tile
     const spawnCell = this.findNearestRoad(gx, gz) ?? { x: gx, z: gz };
@@ -198,37 +231,30 @@ export class VehiclesManager {
     const wz2 = (spawnCell.z + 0.5) * this.cellSize;
     const y2 = this.hm.sample(wx2, wz2);
     const pos2 = new Vector3(wx2, y2 + 0.22, wz2);
-    
-    // Select vehicle type (randomly if not specified)
-    const selectedVehicleType = vehicleType ?? this.getRandomVehicleType();
-    
-    const agent: Agent = { 
+
+    const agent: Agent = {
       vehicleType: selectedVehicleType,
-      pos: pos2, 
-      grid: spawnCell, 
-      path: [], 
-      pathIdx: 0, 
-      speedTilesPerSec: 3.2, 
-      autoFollowRoad: true 
+      pos: pos2,
+      grid: spawnCell,
+      path: [],
+      pathIdx: 0,
+      speedTilesPerSec: this.getDefaultSpeed(selectedVehicleType),
+      autoFollowRoad: true
     };
     agent.prevPos = pos2.clone();
-    // Initialize pin to nearest visual road path for midline projection (if available)
     if (this.roadsVis) {
       const idx = this.roadsVis.findNearestPathIndex(pos2.x, pos2.z);
       if (idx >= 0) agent.pin = { pathIndex: idx };
     }
-    // Initialize a next step along the road if possible
     const next = this.chooseNextRoadNeighbor(agent.grid, agent.prev);
     if (next) { agent.path = [agent.grid, next]; agent.pathIdx = 0; agent.prev = agent.grid; }
     this.agents.push(agent);
-    
-    // Update the count for this vehicle type
+
     const currentCount = this.vehicleCounts.get(selectedVehicleType) || 0;
     this.vehicleCounts.set(selectedVehicleType, currentCount + 1);
-    
+
     this.syncInstance(this.agents.length - 1);
-    
-    // Update instance matrices for the specific vehicle type and vane
+
     const vehicleInstance = this.vehicleInstances.get(selectedVehicleType);
     if (vehicleInstance) {
       vehicleInstance.instanceMatrix.needsUpdate = true;
@@ -251,6 +277,46 @@ export class VehiclesManager {
     const vehicleTypes = Object.values(VehicleType);
     const randomIndex = Math.floor(Math.random() * vehicleTypes.length);
     return vehicleTypes[randomIndex];
+  }
+
+  private getDefaultSpeed(t: VehicleType): number {
+    switch (t) {
+      case VehicleType.BULLDOZER:
+        return 1.5;
+      case VehicleType.FIRETRUCK:
+        return 2.5;
+      case VehicleType.HELICOPTER:
+        return 5;
+      case VehicleType.AIRPLANE:
+        return 7;
+      case VehicleType.FIREFIGHTER:
+        return 2.8;
+      default:
+        return 3.2;
+    }
+  }
+
+  addLandingZone(gx: number, gz: number) {
+    this.landingZones.push({ x: gx, z: gz });
+  }
+
+  private findNearestLandingZone(gx: number, gz: number): GridPoint | undefined {
+    if (!this.landingZones.length) return undefined;
+    let best: GridPoint | undefined;
+    let bestD = Infinity;
+    for (const lz of this.landingZones) {
+      const dx = lz.x - gx;
+      const dz = lz.z - gz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD) { bestD = d2; best = lz; }
+    }
+    return best;
+  }
+
+  sprayWater(i: number, radius = 2, intensity = 0.5) {
+    const a = this.agents[i];
+    if (!a || a.vehicleType !== VehicleType.FIRETRUCK || !this.fireGrid) return;
+    applyWaterAoE(this.fireGrid, a.grid, radius, intensity);
   }
 
   setYawMode(mode: 'grid' | 'midline' | 'velocity' | 'lookahead') { this.yawMode = mode; }
@@ -306,13 +372,20 @@ export class VehiclesManager {
     a.autoFollowRoad = false; // explicit destination switches to path mode
     gx = clamp(Math.round(gx), 0, this.hm.width - 1);
     gz = clamp(Math.round(gz), 0, this.hm.height - 1);
+
+    if (a.vehicleType === VehicleType.HELICOPTER || a.vehicleType === VehicleType.AIRPLANE) {
+      const dest = this.findNearestLandingZone(gx, gz) ?? { x: gx, z: gz };
+      a.path = [{ x: a.grid.x, z: a.grid.z }, dest];
+      a.pathIdx = 0;
+      a.prev = undefined;
+      return;
+    }
+
     const W = this.terrain.width;
     const H = this.terrain.height;
-    // Snap start and goal to nearest road cells
     const startRoad = this.findNearestRoad(a.grid.x, a.grid.z);
     const goalRoad = this.findNearestRoad(gx, gz);
-    if (!startRoad || !goalRoad) return; // no roads to use
-    // If agent wasn't exactly on a road tile, snap its logical grid and position to the road
+    if (!startRoad || !goalRoad) return;
     if (startRoad.x !== a.grid.x || startRoad.z !== a.grid.z) {
       a.grid = { x: startRoad.x, z: startRoad.z };
       const wx = (a.grid.x + 0.5) * this.cellSize;
@@ -322,8 +395,7 @@ export class VehiclesManager {
     const field = {
       width: W,
       height: H,
-      costAt: (x: number, z: number, _step?: { dx: number; dz: number }, _prev?: { dx: number; dz: number }) => {
-        // Strictly constrain to road tiles
+      costAt: (x: number, z: number) => {
         return this.roadMask.mask[z * W + x] === 1 ? 1 : Infinity;
       }
     };
@@ -389,32 +461,33 @@ export class VehiclesManager {
         let remainStep = a.speedTilesPerSec * dt * s * speedFactor;
         while (remainStep > 1e-6 && a.pathIdx < a.path.length - 1) {
           const nxt = a.path[a.pathIdx + 1];
-          if (this.isIntersection(nxt) && !this.canEnterIntersection(i, nxt, dt)) {
-            remainStep = 0;
-            break;
+            if (a.vehicleType !== VehicleType.HELICOPTER && a.vehicleType !== VehicleType.AIRPLANE && this.isIntersection(nxt) && !this.canEnterIntersection(i, nxt, dt)) {
+              remainStep = 0;
+              break;
+            }
+            const baseY = this.hm.sample((nxt.x + 0.5) * s, (nxt.z + 0.5) * s);
+            const nxtPos = new Vector3((nxt.x + 0.5) * s, baseY + 0.18 + (a.altitude || 0), (nxt.z + 0.5) * s);
+            const toNext = new Vector3().subVectors(nxtPos, a.pos);
+            const remain = Math.max(1e-6, toNext.length());
+            if (remainStep >= remain) {
+              a.prev = { ...a.grid };
+              a.grid = { x: nxt.x, z: nxt.z };
+              a.pos.copy(nxtPos);
+              a.pathIdx++;
+              remainStep -= remain;
+              this.releaseIntersection(a);
+            } else {
+              a.pos.addScaledVector(toNext.normalize(), remainStep);
+              a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18 + (a.altitude || 0);
+              remainStep = 0;
+            }
           }
-          const nxtPos = new Vector3((nxt.x + 0.5) * s, this.hm.sample((nxt.x + 0.5) * s, (nxt.z + 0.5) * s), (nxt.z + 0.5) * s);
-          const toNext = new Vector3().subVectors(nxtPos, a.pos);
-          const remain = Math.max(1e-6, toNext.length());
-          if (remainStep >= remain) {
-            a.prev = { ...a.grid };
-            a.grid = { x: nxt.x, z: nxt.z };
-            a.pos.copy(nxtPos).y += 0.18;
-            a.pathIdx++;
-            remainStep -= remain;
-            this.releaseIntersection(a);
-          } else {
-            a.pos.addScaledVector(toNext.normalize(), remainStep);
-            a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18;
-            remainStep = 0;
-          }
+          this.releaseIntersection(a);
         }
-        this.releaseIntersection(a);
-      }
-      
-      // Midline projection: snap to visual road and capture tangent/normal for pose
-      a.lastProj = undefined;
-      if (this.roadsVis) {
+
+        // Midline projection: ground vehicles only
+        a.lastProj = undefined;
+        if (this.roadsVis && a.vehicleType !== VehicleType.HELICOPTER && a.vehicleType !== VehicleType.AIRPLANE) {
         let pIdx = a.pin?.pathIndex;
         if (pIdx == null || pIdx < 0) {
           const idx = this.roadsVis.findNearestPathIndex(a.pos.x, a.pos.z);
@@ -435,7 +508,7 @@ export class VehiclesManager {
             if (len > 1e-6) {
               lateral.multiplyScalar(Math.min(1, maxNudge / len));
               a.pos.add(lateral);
-              a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18;
+                a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18 + (a.altitude || 0);
             }
           }
         }
@@ -456,7 +529,9 @@ export class VehiclesManager {
     const a = this.agents[i];
     this.tmpObj.position.copy(a.pos);
     // Build oriented basis aligned to terrain normal and movement direction
-    const up = a.lastProj?.normal ?? this.terrainNormal(a.pos.x, a.pos.z);
+      const up = (a.vehicleType === VehicleType.HELICOPTER || a.vehicleType === VehicleType.AIRPLANE)
+        ? new Vector3(0, 1, 0)
+        : (a.lastProj?.normal ?? this.terrainNormal(a.pos.x, a.pos.z));
     let fwd = new Vector3(0, 0, 1);
     // Helper to set path segment direction
     const setPathDir = () => {
