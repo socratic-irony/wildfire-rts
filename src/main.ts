@@ -29,7 +29,7 @@ import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
 import { applyRoadMaskToFireGrid, createRoadMask, rasterizePolyline } from './roads/state';
-import { VehiclesManager } from './vehicles/vehicles';
+import { VehiclesManager, VehicleType as VManagerVehicleType } from './vehicles/vehicles';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 // import { createFireTexture } from './fire/texture';
@@ -540,6 +540,17 @@ function spawnFollowerAtCamera() {
   followers.push(follower);
 }
 
+// Helper function to map menubar vehicle types to VehicleManager enum values
+function mapMenubarToVehicleType(menubarType?: string): VManagerVehicleType | undefined {
+  switch (menubarType) {
+    case 'firetruck': return VManagerVehicleType.FIRETRUCK;
+    case 'bulldozer': return VManagerVehicleType.BULLDOZER;
+    case 'waterTender': return VManagerVehicleType.FIRETRUCK; // Water tender mapped to firetruck
+    case 'generic': return VManagerVehicleType.CAR;
+    default: return VManagerVehicleType.CAR; // Default fallback
+  }
+}
+
 // Vehicles — manager uses terrain cost and road mask
 let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
 scene.add(vehicles.group);
@@ -726,13 +737,14 @@ if (followMode === 'frenet') {
     },
     vehicles: {
       spawn: (type) => {
-        // For now, vehicle type affects color/visual but uses same spawn logic
-        console.log(`Spawning ${type || 'generic'} vehicle`);
+        // Map menubar vehicle type to VehicleManager enum
+        const vehicleType = mapMenubarToVehicleType(type);
+        console.log(`Spawning ${type || 'generic'} vehicle (mapped to ${vehicleType})`);
         if ((followMode as string) === 'grid') {
           const camPos = rig.camera.getWorldPosition(new Vector3());
           const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
           const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
-          vehicles.spawnAt(gx, gz);
+          vehicles.spawnAt(gx, gz, vehicleType);
         } else {
           rebuildPath2Ds();
           spawnFollowerAtCamera();
