@@ -17,6 +17,12 @@
 - **Vehicle type tracking** in manager with counts per type
 - **Extended API** to support optional vehicle type specification
 
+### ✅ COMPLETED v0.3 Visual Polish
+- Animated rotors for helicopters
+- Smoke trails for aircraft
+- Turn signals, headlights, emergency flashers
+- Particle effects for dust and water spray
+
 ---
 
 Status (current - v0.1 base features)
@@ -129,6 +135,11 @@ The foundational multi-vehicle type system is complete and ready for handoff. Fu
 - Improve HELICOPTER: sphere body + rotor disk + tail boom
 - Improve AIRPLANE: T-shape fuselage with wings and tail
 - Improve FIREFIGHTER: three stick figure (head/torso/legs) with visibility outline
+
+### Next Chunk 2: Vehicle Behaviors & Abilities  
+- Vehicle-specific speed/handling (helicopters fly over obstacles, bulldozers slower)
+- Water spraying for firetrucks, fire suppression abilities
+- Landing zones for aircraft, different movement patterns
 
 ### Next Chunk 3: Visual Polish
 - Animated rotors for helicopters, smoke trails for aircraft

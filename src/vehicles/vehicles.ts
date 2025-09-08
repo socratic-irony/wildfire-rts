@@ -1,5 +1,6 @@
-import { ArrowHelper, Color, Group, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry } from 'three';
+import { ArrowHelper, Color, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry } from 'three';
 import { BoxGeometry } from 'three';
+import { InstancedParticleSystem } from '../particles/system';
 import type { Heightmap } from '../terrain/heightmap';
 import type { RoadMask } from '../roads/state';
 import type { RoadsVisual } from '../roads/visual';
@@ -54,6 +55,9 @@ type Agent = {
     note?: string;
   };
   prevQuat?: Quaternion;
+  rotorAngle?: number;
+  turnSignalLeft?: number;
+  turnSignalRight?: number;
 };
 
 export class VehiclesManager {
@@ -68,6 +72,7 @@ export class VehiclesManager {
   private instVane: InstancedMesh;
   private tmpObj = new Object3D();
   private tmpObj2 = new Object3D();
+  private tmpObj3 = new Object3D();
   private cellSize: number; // hm.scale
   private roadsVis?: RoadsVisual;
   private fireGrid?: FireGrid;
@@ -84,6 +89,17 @@ export class VehiclesManager {
   private intersectionQueues = new Map<string, number[]>();
   private intersectionOccupants = new Map<string, number>();
   private stopDuration = 0.5; // seconds to wait at four-way stops
+  private instRotor: InstancedMesh;
+  private instHeadlight: InstancedMesh;
+  private instSignal: InstancedMesh;
+  private instFlasher: InstancedMesh;
+  private smokeParticles: InstancedParticleSystem;
+  private dustParticles: InstancedParticleSystem;
+  private waterParticles: InstancedParticleSystem;
+  private headlightCount = 0;
+  private signalCount = 0;
+  private flasherCount = 0;
+  private elapsed = 0;
 
   constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64, roadsVis?: RoadsVisual, fireGrid?: FireGrid) {
     this.hm = hm; this.terrain = terrain; this.roadMask = roadMask; this.maxAgents = maxAgents;
@@ -108,6 +124,52 @@ export class VehiclesManager {
     this.instVane.castShadow = false;
     this.instVane.receiveShadow = false;
     this.group.add(this.instVane);
+
+    // Rotor for helicopters
+    const rotorGeo = new CylinderGeometry(this.cellSize * 0.6, this.cellSize * 0.6, this.cellSize * 0.04, 6);
+    const rotorMat = new MeshStandardMaterial({ color: new Color(0x222222), roughness: 0.8, metalness: 0.2, emissive: new Color(0x111111), emissiveIntensity: 0.2 });
+    this.instRotor = new InstancedMesh(rotorGeo, rotorMat, maxAgents);
+    this.instRotor.instanceMatrix.setUsage(35048);
+    this.instRotor.frustumCulled = false;
+    this.instRotor.castShadow = false;
+    this.instRotor.receiveShadow = false;
+    this.group.add(this.instRotor);
+
+    // Lights
+    const lightGeo = new SphereGeometry(this.cellSize * 0.08, 8, 8);
+    const headMat = new MeshStandardMaterial({ color: new Color(0xffffff), emissive: new Color(0xffffff), emissiveIntensity: 1.5, roughness: 0.2, metalness: 0.0 });
+    this.instHeadlight = new InstancedMesh(lightGeo, headMat, maxAgents * 2);
+    this.instHeadlight.instanceMatrix.setUsage(35048);
+    this.instHeadlight.frustumCulled = false;
+    this.instHeadlight.castShadow = false;
+    this.instHeadlight.receiveShadow = false;
+    this.group.add(this.instHeadlight);
+
+    const signalMat = new MeshStandardMaterial({ color: new Color(0xffa500), emissive: new Color(0xffa500), emissiveIntensity: 1.5, roughness: 0.3, metalness: 0.0 });
+    this.instSignal = new InstancedMesh(lightGeo, signalMat, maxAgents * 2);
+    this.instSignal.instanceMatrix.setUsage(35048);
+    this.instSignal.frustumCulled = false;
+    this.instSignal.castShadow = false;
+    this.instSignal.receiveShadow = false;
+    this.group.add(this.instSignal);
+
+    const flasherMat = new MeshStandardMaterial({ color: new Color(0xff0000), emissive: new Color(0xff0000), emissiveIntensity: 1.5, roughness: 0.3, metalness: 0.0 });
+    this.instFlasher = new InstancedMesh(lightGeo, flasherMat, maxAgents);
+    this.instFlasher.instanceMatrix.setUsage(35048);
+    this.instFlasher.frustumCulled = false;
+    this.instFlasher.castShadow = false;
+    this.instFlasher.receiveShadow = false;
+    this.group.add(this.instFlasher);
+
+    // Particle systems for smoke trails, dust, and water spray
+    const ico = new IcosahedronGeometry(this.cellSize * 0.1, 0);
+    const smokeMat = new MeshBasicMaterial({ color: 0xffffff });
+    const dustMat = new MeshBasicMaterial({ color: 0xffffff });
+    const waterMat = new MeshBasicMaterial({ color: 0xffffff });
+    this.smokeParticles = new InstancedParticleSystem('smoke', ico, smokeMat, maxAgents * 40);
+    this.dustParticles = new InstancedParticleSystem('smoke', ico, dustMat, maxAgents * 40);
+    this.waterParticles = new InstancedParticleSystem('smoke', ico, waterMat, maxAgents * 30);
+    this.group.add(this.smokeParticles.mesh, this.dustParticles.mesh, this.waterParticles.mesh);
   }
 
   private createVehicleInstances(maxAgents: number) {
@@ -238,9 +300,13 @@ export class VehiclesManager {
       grid: spawnCell,
       path: [],
       pathIdx: 0,
+      rotorAngle: 0,
+      turnSignalLeft: 0,
+      turnSignalRight: 0,
       speedTilesPerSec: this.getDefaultSpeed(selectedVehicleType),
       autoFollowRoad: true
-    };
+      };
+  
     agent.prevPos = pos2.clone();
     if (this.roadsVis) {
       const idx = this.roadsVis.findNearestPathIndex(pos2.x, pos2.z);
@@ -359,6 +425,17 @@ export class VehiclesManager {
     }
     this.instVane.count = 0 as any;
     this.instVane.instanceMatrix.needsUpdate = true;
+    this.instRotor.count = 0 as any;
+    this.instHeadlight.count = 0 as any;
+    this.instSignal.count = 0 as any;
+    this.instFlasher.count = 0 as any;
+    this.smokeParticles.killAll();
+    this.dustParticles.killAll();
+    this.waterParticles.killAll();
+    this.instRotor.instanceMatrix.needsUpdate = true;
+    this.instHeadlight.instanceMatrix.needsUpdate = true;
+    this.instSignal.instanceMatrix.needsUpdate = true;
+    this.instFlasher.instanceMatrix.needsUpdate = true;
   }
 
   // Plan path for one or all agents to a destination grid cell
@@ -404,10 +481,16 @@ export class VehiclesManager {
   }
 
   update(dt: number) {
+    this.elapsed += dt;
     this.lastDt = dt;
+    this.headlightCount = 0;
+    this.signalCount = 0;
+    this.flasherCount = 0;
     const s = this.cellSize;
     for (let i = 0; i < this.agents.length; i++) {
       const a = this.agents[i];
+      if (a.turnSignalLeft && a.turnSignalLeft > 0) a.turnSignalLeft = Math.max(0, a.turnSignalLeft - dt);
+      if (a.turnSignalRight && a.turnSignalRight > 0) a.turnSignalRight = Math.max(0, a.turnSignalRight - dt);
       // Clear stale intersection wait if path changed
       const nxtCheck = a.path[a.pathIdx + 1];
       if (a.waitingFor && (!nxtCheck || typeof nxtCheck.x !== 'number' || typeof nxtCheck.z !== 'number' || this.cellKey(nxtCheck) !== a.waitingFor)) {
@@ -513,6 +596,35 @@ export class VehiclesManager {
           }
         }
       }
+      if (a.vehicleType === VehicleType.HELICOPTER) {
+        a.rotorAngle = (a.rotorAngle ?? 0) + dt * 20;
+      }
+      // Spawn particles based on movement
+      const movedVec = a.prevPos ? a.pos.clone().sub(a.prevPos) : new Vector3();
+      const movedDist = movedVec.length();
+      const dir = movedDist > 1e-6 ? movedVec.clone().normalize() : new Vector3(0, 0, 1);
+      if (movedDist > 0.01) {
+        if (a.vehicleType === VehicleType.HELICOPTER || a.vehicleType === VehicleType.AIRPLANE) {
+          const pos = { x: a.pos.x - dir.x * s * 0.6, y: a.pos.y + 0.2, z: a.pos.z - dir.z * s * 0.6 };
+          const vel = { x: -dir.x * 0.2, y: 0.3, z: -dir.z * 0.2 };
+          this.smokeParticles.spawnOne({ pos, vel, life: 2.0, size0: 0.3, size1: 1.0, color0: [0.3, 0.3, 0.3], color1: [0.6, 0.6, 0.6] });
+        } else {
+          const pos = { x: a.pos.x - dir.x * s * 0.5, y: a.pos.y + 0.1, z: a.pos.z - dir.z * s * 0.5 };
+          const vel = { x: -dir.x * 0.1, y: 0.4, z: -dir.z * 0.1 };
+          this.dustParticles.spawnOne({ pos, vel, life: 1.0, size0: 0.2, size1: 0.6, color0: [0.5, 0.4, 0.3], color1: [0.5, 0.4, 0.3] });
+          if (a.vehicleType === VehicleType.FIRETRUCK) {
+            const pos2 = { x: a.pos.x + dir.x * s * 0.5, y: a.pos.y + 0.3, z: a.pos.z + dir.z * s * 0.5 };
+            const vel2 = { x: dir.x * 0.2, y: 0.8, z: dir.z * 0.2 };
+            this.waterParticles.spawnOne({ pos: pos2, vel: vel2, life: 1.2, size0: 0.25, size1: 0.25, color0: [0.4, 0.6, 1.0], color1: [0.4, 0.6, 1.0] });
+          }
+        }
+      }
+      // Determine turn signals from tangent change
+      if (a.prevTan && a.lastProj?.tangent) {
+        const cross = a.prevTan.x * a.lastProj.tangent.z - a.prevTan.z * a.lastProj.tangent.x;
+        if (cross > 0.05) a.turnSignalLeft = 0.5;
+        else if (cross < -0.05) a.turnSignalRight = 0.5;
+      }
       this.syncInstance(i);
       // Track previous state for next frame
       if (a.lastProj?.tangent) a.prevTan = a.lastProj.tangent.clone();
@@ -523,6 +635,16 @@ export class VehiclesManager {
       vehicleInstance.instanceMatrix.needsUpdate = true;
     }
     this.instVane.instanceMatrix.needsUpdate = true;
+    this.instRotor.instanceMatrix.needsUpdate = true;
+    this.instHeadlight.instanceMatrix.needsUpdate = true;
+    this.instSignal.instanceMatrix.needsUpdate = true;
+    this.instFlasher.instanceMatrix.needsUpdate = true;
+    this.instHeadlight.count = this.headlightCount as any;
+    this.instSignal.count = this.signalCount as any;
+    this.instFlasher.count = this.flasherCount as any;
+    this.smokeParticles.update(dt, { wx: 0, wz: 0 }, 0);
+    this.dustParticles.update(dt, { wx: 0, wz: 0 }, 0);
+    this.waterParticles.update(dt, { wx: 0, wz: 0 }, 0);
   }
 
   private syncInstance(i: number) {
@@ -621,6 +743,53 @@ export class VehiclesManager {
       const typeIndex = this.getVehicleTypeIndex(a.vehicleType, i);
       vehicleInstance.setMatrixAt(typeIndex, this.tmpObj.matrix as Matrix4);
       vehicleInstance.count = Math.max(vehicleInstance.count as any as number, typeIndex + 1) as any;
+    }
+
+    // Rotor for helicopters
+    if (a.vehicleType === VehicleType.HELICOPTER) {
+      const hIdx = this.getVehicleTypeIndex(VehicleType.HELICOPTER, i);
+      this.tmpObj3.position.copy(a.pos).addScaledVector(up, this.cellSize * 0.35);
+      this.tmpObj3.quaternion.copy(this.tmpObj.quaternion);
+      this.tmpObj3.rotateY(a.rotorAngle ?? 0);
+      this.tmpObj3.updateMatrix();
+      this.instRotor.setMatrixAt(hIdx, this.tmpObj3.matrix as Matrix4);
+      this.instRotor.count = Math.max(this.instRotor.count as any as number, hIdx + 1) as any;
+    }
+
+    // Lights (headlights, turn signals, flashers)
+    if (a.vehicleType === VehicleType.CAR || a.vehicleType === VehicleType.FIRETRUCK) {
+      const front = this.cellSize * 0.5;
+      const side = this.cellSize * 0.25;
+      const base = a.pos.clone().addScaledVector(up, this.cellSize * 0.15).addScaledVector(fwd, front);
+      // headlights
+      this.tmpObj3.position.copy(base).addScaledVector(right, -side);
+      this.tmpObj3.quaternion.identity();
+      this.tmpObj3.updateMatrix();
+      this.instHeadlight.setMatrixAt(this.headlightCount++, this.tmpObj3.matrix as Matrix4);
+      this.tmpObj3.position.copy(base).addScaledVector(right, side);
+      this.tmpObj3.updateMatrix();
+      this.instHeadlight.setMatrixAt(this.headlightCount++, this.tmpObj3.matrix as Matrix4);
+      // turn signals
+      const sigBase = a.pos.clone().addScaledVector(up, this.cellSize * 0.15).addScaledVector(fwd, front - this.cellSize * 0.05);
+      if (a.turnSignalLeft && a.turnSignalLeft > 0) {
+        this.tmpObj3.position.copy(sigBase).addScaledVector(right, -side);
+        this.tmpObj3.updateMatrix();
+        this.instSignal.setMatrixAt(this.signalCount++, this.tmpObj3.matrix as Matrix4);
+      }
+      if (a.turnSignalRight && a.turnSignalRight > 0) {
+        this.tmpObj3.position.copy(sigBase).addScaledVector(right, side);
+        this.tmpObj3.updateMatrix();
+        this.instSignal.setMatrixAt(this.signalCount++, this.tmpObj3.matrix as Matrix4);
+      }
+      if (a.vehicleType === VehicleType.FIRETRUCK) {
+        const flasherOn = (Math.floor(this.elapsed * 4) % 2) === 0;
+        if (flasherOn) {
+          this.tmpObj3.position.copy(a.pos).addScaledVector(up, this.cellSize * 0.45);
+          this.tmpObj3.quaternion.identity();
+          this.tmpObj3.updateMatrix();
+          this.instFlasher.setMatrixAt(this.flasherCount++, this.tmpObj3.matrix as Matrix4);
+        }
+      }
     }
 
     // Vane: place a small marker above and slightly ahead to visualize yaw clearly
