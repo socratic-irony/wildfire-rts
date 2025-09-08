@@ -8,7 +8,7 @@ function makeHeightmap(width: number, height: number, scale: number, data: Float
     height,
     scale,
     data,
-    sample: () => 0, // not used
+    sample: () => 0, // mock implementation - not used in these tests
   };
 }
 
