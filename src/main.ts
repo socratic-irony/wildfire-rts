@@ -538,7 +538,7 @@ function spawnFollowerAtCamera() {
 }
 
 // Vehicles — manager uses terrain cost and road mask
-let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
+let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
 scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;

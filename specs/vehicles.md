@@ -1,10 +1,13 @@
-# Vehicles Spec (v0.1)
-
-# Vehicles Spec (v0.2) - Multi-Vehicle Types
+# Vehicles Spec (v0.3) - Behaviors & Abilities
 
 ## 🎯 STATUS: HANDOFF READY 
 
-**Core multi-vehicle type system is complete and functional.** The architecture now supports 6 distinct vehicle types with separate InstancedMesh rendering. Random spawning distributes vehicle variety across the road network. Performance is maintained and the system is ready for future enhancement work by other agents.
+**Core multi-vehicle type system with type-specific behaviors is complete and functional.** The architecture now supports 6 vehicle types with per-type speed/handling, airborne movement for aircraft, and fire suppression abilities.
+
+### ✅ COMPLETED v0.3 Features:
+- Vehicle-specific speed/handling (bulldozers slower, aircraft faster with obstacle-free flight)
+- Firetruck water spraying that wets and cools nearby fire tiles
+- Optional landing zones for aircraft via `addLandingZone`
 
 ### ✅ COMPLETED v0.2 Features:
 - **6 Vehicle Types**: CAR, FIRETRUCK, BULLDOZER, HELICOPTER, AIRPLANE, FIREFIGHTER
@@ -34,7 +37,7 @@ Status (current - v0.1 base features)
 
 Goals
 
-- Fun, readable vehicle motion that strictly follows player-drawn roads.
+- Fun, readable vehicle motion that follows player-drawn roads while aircraft can traverse freely.
 - Stable performance on long roads and many agents; no frame hitches on spawn or movement.
 - Clear hooks for future unit abilities (spray water, drop retardant, etc.).
 
@@ -55,18 +58,22 @@ Data Model
   - speedTilesPerSec: speed in tiles/s
   - autoFollowRoad: boolean (walks connected road neighbors)
   - prev?: previous grid cell (to avoid immediate backtrack)
+  - altitude?: height offset for airborne vehicles
 - Manager
   - hm: Heightmap, roadMask: RoadMask, terrain: TerrainCost
   - **vehicleInstances: Map<VehicleType, InstancedMesh>** — separate mesh per vehicle type
   - **vehicleCounts: Map<VehicleType, number>** — tracking instances per type
-  - methods: spawnAt, setDestination, setDestinationAll, update, clear
+  - landingZones: array of grid locations available for aircraft
+  - methods: spawnAt, setDestination, setDestinationAll, update, sprayWater, addLandingZone, clear
 
 API Surface (Engine ↔ Game)
 
-- `new VehiclesManager(hm, terrainCost, roadMask, maxAgents)`
-- `spawnAt(gx, gz, vehicleType?)` — spawn near nearest road cell, optionally specify vehicle type
-- `setDestination(i, gx, gz)` — A* path constrained to road tiles only
+- `new VehiclesManager(hm, terrainCost, roadMask, maxAgents, roadsVis?, fireGrid?)`
+- `spawnAt(gx, gz, vehicleType?)` — spawn near nearest road cell (aircraft ignore roads)
+- `setDestination(i, gx, gz)` — road A* for ground vehicles, direct flight for aircraft
 - `setDestinationAll(gx, gz)` — broadcast destination
+- `sprayWater(i, radius?, intensity?)` — firetruck water suppression
+- `addLandingZone(gx, gz)` — register aircraft landing spot
 - `update(dt)` — move agents and update instance transforms
 - `clear()` — remove all agents
 - `group` — Three.js object to add to scene
@@ -76,11 +83,12 @@ Movement & Orientation
 - Modes
   - Auto-follow: if no explicit destination, step to a connected road neighbor, preferring straight-through options.
   - Path mode: follow road-only A* path from start road tile to goal road tile.
+  - Aircraft: direct flight between current location and destination/landing zone.
 - Step integration
   - Interpolate from current to next grid center at `speedTilesPerSec * dt`.
-  - Y altitude = `heightmap.sample(x, z)` + small offset.
+  - Y altitude = `heightmap.sample(x, z)` + offset + `altitude` for aircraft.
 - Pose
-  - Up vector = terrain normal at (x, z) via finite differences.
+  - Up vector = terrain normal at (x, z); aircraft use world up.
   - Forward = direction from current path segment (grid neighbor delta).
   - Right = cross(forward, up); forward reprojected to terrain plane.
 
@@ -122,11 +130,6 @@ The foundational multi-vehicle type system is complete and ready for handoff. Fu
 - Improve AIRPLANE: T-shape fuselage with wings and tail
 - Improve FIREFIGHTER: three stick figure (head/torso/legs) with visibility outline
 
-### Next Chunk 2: Vehicle Behaviors & Abilities  
-- Vehicle-specific speed/handling (helicopters fly over obstacles, bulldozers slower)
-- Water spraying for firetrucks, fire suppression abilities
-- Landing zones for aircraft, different movement patterns
-
 ### Next Chunk 3: Visual Polish
 - Animated rotors for helicopters, smoke trails for aircraft
 - Turn signals, headlights, emergency flashers
@@ -145,11 +148,18 @@ The foundational multi-vehicle type system is complete and ready for handoff. Fu
 - Robust spawn: Ensure spawn locks to the intended road polyline and valid segment; fallback if none.
 - Telemetry/Debug: Add per-frame timings for road projection (when reintroduced), active agents, and path lengths; draw path overlays for diagnostics.
 
+Acceptance Criteria (v0.3)
+
+**✅ COMPLETED**:
+- Firetrucks can spray water to increase wetness on nearby tiles
+- Helicopters and airplanes travel directly to destinations and honor optional landing zones
+- Vehicle types move at distinct speeds (e.g., bulldozers slower, aircraft faster)
+
 Acceptance Criteria (v0.2)
 
 **✅ COMPLETED**:
 - Multiple vehicle types spawn with distinct appearances (colors, sizes)
-- Each vehicle type uses separate InstancedMesh for optimal performance  
+- Each vehicle type uses separate InstancedMesh for optimal performance
 - Random vehicle type selection distributes variety across road network
 - All vehicle types follow roads correctly and maintain original movement behavior
 - No performance degradation with multiple vehicle types active
@@ -166,6 +176,5 @@ Roadmap (next for handoff agents)
 **Ready for parallel development**: The core multi-vehicle architecture is stable and supports independent work on:
 
 1) **Enhanced Geometries**: Improve helicopter (sphere+rotor), airplane (wings), firefighter (stick figure)
-2) **Vehicle Behaviors**: Type-specific abilities, speed variants, special movement modes  
-3) **Visual Effects**: Animations, particles, lights, trails
-4) **Advanced Features**: Safe midline projector, spacing/avoidance, speed modulation
+2) **Visual Effects**: Animations, particles, lights, trails
+3) **Advanced Features**: Safe midline projector, spacing/avoidance, speed modulation
