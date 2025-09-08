@@ -538,7 +538,7 @@ function spawnFollowerAtCamera() {
 }
 
 // Vehicles — manager uses terrain cost and road mask
-let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
+let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
 scene.add(vehicles.group);
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
@@ -722,7 +722,9 @@ if (followMode === 'frenet') {
       clear: () => { roadsVis.clear(); roadEndpoints = []; clearFollowers(); rebuildPath2Ds(); }
     },
     vehicles: {
-      spawn: () => {
+      spawn: (type) => {
+        // For now, vehicle type affects color/visual but uses same spawn logic
+        console.log(`Spawning ${type || 'generic'} vehicle`);
         if (followMode === 'grid') {
           const camPos = rig.camera.getWorldPosition(new Vector3());
           const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
