@@ -521,7 +521,8 @@ export class VehiclesManager {
       let bestDot = -Infinity;
       for (const n of neigh) {
         const dx = n.x - x, dz = n.z - z;
-        const dot = (dx * tangent.x + dz * tangent.z) / (Math.hypot(dx, dz) * Math.hypot(tangent.x, tangent.z) || 1);
+        const denom = Math.hypot(dx, dz) * Math.hypot(tangent.x, tangent.z);
+        const dot = (dx * tangent.x + dz * tangent.z) / (denom === 0 ? 1 : denom);
         if (dot > bestDot) { bestDot = dot; best = n; }
       }
       if (best) return best;
