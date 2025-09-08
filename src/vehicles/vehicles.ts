@@ -294,9 +294,6 @@ export class VehiclesManager {
     const y2 = this.hm.sample(wx2, wz2);
     const pos2 = new Vector3(wx2, y2 + 0.22, wz2);
 
-    // Select vehicle type (randomly if not specified)
-    const selectedVehicleType = vehicleType ?? this.getRandomVehicleType();
-    
     const agent: Agent = {
       vehicleType: selectedVehicleType,
       pos: pos2,
@@ -305,10 +302,11 @@ export class VehiclesManager {
       pathIdx: 0,
       rotorAngle: 0,
       turnSignalLeft: 0,
-      turnSignalRight: 0
+      turnSignalRight: 0,
       speedTilesPerSec: this.getDefaultSpeed(selectedVehicleType),
       autoFollowRoad: true
-    };
+      };
+  
     agent.prevPos = pos2.clone();
     if (this.roadsVis) {
       const idx = this.roadsVis.findNearestPathIndex(pos2.x, pos2.z);
