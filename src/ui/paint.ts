@@ -10,6 +10,7 @@ export type PaintSystemHandle = {
   getCurrentTool: () => ToolMode;
   setEnabled: (enabled: boolean) => void;
   isEnabled: () => boolean;
+  isActivePainting: () => boolean; // New method to check if actively painting
 };
 
 export function createPaintSystem(
@@ -196,6 +197,10 @@ export function createPaintSystem(
     
     isEnabled() {
       return enabled;
+    },
+    
+    isActivePainting() {
+      return enabled && isMouseDown && (currentTool === 'water' || currentTool === 'retardant');
     }
   };
 }

@@ -386,6 +386,9 @@ let fireSim = new FireSim(fireGrid, simEnv);
 // Initialize paint system now that fire grid is available
 paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, hm, fireGrid);
 
+// Connect paint system to camera to lock camera movement during painting operations
+orbit.setInputLockCheck(() => paintSystem?.isActivePainting() || false);
+
 // Fire visualization controller
 let fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);

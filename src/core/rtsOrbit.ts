@@ -34,6 +34,9 @@ export class RTSOrbitCamera {
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
+  
+  // Input locking mechanism for painting tools
+  private inputLockCheck: (() => boolean) | null = null;
 
   public pivot = new Vector3();
 
@@ -56,15 +59,25 @@ export class RTSOrbitCamera {
     this.pivot.set(x, this.altitude - Math.tan(this.pitch) * this.distance, z);
   }
 
+  // Set a function that returns true when mouse input should be locked
+  public setInputLockCheck(checkFn: (() => boolean) | null) {
+    this.inputLockCheck = checkFn;
+  }
+
+  // Check if mouse input should be locked (e.g., during painting operations)
+  private isInputLocked(): boolean {
+    return this.inputLockCheck ? this.inputLockCheck() : false;
+  }
+
   private onDown = (e: PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || this.isInputLocked()) return;
     this.dragging = true;
     this.lastX = e.clientX;
     this.lastY = e.clientY;
   };
   private onUp = (_e: PointerEvent) => { this.dragging = false; };
   private onMove = (e: PointerEvent) => {
-    if (!this.dragging) return;
+    if (!this.dragging || this.isInputLocked()) return;
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
     this.lastX = e.clientX; this.lastY = e.clientY;
@@ -73,6 +86,7 @@ export class RTSOrbitCamera {
     this.pitch = Math.max(this.minPitch, Math.min(this.maxPitch, this.pitch + dy * this.rotSpeed));
   };
   private onWheel = (e: WheelEvent) => {
+    if (this.isInputLocked()) return;
     e.preventDefault();
     // Zoom by changing horizontal radius only; keep altitude constant
     const factor = e.deltaY < 0 ? (1 - this.zoomFactor) : (1 + this.zoomFactor);
