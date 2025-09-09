@@ -1,4 +1,4 @@
-import { ArrowHelper, Color, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry } from 'three';
+import { ArrowHelper, Color, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry, BufferGeometry, BufferAttribute } from 'three';
 import { BoxGeometry } from 'three';
 import { InstancedParticleSystem } from '../particles/system';
 import type { Heightmap } from '../terrain/heightmap';
@@ -173,9 +173,73 @@ export class VehiclesManager {
     this.particleGroup.add(this.smokeParticles.mesh, this.dustParticles.mesh, this.waterParticles.mesh);
   }
 
+  private createFirefighterGeometry(): BufferGeometry {
+    // Create three cylinders positioned next to each other to represent a group of firefighters
+    const cylinderGeo = new CylinderGeometry(this.cellSize * 0.08, this.cellSize * 0.08, this.cellSize * 0.5);
+    
+    // Create three copies and position them side by side
+    const geo1 = cylinderGeo.clone();
+    const geo2 = cylinderGeo.clone();
+    const geo3 = cylinderGeo.clone();
+    
+    // Position the cylinders: one in center, one left, one right
+    geo1.translate(-this.cellSize * 0.15, 0, 0); // Left
+    geo2.translate(0, 0, 0); // Center
+    geo3.translate(this.cellSize * 0.15, 0, 0); // Right
+    
+    // Merge the geometries manually
+    const mergedGeo = new BufferGeometry();
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+    
+    let indexOffset = 0;
+    
+    // Add each geometry to the arrays
+    [geo1, geo2, geo3].forEach(geo => {
+      const posAttr = geo.getAttribute('position');
+      const normAttr = geo.getAttribute('normal');
+      const uvAttr = geo.getAttribute('uv');
+      const indexAttr = geo.getIndex();
+      
+      if (posAttr && normAttr && uvAttr && indexAttr) {
+        // Add positions
+        for (let i = 0; i < posAttr.count; i++) {
+          positions.push(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+        }
+        
+        // Add normals
+        for (let i = 0; i < normAttr.count; i++) {
+          normals.push(normAttr.getX(i), normAttr.getY(i), normAttr.getZ(i));
+        }
+        
+        // Add UVs
+        for (let i = 0; i < uvAttr.count; i++) {
+          uvs.push(uvAttr.getX(i), uvAttr.getY(i));
+        }
+        
+        // Add indices with offset
+        for (let i = 0; i < indexAttr.count; i++) {
+          indices.push(indexAttr.getX(i) + indexOffset);
+        }
+        
+        indexOffset += posAttr.count;
+      }
+    });
+    
+    // Set the merged attributes
+    mergedGeo.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+    mergedGeo.setAttribute('normal', new BufferAttribute(new Float32Array(normals), 3));
+    mergedGeo.setAttribute('uv', new BufferAttribute(new Float32Array(uvs), 2));
+    mergedGeo.setIndex(indices);
+    
+    return mergedGeo;
+  }
+
   private createVehicleInstances(maxAgents: number) {
-    // CAR (original blue prism)
-    const carGeo = new BoxGeometry(this.cellSize * 0.6, this.cellSize * 0.3, this.cellSize * 0.9);
+    // CAR (elongated box - more car-like proportions)
+    const carGeo = new BoxGeometry(this.cellSize * 0.5, this.cellSize * 0.25, this.cellSize * 1.0);
     const carMat = new MeshStandardMaterial({ 
       color: new Color(0x1e90ff), 
       roughness: 0.7, 
@@ -185,8 +249,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.CAR, carGeo, carMat, maxAgents);
 
-    // FIRETRUCK (big red block)
-    const firetruckGeo = new BoxGeometry(this.cellSize * 0.8, this.cellSize * 0.5, this.cellSize * 1.4);
+    // FIRETRUCK (wide and tall box - more truck-like)
+    const firetruckGeo = new BoxGeometry(this.cellSize * 0.9, this.cellSize * 0.6, this.cellSize * 1.6);
     const firetruckMat = new MeshStandardMaterial({ 
       color: new Color(0xcc0000), 
       roughness: 0.6, 
@@ -207,8 +271,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.BULLDOZER, bulldozerGeo, bulldozerMat, maxAgents);
 
-    // HELICOPTER (sphere body + disk blades + tail stick) - simplified to sphere for now
-    const helicopterGeo = new BoxGeometry(this.cellSize * 0.5, this.cellSize * 0.4, this.cellSize * 0.6);
+    // HELICOPTER (sphere body)
+    const helicopterGeo = new SphereGeometry(this.cellSize * 0.3, 8, 6);
     const helicopterMat = new MeshStandardMaterial({ 
       color: new Color(0x444444), 
       roughness: 0.5, 
@@ -218,8 +282,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.HELICOPTER, helicopterGeo, helicopterMat, maxAgents);
 
-    // AIRPLANE (T-shape with wings and tail) - simplified to rectangular body for now
-    const airplaneGeo = new BoxGeometry(this.cellSize * 0.4, this.cellSize * 0.2, this.cellSize * 1.2);
+    // AIRPLANE (cone for pointed nose/fuselage)
+    const airplaneGeo = new ConeGeometry(this.cellSize * 0.2, this.cellSize * 1.2, 6);
     const airplaneMat = new MeshStandardMaterial({ 
       color: new Color(0x666666), 
       roughness: 0.4, 
@@ -229,8 +293,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.AIRPLANE, airplaneGeo, airplaneMat, maxAgents);
 
-    // FIREFIGHTER (three orange/red sticks) - simplified to small orange cube for now
-    const firefighterGeo = new BoxGeometry(this.cellSize * 0.15, this.cellSize * 0.4, this.cellSize * 0.15);
+    // FIREFIGHTER (group of three orange/red cylinders standing up)
+    const firefighterGeo = this.createFirefighterGeometry();
     const firefighterMat = new MeshStandardMaterial({ 
       color: new Color(0xff6600), 
       roughness: 0.9, 
@@ -253,9 +317,12 @@ export class VehiclesManager {
 
   get count() { return this.agents.length; }
 
-  // DEPRECATED: Grid-based vehicle spawning
-  // Only preserved for testing particle systems and vehicle abilities  
-  // Main application uses Frenet PathFollower vehicles for actual movement
+  // DEPRECATED for primary UI spawning: Grid-based vehicle spawning
+  // Currently preserved for:
+  // - Testing particle systems and vehicle abilities  
+  // - sprayWater() and other vehicle-specific abilities
+  // - Performance testing with many vehicles (InstancedMesh)
+  // Main application uses PathFollower vehicles for user interactions
   spawnAt(gx: number, gz: number, vehicleType?: VehicleType) {
     if (this.agents.length >= this.maxAgents) return;
     gx = clamp(Math.round(gx), 0, this.hm.width - 1);

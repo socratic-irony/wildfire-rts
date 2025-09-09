@@ -13,7 +13,6 @@ describe('Vehicle Dropdown Spawn Logic', () => {
     switch (menubarType) {
       case 'firetruck': return MockVehicleType.FIRETRUCK;
       case 'bulldozer': return MockVehicleType.BULLDOZER;
-      case 'waterTender': return MockVehicleType.FIRETRUCK; // Water tender mapped to firetruck
       case 'generic': return MockVehicleType.CAR;
       default: return MockVehicleType.CAR; // Default fallback
     }
@@ -76,23 +75,6 @@ describe('Vehicle Dropdown Spawn Logic', () => {
     expect(spawnedVehicle.vehicleType).toBe(MockVehicleType.BULLDOZER);
     expect(spawnedVehicle.appearance.color).toBe('yellow');
     expect(spawnedVehicle.appearance.material).toBe('bulldozer');
-  });
-
-  it('should spawn correct vehicle type when water tender is selected', () => {
-    // Simulate user selecting water tender from dropdown
-    const selectedType = 'waterTender';
-    
-    // Map to vehicle manager enum (water tender maps to firetruck)
-    const mappedType = mapMenubarToVehicleType(selectedType);
-    expect(mappedType).toBe(MockVehicleType.FIRETRUCK);
-    
-    // Spawn follower with the correct type
-    const spawnedVehicle = createMockSpawnFollower(mappedType);
-    
-    // Verify the spawned vehicle has correct properties (should look like firetruck)
-    expect(spawnedVehicle.vehicleType).toBe(MockVehicleType.FIRETRUCK);
-    expect(spawnedVehicle.appearance.color).toBe('red');
-    expect(spawnedVehicle.appearance.material).toBe('firetruck');
   });
 
   it('should spawn correct vehicle type when generic is selected', () => {

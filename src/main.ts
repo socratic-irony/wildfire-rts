@@ -1,4 +1,4 @@
-import { Mesh, Object3D, BufferAttribute, Vector3, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color } from 'three';
+import { Mesh, Object3D, BufferAttribute, Vector3, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color, BufferGeometry, CylinderGeometry } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -409,6 +409,25 @@ let roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 let path2ds: Path2D[] = [];
+// ===== VEHICLE SYSTEMS ARCHITECTURE =====
+// This application uses a dual vehicle system design:
+//
+// 1. PathFollower System (Primary for UI interactions):
+//    - Used for all user-spawned vehicles via UI buttons
+//    - Provides smooth Frenet-frame movement along roads
+//    - Individual Object3D instances with custom geometries
+//    - Managed in `followers: PathFollower[]` array
+//
+// 2. VehiclesManager System (Testing & Abilities):
+//    - Uses InstancedMesh for performance with many vehicles
+//    - Provides vehicle abilities (sprayWater, particle effects)
+//    - Used primarily in tests and specialized scenarios
+//    - Grid-based movement and pathfinding
+//
+// Both systems are maintained for different purposes and cleared together
+// to ensure consistency when the user resets the scene.
+// ==========================================
+
 let followers: PathFollower[] = [];
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
@@ -505,6 +524,12 @@ function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
   followers = [];
 }
+/**
+ * Spawn a PathFollower vehicle near the camera position
+ * This is the primary vehicle spawning system for UI interactions.
+ * Creates individual Object3D with appropriate geometry and material,
+ * then adds a PathFollower for smooth road-following movement.
+ */
 function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
   if (!path2ds.length) return;
   const camPos = rig.camera.getWorldPosition(new Vector3());
@@ -515,12 +540,13 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
   }
   const obj = new Object3D();
-  const geo = new BoxGeometry(hm.scale * 0.6, hm.scale * 0.3, hm.scale * 0.9);
   
-  // Create vehicle-specific appearance based on type
+  // Create vehicle-specific geometry and appearance based on type
+  let geo: BufferGeometry;
   let mat: MeshStandardMaterial;
   switch (vehicleType) {
     case VManagerVehicleType.FIRETRUCK:
+      geo = new BoxGeometry(hm.scale * 0.9, hm.scale * 0.6, hm.scale * 1.6);
       mat = new MeshStandardMaterial({ 
         color: new Color(0xcc0000), 
         roughness: 0.6, 
@@ -530,6 +556,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
       });
       break;
     case VManagerVehicleType.BULLDOZER:
+      geo = new BoxGeometry(hm.scale * 0.7, hm.scale * 0.35, hm.scale * 0.8);
       mat = new MeshStandardMaterial({ 
         color: new Color(0xffdd00), 
         roughness: 0.8, 
@@ -540,6 +567,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
       break;
     case VManagerVehicleType.CAR:
     default:
+      geo = new BoxGeometry(hm.scale * 0.5, hm.scale * 0.25, hm.scale * 1.0);
       mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
       break;
   }
@@ -555,13 +583,14 @@ function mapMenubarToVehicleType(menubarType?: string): VManagerVehicleType | un
   switch (menubarType) {
     case 'firetruck': return VManagerVehicleType.FIRETRUCK;
     case 'bulldozer': return VManagerVehicleType.BULLDOZER;
-    case 'waterTender': return VManagerVehicleType.FIRETRUCK; // Water tender mapped to firetruck
     case 'generic': return VManagerVehicleType.CAR;
     default: return VManagerVehicleType.CAR; // Default fallback
   }
 }
 
-// Vehicles — manager uses terrain cost and road mask
+// Vehicles — VehiclesManager provides abilities and particle systems
+// Note: Primary vehicle spawning uses PathFollower system above
+// VehiclesManager is used for testing, abilities (sprayWater), and special scenarios
 let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
 scene.add(vehicles.group);
 scene.add(vehicles.particleGroup); // Add particle group separately so it stays visible
@@ -737,12 +766,19 @@ spawnFollowersOnAllPaths(3);
         // Map menubar vehicle type to VehicleManager enum
         const vehicleType = mapMenubarToVehicleType(type);
         console.log(`Spawning ${type || 'generic'} vehicle (mapped to ${vehicleType})`);
-        // Always use Frenet vehicle spawning
+        // Always use Frenet vehicle spawning for UI interactions
+        // This provides smooth road-following movement for user-spawned vehicles
         rebuildPath2Ds();
         spawnFollowerAtCamera(vehicleType);
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
-      clear: () => { vehicles.clear(); clearFollowers(); }
+      clear: () => { 
+        // Clear both vehicle systems to ensure complete reset
+        // - PathFollower vehicles (primary UI system)
+        // - VehiclesManager vehicles (testing/abilities system)
+        vehicles.clear(); 
+        clearFollowers(); 
+      }
     },
     hydrants: {
       toggle: (on) => { hydrantVisual.setVisible(on); },
