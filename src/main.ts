@@ -788,6 +788,17 @@ spawnFollowersOnAllPaths(3);
         rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
         scene.add(rocks.inst);
         
+        // Clear existing roads, vehicles, and hydrants from old terrain
+        roadsVis.clear();
+        vehicles.clear();
+        clearFollowers();
+        clearHydrants(hydrantSystem);
+        roadEndpoints = [];
+        
+        // Rebuild road-related systems for new terrain
+        roadCost = buildTerrainCost(hm);
+        roadMask = createRoadMask(hm.width, hm.height);
+        
         // Rebuild fire grid and related systems
         fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
         fireSim = new FireSim(fireGrid, simEnv);
@@ -798,6 +809,20 @@ spawnFollowersOnAllPaths(3);
         suppressionDecals.updateTerrain?.(hm);
         fireParticles.updateTerrain?.(hm);
         fireRibbon.updateTerrain?.(hm);
+        
+        // Update vehicle manager with new terrain references
+        vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
+        scene.remove(vehicles.group);
+        scene.remove(vehicles.particleGroup);
+        scene.add(vehicles.group);
+        scene.add(vehicles.particleGroup);
+        
+        // Regenerate test roads and spawn vehicles on new terrain
+        seedRandomLoopsAndVehicles(2);
+        rebuildPath2Ds();
+        if (followMode === 'frenet') {
+          spawnFollowersOnAllPaths(3);
+        }
         
         // Update menubar references
         menubar.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
