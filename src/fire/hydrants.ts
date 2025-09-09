@@ -23,8 +23,8 @@ export function createHydrantSystem(roadMask: RoadMask, cellSize = 2.0): Hydrant
     hydrants: [],
     roadMask,
     nextId: 1,
-    minSpacingTiles: 100,      // Minimum spacing as specified
-    idealSpacingTiles: 25,     // 50m / 2m per tile = 25 tiles
+    minSpacingTiles: 8,        // Minimum 16m spacing (8 tiles * 2m = 16m)
+    idealSpacingTiles: 10,     // Ideal ~20m spacing (10 tiles * 2m = 20m)
     cellSize,
   };
 }
@@ -102,17 +102,22 @@ function isValidHydrantPosition(system: HydrantSystem, pos: { x: number; z: numb
   return true;
 }
 
-export function placeHydrant(system: HydrantSystem, pos: { x: number; z: number }): boolean {
+export function placeHydrant(system: HydrantSystem, pos: { x: number; z: number }, isLeftSide?: boolean): boolean {
   if (!isValidHydrantPosition(system, pos)) return false;
+  
+  // Calculate actual placement position (potentially offset from road center)
+  const placementPos = (isLeftSide !== undefined) 
+    ? getHydrantOffsetPosition(system.roadMask, pos, isLeftSide)
+    : pos;
   
   const hydrant: FireHydrant = {
     id: system.nextId++,
-    gridPos: { x: Math.round(pos.x), z: Math.round(pos.z) },
+    gridPos: { x: Math.round(pos.x), z: Math.round(pos.z) }, // Keep grid position as road tile
     worldPos: { 
-      x: (pos.x + 0.5) * system.cellSize, 
-      z: (pos.z + 0.5) * system.cellSize 
+      x: placementPos.x * system.cellSize, 
+      z: placementPos.z * system.cellSize 
     },
-    coverageRadius: 5, // ~10m at 2m/tile
+    coverageRadius: 25, // ~50m at 2m/tile (increased for better coverage)
     active: true,
     waterPressure: 1.0,
   };
@@ -143,12 +148,75 @@ function getAllRoadTiles(roadMask: RoadMask): Array<{ x: number; z: number }> {
   return roadTiles;
 }
 
-function findOptimalSpacing(system: HydrantSystem, roadTiles: Array<{ x: number; z: number }>): Array<{ x: number; z: number }> {
-  const candidates: Array<{ x: number; z: number }> = [];
+function findRoadDirection(roadMask: RoadMask, x: number, z: number): { dx: number; dz: number } | null {
+  // Find the direction of the road at this position by checking neighboring road tiles
+  const neighbors: Array<{ x: number; z: number; dx: number; dz: number }> = [];
   
-  // Simple approach: place hydrants at regular intervals along road network
-  // For each road tile, check if we should place a hydrant there
-  for (const tile of roadTiles) {
+  // Check 8 directions around the current tile
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dz === 0) continue; // Skip center
+      const nx = x + dx;
+      const nz = z + dz;
+      if (isRoad(roadMask, nx, nz)) {
+        neighbors.push({ x: nx, z: nz, dx, dz });
+      }
+    }
+  }
+  
+  if (neighbors.length === 0) return null;
+  
+  // Calculate average direction vector
+  let avgDx = 0, avgDz = 0;
+  for (const neighbor of neighbors) {
+    avgDx += neighbor.dx;
+    avgDz += neighbor.dz;
+  }
+  
+  const len = Math.sqrt(avgDx * avgDx + avgDz * avgDz);
+  if (len === 0) return null;
+  
+  return { dx: avgDx / len, dz: avgDz / len };
+}
+
+function getHydrantOffsetPosition(
+  roadMask: RoadMask, 
+  centerPos: { x: number; z: number }, 
+  isLeftSide: boolean,
+  offsetDistance = 0.7
+): { x: number; z: number } {
+  const direction = findRoadDirection(roadMask, centerPos.x, centerPos.z);
+  if (!direction) {
+    // If we can't determine road direction, place on the center
+    return centerPos;
+  }
+  
+  // Calculate perpendicular vector (rotate 90 degrees)
+  const perpDx = -direction.dz;
+  const perpDz = direction.dx;
+  
+  // Apply offset to left or right side
+  const sideMultiplier = isLeftSide ? -1 : 1;
+  const offsetX = centerPos.x + (perpDx * offsetDistance * sideMultiplier);
+  const offsetZ = centerPos.z + (perpDz * offsetDistance * sideMultiplier);
+  
+  return { 
+    x: Math.round(offsetX * 10) / 10, // Round to 0.1 precision for sub-tile placement
+    z: Math.round(offsetZ * 10) / 10 
+  };
+}
+
+function findOptimalSpacing(system: HydrantSystem, roadTiles: Array<{ x: number; z: number }>): Array<{ x: number; z: number; isLeftSide: boolean }> {
+  const candidates: Array<{ x: number; z: number; isLeftSide: boolean }> = [];
+  let alternateLeft = true; // Start with left side
+  
+  // Sort road tiles to ensure consistent placement order
+  const sortedTiles = roadTiles.slice().sort((a, b) => {
+    if (a.x !== b.x) return a.x - b.x;
+    return a.z - b.z;
+  });
+  
+  for (const tile of sortedTiles) {
     // Check if this position would have ideal spacing
     let needsHydrant = true;
     
@@ -165,7 +233,8 @@ function findOptimalSpacing(system: HydrantSystem, roadTiles: Array<{ x: number;
     }
     
     if (needsHydrant && isValidHydrantPosition(system, tile)) {
-      candidates.push(tile);
+      candidates.push({ ...tile, isLeftSide: alternateLeft });
+      alternateLeft = !alternateLeft; // Alternate for next hydrant
     }
   }
   
@@ -181,12 +250,12 @@ export function updateHydrantPlacement(system: HydrantSystem): void {
   // Get all current road tiles
   const roadTiles = getAllRoadTiles(system.roadMask);
   
-  // Find positions that need hydrants
+  // Find positions that need hydrants with alternating side placement
   const candidates = findOptimalSpacing(system, roadTiles);
   
-  // Place new hydrants
-  for (const pos of candidates) {
-    placeHydrant(system, pos);
+  // Place new hydrants with alternating sides
+  for (const candidate of candidates) {
+    placeHydrant(system, { x: candidate.x, z: candidate.z }, candidate.isLeftSide);
   }
 }
 
