@@ -164,6 +164,7 @@ let roadEndpoints: Array<{ x: number; z: number }> = [];
 
 const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
 scene.add(vehicles.group);
+scene.add(vehicles.particleGroup); // Add particle group separately so it stays visible
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
