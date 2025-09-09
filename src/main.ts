@@ -409,6 +409,25 @@ let roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
 let path2ds: Path2D[] = [];
+// ===== VEHICLE SYSTEMS ARCHITECTURE =====
+// This application uses a dual vehicle system design:
+//
+// 1. PathFollower System (Primary for UI interactions):
+//    - Used for all user-spawned vehicles via UI buttons
+//    - Provides smooth Frenet-frame movement along roads
+//    - Individual Object3D instances with custom geometries
+//    - Managed in `followers: PathFollower[]` array
+//
+// 2. VehiclesManager System (Testing & Abilities):
+//    - Uses InstancedMesh for performance with many vehicles
+//    - Provides vehicle abilities (sprayWater, particle effects)
+//    - Used primarily in tests and specialized scenarios
+//    - Grid-based movement and pathfinding
+//
+// Both systems are maintained for different purposes and cleared together
+// to ensure consistency when the user resets the scene.
+// ==========================================
+
 let followers: PathFollower[] = [];
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
@@ -505,6 +524,12 @@ function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
   followers = [];
 }
+/**
+ * Spawn a PathFollower vehicle near the camera position
+ * This is the primary vehicle spawning system for UI interactions.
+ * Creates individual Object3D with appropriate geometry and material,
+ * then adds a PathFollower for smooth road-following movement.
+ */
 function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
   if (!path2ds.length) return;
   const camPos = rig.camera.getWorldPosition(new Vector3());
@@ -563,7 +588,9 @@ function mapMenubarToVehicleType(menubarType?: string): VManagerVehicleType | un
   }
 }
 
-// Vehicles — manager uses terrain cost and road mask
+// Vehicles — VehiclesManager provides abilities and particle systems
+// Note: Primary vehicle spawning uses PathFollower system above
+// VehiclesManager is used for testing, abilities (sprayWater), and special scenarios
 let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
 scene.add(vehicles.group);
 scene.add(vehicles.particleGroup); // Add particle group separately so it stays visible
@@ -739,12 +766,19 @@ spawnFollowersOnAllPaths(3);
         // Map menubar vehicle type to VehicleManager enum
         const vehicleType = mapMenubarToVehicleType(type);
         console.log(`Spawning ${type || 'generic'} vehicle (mapped to ${vehicleType})`);
-        // Always use Frenet vehicle spawning
+        // Always use Frenet vehicle spawning for UI interactions
+        // This provides smooth road-following movement for user-spawned vehicles
         rebuildPath2Ds();
         spawnFollowerAtCamera(vehicleType);
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
-      clear: () => { vehicles.clear(); clearFollowers(); }
+      clear: () => { 
+        // Clear both vehicle systems to ensure complete reset
+        // - PathFollower vehicles (primary UI system)
+        // - VehiclesManager vehicles (testing/abilities system)
+        vehicles.clear(); 
+        clearFollowers(); 
+      }
     },
     hydrants: {
       toggle: (on) => { hydrantVisual.setVisible(on); },

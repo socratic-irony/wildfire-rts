@@ -317,9 +317,12 @@ export class VehiclesManager {
 
   get count() { return this.agents.length; }
 
-  // DEPRECATED: Grid-based vehicle spawning
-  // Only preserved for testing particle systems and vehicle abilities  
-  // Main application uses Frenet PathFollower vehicles for actual movement
+  // DEPRECATED for primary UI spawning: Grid-based vehicle spawning
+  // Currently preserved for:
+  // - Testing particle systems and vehicle abilities  
+  // - sprayWater() and other vehicle-specific abilities
+  // - Performance testing with many vehicles (InstancedMesh)
+  // Main application uses PathFollower vehicles for user interactions
   spawnAt(gx: number, gz: number, vehicleType?: VehicleType) {
     if (this.agents.length >= this.maxAgents) return;
     gx = clamp(Math.round(gx), 0, this.hm.width - 1);
