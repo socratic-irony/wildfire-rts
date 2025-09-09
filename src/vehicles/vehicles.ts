@@ -174,8 +174,8 @@ export class VehiclesManager {
   }
 
   private createVehicleInstances(maxAgents: number) {
-    // CAR (original blue prism)
-    const carGeo = new BoxGeometry(this.cellSize * 0.6, this.cellSize * 0.3, this.cellSize * 0.9);
+    // CAR (elongated box - more car-like proportions)
+    const carGeo = new BoxGeometry(this.cellSize * 0.5, this.cellSize * 0.25, this.cellSize * 1.0);
     const carMat = new MeshStandardMaterial({ 
       color: new Color(0x1e90ff), 
       roughness: 0.7, 
@@ -185,8 +185,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.CAR, carGeo, carMat, maxAgents);
 
-    // FIRETRUCK (big red block)
-    const firetruckGeo = new BoxGeometry(this.cellSize * 0.8, this.cellSize * 0.5, this.cellSize * 1.4);
+    // FIRETRUCK (wide and tall box - more truck-like)
+    const firetruckGeo = new BoxGeometry(this.cellSize * 0.9, this.cellSize * 0.6, this.cellSize * 1.6);
     const firetruckMat = new MeshStandardMaterial({ 
       color: new Color(0xcc0000), 
       roughness: 0.6, 
@@ -196,8 +196,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.FIRETRUCK, firetruckGeo, firetruckMat, maxAgents);
 
-    // BULLDOZER (squat yellow cube)
-    const bulldozerGeo = new BoxGeometry(this.cellSize * 0.7, this.cellSize * 0.35, this.cellSize * 0.8);
+    // BULLDOZER (cylinder to represent tracks/treads)
+    const bulldozerGeo = new CylinderGeometry(this.cellSize * 0.35, this.cellSize * 0.35, this.cellSize * 0.8);
     const bulldozerMat = new MeshStandardMaterial({ 
       color: new Color(0xffdd00), 
       roughness: 0.8, 
@@ -207,8 +207,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.BULLDOZER, bulldozerGeo, bulldozerMat, maxAgents);
 
-    // HELICOPTER (sphere body + disk blades + tail stick) - simplified to sphere for now
-    const helicopterGeo = new BoxGeometry(this.cellSize * 0.5, this.cellSize * 0.4, this.cellSize * 0.6);
+    // HELICOPTER (sphere body)
+    const helicopterGeo = new SphereGeometry(this.cellSize * 0.3, 8, 6);
     const helicopterMat = new MeshStandardMaterial({ 
       color: new Color(0x444444), 
       roughness: 0.5, 
@@ -218,8 +218,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.HELICOPTER, helicopterGeo, helicopterMat, maxAgents);
 
-    // AIRPLANE (T-shape with wings and tail) - simplified to rectangular body for now
-    const airplaneGeo = new BoxGeometry(this.cellSize * 0.4, this.cellSize * 0.2, this.cellSize * 1.2);
+    // AIRPLANE (cone for pointed nose/fuselage)
+    const airplaneGeo = new ConeGeometry(this.cellSize * 0.2, this.cellSize * 1.2, 6);
     const airplaneMat = new MeshStandardMaterial({ 
       color: new Color(0x666666), 
       roughness: 0.4, 
@@ -229,8 +229,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.AIRPLANE, airplaneGeo, airplaneMat, maxAgents);
 
-    // FIREFIGHTER (three orange/red sticks) - simplified to small orange cube for now
-    const firefighterGeo = new BoxGeometry(this.cellSize * 0.15, this.cellSize * 0.4, this.cellSize * 0.15);
+    // FIREFIGHTER (tall thin cylinder to represent a person)
+    const firefighterGeo = new CylinderGeometry(this.cellSize * 0.08, this.cellSize * 0.08, this.cellSize * 0.5);
     const firefighterMat = new MeshStandardMaterial({ 
       color: new Color(0xff6600), 
       roughness: 0.9, 

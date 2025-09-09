@@ -1,4 +1,4 @@
-import { Mesh, Object3D, BufferAttribute, Vector3, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color } from 'three';
+import { Mesh, Object3D, BufferAttribute, Vector3, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color, BufferGeometry, CylinderGeometry } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -515,12 +515,13 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
   }
   const obj = new Object3D();
-  const geo = new BoxGeometry(hm.scale * 0.6, hm.scale * 0.3, hm.scale * 0.9);
   
-  // Create vehicle-specific appearance based on type
+  // Create vehicle-specific geometry and appearance based on type
+  let geo: BufferGeometry;
   let mat: MeshStandardMaterial;
   switch (vehicleType) {
     case VManagerVehicleType.FIRETRUCK:
+      geo = new BoxGeometry(hm.scale * 0.9, hm.scale * 0.6, hm.scale * 1.6);
       mat = new MeshStandardMaterial({ 
         color: new Color(0xcc0000), 
         roughness: 0.6, 
@@ -530,6 +531,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
       });
       break;
     case VManagerVehicleType.BULLDOZER:
+      geo = new CylinderGeometry(hm.scale * 0.35, hm.scale * 0.35, hm.scale * 0.8);
       mat = new MeshStandardMaterial({ 
         color: new Color(0xffdd00), 
         roughness: 0.8, 
@@ -540,6 +542,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
       break;
     case VManagerVehicleType.CAR:
     default:
+      geo = new BoxGeometry(hm.scale * 0.5, hm.scale * 0.25, hm.scale * 1.0);
       mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
       break;
   }
