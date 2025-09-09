@@ -75,7 +75,6 @@ export type MenubarActions = {
     clear?: () => void;
     toggleYawDebug?: (on: boolean) => void;
     toggleYawSmoothing?: (on: boolean) => void;
-    setFollowMode?: (m: 'grid' | 'frenet') => void;
     setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void;
   };
   hydrants?: {
@@ -600,24 +599,6 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
       actions.vehicles?.toggleYawSmoothing?.(smoothOn);
     });
 
-    // Follow mode selector
-    const followWrapper = document.createElement('span');
-    followWrapper.style.cssText = 'display: flex; align-items: center; gap: 4px;';
-    const followLabel = document.createElement('span');
-    followLabel.textContent = 'Follow:';
-    followLabel.style.cssText = 'color: #cbd5e1; font-size: 11px;';
-    const followSelect = document.createElement('select');
-    followSelect.style.cssText = 'background: #111827; color: #e5e7eb; border: 1px solid #374151; border-radius: 4px; padding: 1px 4px; font-size: 11px;';
-    ['grid', 'frenet'].forEach(mode => {
-      const opt = document.createElement('option');
-      opt.value = mode; opt.text = mode;
-      followSelect.appendChild(opt);
-    });
-    followSelect.value = 'frenet';
-    followSelect.addEventListener('change', () => actions.vehicles?.setFollowMode?.(followSelect.value as any));
-    followWrapper.appendChild(followLabel);
-    followWrapper.appendChild(followSelect);
-
     // Spacing mode selector
     const spacingWrapper = document.createElement('span');
     spacingWrapper.style.cssText = 'display: flex; align-items: center; gap: 4px;';
@@ -639,7 +620,6 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     vehicleControls.appendChild(vehModeBtn);
     vehicleControls.appendChild(yawBtn);
     vehicleControls.appendChild(smoothBtn);
-    vehicleControls.appendChild(followWrapper);
     vehicleControls.appendChild(spacingWrapper);
 
     controlsPanel.appendChild(createSection('🚗 Vehicles', vehicleControls));

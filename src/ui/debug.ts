@@ -16,7 +16,7 @@ export type StatsHandle = {
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
     ribbon?: { setVisible?: (on:boolean)=>void; setWidth?: (w:number)=>void; setOpacity?: (o:number)=>void; setSpeed?: (v:number)=>void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
     config?: {
       get?: () => any;
@@ -83,7 +83,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     roads?: { toggle?: (on: boolean) => void; clear?: () => void };
     ribbon?: { setVisible?: (on:boolean)=>void; setWidth?: (w:number)=>void; setOpacity?: (o:number)=>void; setSpeed?: (v:number)=>void };
-    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setFollowMode?: (m: 'grid' | 'frenet') => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
+    vehicles?: { spawn?: () => void; moveModeToggle?: (on: boolean) => void; clear?: () => void; toggleYawDebug?: (on: boolean) => void; toggleYawSmoothing?: (on: boolean) => void; setSpacingMode?: (m: 'hybrid' | 'gap' | 'time') => void };
     preset?: { set?: (variant: 'loop' | 'figure8') => void };
     config?: { get?: () => any; set?: (partial: any) => void; regenerate?: () => void };
   } = {};
@@ -253,20 +253,6 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   vehClear.textContent = 'Clear';
   vehClear.addEventListener('click', (e) => { e.preventDefault(); actions.vehicles?.clear?.(); });
   // (Turn mode removed; Frenet handles yaw)
-  // Follow mode selector
-  const followLabel = document.createElement('span');
-  followLabel.textContent = 'Follow:';
-  followLabel.style.marginLeft = '8px';
-  followLabel.style.marginRight = '6px';
-  followLabel.style.color = '#cbd5e1';
-  const followSelect = document.createElement('select');
-  followSelect.style.cssText = 'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:1px 4px;';
-  for (const opt of ['grid','frenet'] as const) {
-    const o = document.createElement('option');
-    o.value = opt; o.text = opt; followSelect.appendChild(o);
-  }
-  followSelect.value = 'frenet';
-  followSelect.addEventListener('change', () => actions.vehicles?.setFollowMode?.(followSelect.value as any));
   // Spacing mode selector
   const spaceLabel = document.createElement('span');
   spaceLabel.textContent = 'Spacing:';
@@ -308,9 +294,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
     actions.vehicles?.toggleYawDebug?.(yawOn);
   });
   vehSec.body.appendChild(yawDbg);
-  // (Turn selector removed)
-  vehSec.body.appendChild(followLabel);
-  vehSec.body.appendChild(followSelect);
+  // (Turn selector removed; Follow mode selector removed - only Frenet now)
   vehSec.body.appendChild(spaceLabel);
   vehSec.body.appendChild(spaceSelect);
   vehSec.body.appendChild(yawSmooth);
