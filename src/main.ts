@@ -699,19 +699,7 @@ spawnFollowersOnAllPaths(3);
       }
       return;
     }
-    // Vehicle movement when enabled
-    if (vehiclesMoveEnabled) {
-      mouse.set(mouse.x, mouse.y);
-      ray.setFromCamera(mouse as any, rig.camera);
-      const hits = ray.intersectObject(chunked.group, true);
-      if (hits.length) {
-        const p = hits[0].point;
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
-        vehicles.setDestinationAll(gx, gz);
-      }
-      return;
-    }
+    // Vehicle movement mode no longer supported since we removed grid-based vehicles
     // Ignite when toggle is on
     if (menubar.getIgniteMode()) {
       igniteFromNDC(mouse.x, mouse.y);
