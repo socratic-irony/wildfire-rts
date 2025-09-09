@@ -489,6 +489,77 @@ export class VehiclesManager {
     if (path.length) { a.path = path; a.pathIdx = 0; a.prev = undefined; }
   }
 
+  private spawnParticlesFromVehicles(dt: number) {
+    // Spawn particles from all active vehicles for visual testing
+    // Rate limiting: spawn particles every ~100ms to avoid overwhelming the system
+    const spawnInterval = 0.1; // seconds
+    if (this.elapsed % spawnInterval < dt) {
+      for (let i = 0; i < this.agents.length; i++) {
+        const agent = this.agents[i];
+        
+        // Basic particle spawn position at vehicle location with slight randomization
+        const pos = {
+          x: agent.pos.x + (Math.random() - 0.5) * 0.3,
+          y: agent.pos.y + 0.15, // Slightly above vehicle
+          z: agent.pos.z + (Math.random() - 0.5) * 0.3
+        };
+        
+        // Enhanced random velocity for better particle spread
+        const vel = {
+          x: (Math.random() - 0.5) * 2.5,
+          y: Math.random() * 2.0 + 0.8,
+          z: (Math.random() - 0.5) * 2.5
+        };
+        
+        // Spawn different particles based on vehicle type with enhanced visibility
+        switch (agent.vehicleType) {
+          case VehicleType.FIRETRUCK:
+            // Enhanced water spray particles (blue/white)
+            this.waterParticles.spawnOne({
+              pos,
+              vel: { x: vel.x * 0.7, y: vel.y * 0.6, z: vel.z * 0.7 },
+              life: 2.5,
+              size0: this.cellSize * 0.08, // Larger initial size
+              size1: this.cellSize * 0.2,  // Larger final size
+              color0: [0.3, 0.6, 1.0], // Brighter blue
+              color1: [0.9, 0.95, 1.0] // Bright white
+            });
+            break;
+            
+          case VehicleType.HELICOPTER:
+          case VehicleType.AIRPLANE:
+            // Enhanced smoke/exhaust particles (dark gray)
+            this.smokeParticles.spawnOne({
+              pos: { x: pos.x, y: pos.y + 0.4, z: pos.z }, // Higher for aircraft
+              vel: { x: vel.x * 0.4, y: vel.y + 1.2, z: vel.z * 0.4 },
+              life: 3.5,
+              size0: this.cellSize * 0.06, // Larger initial size
+              size1: this.cellSize * 0.25, // Larger final size
+              color0: [0.2, 0.2, 0.2], // Darker initial
+              color1: [0.7, 0.7, 0.7]  // Lighter final
+            });
+            break;
+            
+          case VehicleType.CAR:
+          case VehicleType.BULLDOZER:
+          case VehicleType.FIREFIGHTER:
+          default:
+            // Enhanced dust particles (tan/brown)
+            this.dustParticles.spawnOne({
+              pos,
+              vel: { x: vel.x * 0.4, y: vel.y * 0.4, z: vel.z * 0.4 },
+              life: 2.0,
+              size0: this.cellSize * 0.05, // Larger initial size
+              size1: this.cellSize * 0.15, // Larger final size
+              color0: [0.9, 0.7, 0.5], // Brighter tan
+              color1: [0.6, 0.4, 0.2]  // Brown
+            });
+            break;
+        }
+      }
+    }
+  }
+
   update(dt: number) {
     // DEPRECATED: Grid-based vehicle movement removed in favor of Frenet vehicles
     // Only particle system updates are preserved for testing and backwards compatibility
@@ -503,6 +574,9 @@ export class VehiclesManager {
     // Grid-based movement logic removed - now using Frenet vehicles in main application
     // The old logic included pathfinding, intersection handling, and agent movement
     // Tests may still spawn static agents via spawnAt() for particle testing
+    
+    // Spawn particles from vehicles for testing/demo purposes
+    this.spawnParticlesFromVehicles(dt);
     
     // Update particle systems only
     this.smokeParticles.update(dt, { wx: 0, wz: 0 }, 0);
