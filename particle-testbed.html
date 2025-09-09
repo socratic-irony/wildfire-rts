@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wildfire RTS — Particle Testbed</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; background: #222; color: #e5e7eb; }
+    .overlay { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 4px; z-index: 1000; }
+    .controls { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 4px; z-index: 1000; }
+    .controls button { margin: 2px; padding: 4px 8px; background: #333; color: white; border: 1px solid #555; border-radius: 3px; cursor: pointer; }
+    .controls button:hover { background: #444; }
+    .controls button.active { background: #0066cc; }
+  </style>
+</head>
+<body>
+  <div class="overlay">
+    <div><strong>Particle Testbed</strong></div>
+    <div>Drag: rotate • Wheel: zoom • WASD: pan</div>
+    <div id="stats">FPS: 0 | Particles: 0</div>
+  </div>
+  
+  <div class="controls">
+    <div><strong>Vehicle Types:</strong></div>
+    <button id="spawn-car">🚗 Car (Dust)</button>
+    <button id="spawn-firetruck">🚒 Firetruck (Water)</button>
+    <button id="spawn-helicopter">🚁 Helicopter (Smoke)</button>
+    <button id="spawn-bulldozer">🚜 Bulldozer (Dust)</button>
+    <br><br>
+    <button id="clear-all">Clear All</button>
+    <button id="toggle-movement">Movement: Off</button>
+    <br><br>
+    <div><strong>Particle Settings:</strong></div>
+    <button id="increase-size">Larger Particles</button>
+    <button id="decrease-size">Smaller Particles</button>
+    <button id="increase-rate">More Particles</button>
+    <button id="decrease-rate">Fewer Particles</button>
+  </div>
+
+  <script type="module" src="/src/particle_testbed.ts"></script>
+</body>
+</html>
