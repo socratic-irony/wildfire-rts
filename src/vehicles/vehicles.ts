@@ -175,7 +175,13 @@ export class VehiclesManager {
 
   private createFirefighterGeometry(): BufferGeometry {
     // Create three cylinders positioned next to each other to represent a group of firefighters
-    const cylinderGeo = new CylinderGeometry(this.cellSize * 0.08, this.cellSize * 0.08, this.cellSize * 0.5);
+    // Apply height scaling for better visibility
+    const HEIGHT_SCALE = 1.8;
+    const cylinderGeo = new CylinderGeometry(
+      this.cellSize * 0.08, 
+      this.cellSize * 0.08, 
+      this.cellSize * 0.5 * HEIGHT_SCALE
+    );
     
     // Create three copies and position them side by side
     const geo1 = cylinderGeo.clone();
@@ -238,8 +244,15 @@ export class VehiclesManager {
   }
 
   private createVehicleInstances(maxAgents: number) {
+    // Global height scaling for better vertical readability
+    const HEIGHT_SCALE = 1.8;
+    
     // CAR (elongated box - more car-like proportions)
-    const carGeo = new BoxGeometry(this.cellSize * 0.5, this.cellSize * 0.25, this.cellSize * 1.0);
+    const carGeo = new BoxGeometry(
+      this.cellSize * 0.5, 
+      this.cellSize * 0.25 * HEIGHT_SCALE, 
+      this.cellSize * 1.0
+    );
     const carMat = new MeshStandardMaterial({ 
       color: new Color(0x1e90ff), 
       roughness: 0.7, 
@@ -250,7 +263,11 @@ export class VehiclesManager {
     this.createVehicleInstance(VehicleType.CAR, carGeo, carMat, maxAgents);
 
     // FIRETRUCK (wide and tall box - more truck-like)
-    const firetruckGeo = new BoxGeometry(this.cellSize * 0.9, this.cellSize * 0.6, this.cellSize * 1.6);
+    const firetruckGeo = new BoxGeometry(
+      this.cellSize * 0.9, 
+      this.cellSize * 0.6 * HEIGHT_SCALE, 
+      this.cellSize * 1.6
+    );
     const firetruckMat = new MeshStandardMaterial({ 
       color: new Color(0xcc0000), 
       roughness: 0.6, 
@@ -260,8 +277,12 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.FIRETRUCK, firetruckGeo, firetruckMat, maxAgents);
 
-    // BULLDOZER (squat yellow cube)
-    const bulldozerGeo = new BoxGeometry(this.cellSize * 0.7, this.cellSize * 0.35, this.cellSize * 0.8);
+    // BULLDOZER (squat yellow cube - construction vehicle proportions)
+    const bulldozerGeo = new BoxGeometry(
+      this.cellSize * 0.7, 
+      this.cellSize * 0.35 * HEIGHT_SCALE, 
+      this.cellSize * 0.8
+    );
     const bulldozerMat = new MeshStandardMaterial({ 
       color: new Color(0xffdd00), 
       roughness: 0.8, 
@@ -271,8 +292,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.BULLDOZER, bulldozerGeo, bulldozerMat, maxAgents);
 
-    // HELICOPTER (sphere body)
-    const helicopterGeo = new SphereGeometry(this.cellSize * 0.3, 8, 6);
+    // HELICOPTER (sphere body - aircraft proportions)
+    const helicopterGeo = new SphereGeometry(this.cellSize * 0.35, 8, 6);
     const helicopterMat = new MeshStandardMaterial({ 
       color: new Color(0x444444), 
       roughness: 0.5, 
@@ -282,8 +303,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.HELICOPTER, helicopterGeo, helicopterMat, maxAgents);
 
-    // AIRPLANE (cone for pointed nose/fuselage)
-    const airplaneGeo = new ConeGeometry(this.cellSize * 0.2, this.cellSize * 1.2, 6);
+    // AIRPLANE (cone for pointed nose/fuselage - aircraft proportions)
+    const airplaneGeo = new ConeGeometry(this.cellSize * 0.25, this.cellSize * 1.4, 6);
     const airplaneMat = new MeshStandardMaterial({ 
       color: new Color(0x666666), 
       roughness: 0.4, 
