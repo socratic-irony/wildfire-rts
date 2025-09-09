@@ -531,7 +531,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
       });
       break;
     case VManagerVehicleType.BULLDOZER:
-      geo = new CylinderGeometry(hm.scale * 0.35, hm.scale * 0.35, hm.scale * 0.8);
+      geo = new BoxGeometry(hm.scale * 0.7, hm.scale * 0.35, hm.scale * 0.8);
       mat = new MeshStandardMaterial({ 
         color: new Color(0xffdd00), 
         roughness: 0.8, 
@@ -558,7 +558,6 @@ function mapMenubarToVehicleType(menubarType?: string): VManagerVehicleType | un
   switch (menubarType) {
     case 'firetruck': return VManagerVehicleType.FIRETRUCK;
     case 'bulldozer': return VManagerVehicleType.BULLDOZER;
-    case 'waterTender': return VManagerVehicleType.FIRETRUCK; // Water tender mapped to firetruck
     case 'generic': return VManagerVehicleType.CAR;
     default: return VManagerVehicleType.CAR; // Default fallback
   }

@@ -1,4 +1,4 @@
-import { ArrowHelper, Color, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry } from 'three';
+import { ArrowHelper, Color, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry, BufferGeometry, BufferAttribute } from 'three';
 import { BoxGeometry } from 'three';
 import { InstancedParticleSystem } from '../particles/system';
 import type { Heightmap } from '../terrain/heightmap';
@@ -173,6 +173,70 @@ export class VehiclesManager {
     this.particleGroup.add(this.smokeParticles.mesh, this.dustParticles.mesh, this.waterParticles.mesh);
   }
 
+  private createFirefighterGeometry(): BufferGeometry {
+    // Create three cylinders positioned next to each other to represent a group of firefighters
+    const cylinderGeo = new CylinderGeometry(this.cellSize * 0.08, this.cellSize * 0.08, this.cellSize * 0.5);
+    
+    // Create three copies and position them side by side
+    const geo1 = cylinderGeo.clone();
+    const geo2 = cylinderGeo.clone();
+    const geo3 = cylinderGeo.clone();
+    
+    // Position the cylinders: one in center, one left, one right
+    geo1.translate(-this.cellSize * 0.15, 0, 0); // Left
+    geo2.translate(0, 0, 0); // Center
+    geo3.translate(this.cellSize * 0.15, 0, 0); // Right
+    
+    // Merge the geometries manually
+    const mergedGeo = new BufferGeometry();
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+    
+    let indexOffset = 0;
+    
+    // Add each geometry to the arrays
+    [geo1, geo2, geo3].forEach(geo => {
+      const posAttr = geo.getAttribute('position');
+      const normAttr = geo.getAttribute('normal');
+      const uvAttr = geo.getAttribute('uv');
+      const indexAttr = geo.getIndex();
+      
+      if (posAttr && normAttr && uvAttr && indexAttr) {
+        // Add positions
+        for (let i = 0; i < posAttr.count; i++) {
+          positions.push(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+        }
+        
+        // Add normals
+        for (let i = 0; i < normAttr.count; i++) {
+          normals.push(normAttr.getX(i), normAttr.getY(i), normAttr.getZ(i));
+        }
+        
+        // Add UVs
+        for (let i = 0; i < uvAttr.count; i++) {
+          uvs.push(uvAttr.getX(i), uvAttr.getY(i));
+        }
+        
+        // Add indices with offset
+        for (let i = 0; i < indexAttr.count; i++) {
+          indices.push(indexAttr.getX(i) + indexOffset);
+        }
+        
+        indexOffset += posAttr.count;
+      }
+    });
+    
+    // Set the merged attributes
+    mergedGeo.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+    mergedGeo.setAttribute('normal', new BufferAttribute(new Float32Array(normals), 3));
+    mergedGeo.setAttribute('uv', new BufferAttribute(new Float32Array(uvs), 2));
+    mergedGeo.setIndex(indices);
+    
+    return mergedGeo;
+  }
+
   private createVehicleInstances(maxAgents: number) {
     // CAR (elongated box - more car-like proportions)
     const carGeo = new BoxGeometry(this.cellSize * 0.5, this.cellSize * 0.25, this.cellSize * 1.0);
@@ -196,8 +260,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.FIRETRUCK, firetruckGeo, firetruckMat, maxAgents);
 
-    // BULLDOZER (cylinder to represent tracks/treads)
-    const bulldozerGeo = new CylinderGeometry(this.cellSize * 0.35, this.cellSize * 0.35, this.cellSize * 0.8);
+    // BULLDOZER (squat yellow cube)
+    const bulldozerGeo = new BoxGeometry(this.cellSize * 0.7, this.cellSize * 0.35, this.cellSize * 0.8);
     const bulldozerMat = new MeshStandardMaterial({ 
       color: new Color(0xffdd00), 
       roughness: 0.8, 
@@ -229,8 +293,8 @@ export class VehiclesManager {
     });
     this.createVehicleInstance(VehicleType.AIRPLANE, airplaneGeo, airplaneMat, maxAgents);
 
-    // FIREFIGHTER (tall thin cylinder to represent a person)
-    const firefighterGeo = new CylinderGeometry(this.cellSize * 0.08, this.cellSize * 0.08, this.cellSize * 0.5);
+    // FIREFIGHTER (group of three orange/red cylinders standing up)
+    const firefighterGeo = this.createFirefighterGeometry();
     const firefighterMat = new MeshStandardMaterial({ 
       color: new Color(0xff6600), 
       roughness: 0.9, 

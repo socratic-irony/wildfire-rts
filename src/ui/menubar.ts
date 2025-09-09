@@ -10,7 +10,6 @@ const ICONS = {
   road: '🛣️',
   firetruck: '🚒',
   bulldozer: '🚜',
-  waterTender: '🚛',
   vehicle: '🚐',
   hydrant: '🚰',
   terrain: '🏔️',
@@ -25,12 +24,11 @@ const ICONS = {
 } as const;
 
 // Vehicle types available for spawning
-export type VehicleType = 'firetruck' | 'bulldozer' | 'waterTender' | 'generic';
+export type VehicleType = 'firetruck' | 'bulldozer' | 'generic';
 
 export const VEHICLE_TYPES = {
   firetruck: { name: 'Fire Truck', icon: ICONS.firetruck, description: 'Fast response vehicle for water delivery' },
   bulldozer: { name: 'Bulldozer', icon: ICONS.bulldozer, description: 'Heavy vehicle for creating firebreaks' },
-  waterTender: { name: 'Water Tender', icon: ICONS.waterTender, description: 'Large capacity water transport' },
   generic: { name: 'Generic Vehicle', icon: ICONS.vehicle, description: 'Standard utility vehicle' },
 } as const;
 
