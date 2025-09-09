@@ -330,7 +330,7 @@ export function attachStats(container: HTMLElement, opts: DebugOpts = {}): Stats
   // Noise controls
   panel.appendChild(mkLabel('Noise: frequency / amplitude'));
   const freq = mkRange('noiseFreq', 0.2, 6.0, 0.1, cfg().noise?.frequency ?? 2.0);
-  const amp = mkRange('noiseAmp', 1, 20, 1, cfg().noise?.amplitude ?? 8);
+  const amp = mkRange('noiseAmp', 1, 20, 1, cfg().noise?.amplitude ?? 5);
   panel.appendChild(freq.wrap); panel.appendChild(amp.wrap);
   // Noise seed
   panel.appendChild(mkLabel('Noise Seed'));

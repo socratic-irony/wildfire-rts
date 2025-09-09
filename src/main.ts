@@ -63,7 +63,7 @@ type WorldCfg = {
 };
 let worldCfg: WorldCfg = {
   width: 128, height: 128,
-  noise: { seed: '42', frequency: 2.0, amplitude: 8, octaves: 4, persistence: 0.5 },
+  noise: { seed: '42', frequency: 2.0, amplitude: 5, octaves: 4, persistence: 0.5 },
   moisture: { seed: 'moist' },
   biomes: { forestMoistureMin: 0.55 },
   densities: { tree: 0.30, shrub: 0.15, rock: 0.08, broadleafRatio: 0.4 },
