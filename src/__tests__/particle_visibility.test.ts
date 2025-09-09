@@ -16,35 +16,42 @@ describe('Particle Visibility', () => {
     // Create vehicles manager
     const vehicles = new VehiclesManager(hm, terrain, roadMask, 4);
     scene.add(vehicles.group);
+    scene.add(vehicles.particleGroup); // Add particle group separately like in main.ts
     
-    // Initially, the group should be visible
+    // Initially, both groups should be visible
     expect(vehicles.group.visible).toBe(true);
+    expect(vehicles.particleGroup.visible).toBe(true);
     
-    // Check that particle meshes exist and are part of the scene
-    let allChildren = 0;
-    let instancedMeshes = 0;
+    // Check that particles are in the particle group, not the main vehicles group
+    let particlesInMainGroup = 0;
+    let particlesInParticleGroup = 0;
+    
     vehicles.group.traverse((child) => {
-      allChildren++;
-      console.log(`Child ${allChildren}: ${child.constructor.name}, type: ${child.type}`);
       if (child.constructor.name === 'InstancedMesh') {
-        instancedMeshes++;
+        // Check if this might be a particle system by examining material
+        const mesh = child as any;
+        if (mesh.material && mesh.material.transparent && mesh.material.depthWrite === false) {
+          particlesInMainGroup++;
+        }
       }
     });
     
-    console.log(`Total children: ${allChildren}, InstancedMeshes: ${instancedMeshes}`);
+    vehicles.particleGroup.traverse((child) => {
+      if (child.constructor.name === 'InstancedMesh') {
+        particlesInParticleGroup++;
+      }
+    });
     
-    // Should have multiple instanced meshes (vehicles + particle systems)
-    expect(instancedMeshes).toBeGreaterThan(0);
+    // Particles should be in the particle group, not the main group
+    expect(particlesInParticleGroup).toBe(3); // smoke, dust, water
+    expect(particlesInMainGroup).toBe(0);
     
     // Hide the vehicles group (simulating frenet mode)
     vehicles.group.visible = false;
     
-    // The group is now invisible
+    // The main group is now invisible, but particles should still be visible
     expect(vehicles.group.visible).toBe(false);
-    
-    // This means ALL children including particles are also invisible
-    // This is the bug we're fixing - particles should remain visible
-    // even when grid vehicles are hidden
+    expect(vehicles.particleGroup.visible).toBe(true);
   });
   
   it('should spawn particles when vehicles move', () => {

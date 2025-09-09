@@ -62,6 +62,7 @@ type Agent = {
 
 export class VehiclesManager {
   public group = new Group();
+  public particleGroup = new Group(); // Separate group for particles that should always be visible
   private hm: Heightmap;
   private roadMask: RoadMask;
   private terrain: TerrainCost;
@@ -169,7 +170,7 @@ export class VehiclesManager {
     this.smokeParticles = new InstancedParticleSystem('smoke', ico, smokeMat, maxAgents * 40);
     this.dustParticles = new InstancedParticleSystem('smoke', ico, dustMat, maxAgents * 40);
     this.waterParticles = new InstancedParticleSystem('smoke', ico, waterMat, maxAgents * 30);
-    this.group.add(this.smokeParticles.mesh, this.dustParticles.mesh, this.waterParticles.mesh);
+    this.particleGroup.add(this.smokeParticles.mesh, this.dustParticles.mesh, this.waterParticles.mesh);
   }
 
   private createVehicleInstances(maxAgents: number) {

@@ -581,6 +581,7 @@ function mapMenubarToVehicleType(menubarType?: string): VManagerVehicleType | un
 // Vehicles — manager uses terrain cost and road mask
 let vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
 scene.add(vehicles.group);
+scene.add(vehicles.particleGroup); // Add particle group separately so it stays visible
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
