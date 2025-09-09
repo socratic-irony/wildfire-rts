@@ -218,7 +218,16 @@ export function installGlobalErrorOverlay(container: HTMLElement) {
   
   window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
     const reason: any = (e as any).reason;
-    const msg = 'Unhandled Promise Rejection: ' + (reason && reason.message ? reason.message : String(reason));
+    let msg: string;
+    
+    if (reason === undefined || reason === null) {
+      msg = 'Unhandled Promise Rejection: Promise was rejected with no error details. This may indicate a missing .catch() handler or an async operation that failed silently.';
+    } else if (reason && reason.message) {
+      msg = 'Unhandled Promise Rejection: ' + reason.message;
+    } else {
+      msg = 'Unhandled Promise Rejection: ' + String(reason);
+    }
+    
     const st = reason && reason.stack ? String(reason.stack) : undefined;
     
     console.error('[unhandled rejection]', reason);

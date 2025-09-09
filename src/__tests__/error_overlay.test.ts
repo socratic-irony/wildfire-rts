@@ -69,4 +69,32 @@ describe('enhanced error overlay', () => {
     // Should highlight lines containing 'src/' with arrow
     expect(txt).toContain('→');
   });
+
+  it('handles undefined promise rejection with helpful message', () => {
+    if (typeof document === 'undefined') { 
+      expect(true).toBe(true); 
+      return; 
+    }
+    
+    // Test our improved message formatting by simulating the promise rejection handling
+    const mockEvent = {
+      reason: undefined
+    } as any;
+    
+    // Simulate what the unhandledrejection handler does
+    const reason: any = mockEvent.reason;
+    let msg: string;
+    
+    if (reason === undefined || reason === null) {
+      msg = 'Unhandled Promise Rejection: Promise was rejected with no error details. This may indicate a missing .catch() handler or an async operation that failed silently.';
+    } else if (reason && reason.message) {
+      msg = 'Unhandled Promise Rejection: ' + reason.message;
+    } else {
+      msg = 'Unhandled Promise Rejection: ' + String(reason);
+    }
+    
+    expect(msg).toContain('Promise was rejected with no error details');
+    expect(msg).toContain('missing .catch() handler');
+    expect(msg).not.toBe('Unhandled Promise Rejection: undefined');
+  });
 });

@@ -120,7 +120,9 @@ export class DebugConsole {
       switch (e.key) {
         case 'Enter':
           e.preventDefault();
-          this.executeCommand(this.input.value.trim());
+          this.executeCommand(this.input.value.trim()).catch((error) => {
+            this.log(`Console error: ${error instanceof Error ? error.message : String(error)}`, '#ef4444');
+          });
           this.input.value = '';
           this.historyIndex = -1;
           break;
