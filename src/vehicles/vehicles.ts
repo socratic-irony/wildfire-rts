@@ -253,6 +253,9 @@ export class VehiclesManager {
 
   get count() { return this.agents.length; }
 
+  // DEPRECATED: Grid-based vehicle spawning
+  // Only preserved for testing particle systems and vehicle abilities  
+  // Main application uses Frenet PathFollower vehicles for actual movement
   spawnAt(gx: number, gz: number, vehicleType?: VehicleType) {
     if (this.agents.length >= this.maxAgents) return;
     gx = clamp(Math.round(gx), 0, this.hm.width - 1);
@@ -386,6 +389,7 @@ export class VehiclesManager {
     applyWaterAoE(this.fireGrid, a.grid, radius, intensity);
   }
 
+  // DEPRECATED: Grid-based yaw mode calculation - only used in removed grid movement logic
   setYawMode(mode: 'grid' | 'midline' | 'velocity' | 'lookahead') { this.yawMode = mode; }
   setYawDebug(on: boolean) {
     this.yawDebugOn = on;
@@ -439,11 +443,15 @@ export class VehiclesManager {
     this.instFlasher.instanceMatrix.needsUpdate = true;
   }
 
-  // Plan path for one or all agents to a destination grid cell
+  // DEPRECATED: Grid-based pathfinding for vehicle destinations
+  // Only preserved for testing particle systems and vehicle abilities
+  // Main application uses Frenet vehicle system for actual movement
   setDestinationAll(gx: number, gz: number) {
     for (let i = 0; i < this.agents.length; i++) this.setDestination(i, gx, gz);
   }
 
+  // DEPRECATED: Grid-based pathfinding for individual vehicle destination
+  // Only preserved for testing - main application uses Frenet vehicles
   setDestination(i: number, gx: number, gz: number) {
     const a = this.agents[i];
     if (!a) return;
@@ -482,167 +490,21 @@ export class VehiclesManager {
   }
 
   update(dt: number) {
+    // DEPRECATED: Grid-based vehicle movement removed in favor of Frenet vehicles
+    // Only particle system updates are preserved for testing and backwards compatibility
     this.elapsed += dt;
     this.lastDt = dt;
+    
+    // Reset counters (no longer used for grid vehicles)
     this.headlightCount = 0;
     this.signalCount = 0;
     this.flasherCount = 0;
-    const s = this.cellSize;
-    for (let i = 0; i < this.agents.length; i++) {
-      const a = this.agents[i];
-      if (a.turnSignalLeft && a.turnSignalLeft > 0) a.turnSignalLeft = Math.max(0, a.turnSignalLeft - dt);
-      if (a.turnSignalRight && a.turnSignalRight > 0) a.turnSignalRight = Math.max(0, a.turnSignalRight - dt);
-      // Clear stale intersection wait if path changed
-      const nxtCheck = a.path[a.pathIdx + 1];
-      if (a.waitingFor && (!nxtCheck || typeof nxtCheck.x !== 'number' || typeof nxtCheck.z !== 'number' || this.cellKey(nxtCheck) !== a.waitingFor)) {
-        const q = this.intersectionQueues.get(a.waitingFor);
-        if (q) {
-          const qi = q.indexOf(i);
-          if (qi >= 0) q.splice(qi, 1);
-          if (!q.length) this.intersectionQueues.delete(a.waitingFor);
-        }
-        a.waitingFor = undefined;
-        a.stopTimer = undefined;
-      }
-      // Ensure we have a target segment: for road-follow, keep extending along road
-    if (a.autoFollowRoad && a.path.length - 1 <= a.pathIdx) {
-      const next = this.chooseNextRoadNeighbor(a.grid, a.prev, a.lastProj?.tangent);
-      if (next) {
-        a.path = [a.grid, next];
-        a.pathIdx = 0;
-        a.prev = { ...a.grid };
-      }
-    }
-
-      if (a.path.length - 1 > a.pathIdx) {
-        // Speed modulation by curvature (based on projected tangent change)
-        let speedFactor = 1.0;
-        if (a.lastProj?.tangent && a.prevTan) {
-          const t0 = a.prevTan.clone().normalize();
-          const t1 = a.lastProj.tangent.clone().normalize();
-          const dot = Math.max(-1, Math.min(1, t0.x * t1.x + t0.z * t1.z));
-          const curv = 1 - Math.abs(dot); // 0 straight, 1 sharp
-          speedFactor = Math.max(this.speedMinFactor, 1 - this.speedCurviness * curv);
-        }
-        // Simple spacing: brake if another agent is close ahead
-        if (this.agents.length > 1) {
-          for (let j = 0; j < this.agents.length; j++) if (j !== i) {
-            const b = this.agents[j];
-            const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
-            const d2 = dx*dx + dz*dz;
-            if (d2 < this.spacingRadius * this.spacingRadius) {
-              // ahead check (based on current forward estimate)
-              const hintCur = a.path[a.pathIdx];
-              const hintNxt = a.path[a.pathIdx + 1];
-              const nx = (hintNxt.x + 0.5) * s, nz = (hintNxt.z + 0.5) * s;
-              const fdx = nx - a.pos.x, fdz = nz - a.pos.z;
-              const fl = Math.hypot(fdx, fdz) || 1;
-              const ahead = (dx * (fdx / fl) + dz * (fdz / fl)) > 0;
-              if (ahead) { speedFactor = Math.min(speedFactor, 0.5); }
-            }
-          }
-        }
-        let remainStep = a.speedTilesPerSec * dt * s * speedFactor;
-        while (remainStep > 1e-6 && a.pathIdx < a.path.length - 1) {
-          const nxt = a.path[a.pathIdx + 1];
-            if (a.vehicleType !== VehicleType.HELICOPTER && a.vehicleType !== VehicleType.AIRPLANE && this.isIntersection(nxt) && !this.canEnterIntersection(i, nxt, dt)) {
-              remainStep = 0;
-              break;
-            }
-            const baseY = this.hm.sample((nxt.x + 0.5) * s, (nxt.z + 0.5) * s);
-            const nxtPos = new Vector3((nxt.x + 0.5) * s, baseY + 0.18 + (a.altitude || 0), (nxt.z + 0.5) * s);
-            const toNext = new Vector3().subVectors(nxtPos, a.pos);
-            const remain = Math.max(1e-6, toNext.length());
-            if (remainStep >= remain) {
-              a.prev = { ...a.grid };
-              a.grid = { x: nxt.x, z: nxt.z };
-              a.pos.copy(nxtPos);
-              a.pathIdx++;
-              remainStep -= remain;
-              this.releaseIntersection(a);
-            } else {
-              a.pos.addScaledVector(toNext.normalize(), remainStep);
-              a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18 + (a.altitude || 0);
-              remainStep = 0;
-            }
-          }
-          this.releaseIntersection(a);
-        }
-
-        // Midline projection: ground vehicles only
-        a.lastProj = undefined;
-        if (this.roadsVis && a.vehicleType !== VehicleType.HELICOPTER && a.vehicleType !== VehicleType.AIRPLANE) {
-        let pIdx = a.pin?.pathIndex;
-        if (pIdx == null || pIdx < 0) {
-          const idx = this.roadsVis.findNearestPathIndex(a.pos.x, a.pos.z);
-          if (idx >= 0) { a.pin = { pathIndex: idx }; pIdx = idx; }
-        }
-        if (pIdx != null && pIdx >= 0) {
-          const res = this.roadsVis.projectToMidlineOnPath(pIdx, a.pos.x, a.pos.z, a.pin?.segIndex, 96);
-          if (res) {
-            // Use projection for orientation only; keep integrated position to avoid fighting movement
-            a.lastProj = { normal: res.normal, tangent: res.tangent };
-            if (!a.pin) a.pin = { pathIndex: pIdx };
-            a.pin.segIndex = ('segIndex' in res) ? res.segIndex : 0;
-            // Gentle lateral stickiness toward midline (XZ only)
-            const lateral = new Vector3(res.pos.x - a.pos.x, 0, res.pos.z - a.pos.z);
-            const alpha = 1.2; // m/s toward centerline
-            const maxNudge = alpha * this.lastDt;
-            const len = lateral.length();
-            if (len > 1e-6) {
-              lateral.multiplyScalar(Math.min(1, maxNudge / len));
-              a.pos.add(lateral);
-                a.pos.y = this.hm.sample(a.pos.x, a.pos.z) + 0.18 + (a.altitude || 0);
-            }
-          }
-        }
-      }
-      if (a.vehicleType === VehicleType.HELICOPTER) {
-        a.rotorAngle = (a.rotorAngle ?? 0) + dt * 20;
-      }
-      // Spawn particles based on movement
-      const movedVec = a.prevPos ? a.pos.clone().sub(a.prevPos) : new Vector3();
-      const movedDist = movedVec.length();
-      const dir = movedDist > 1e-6 ? movedVec.clone().normalize() : new Vector3(0, 0, 1);
-      if (movedDist > 0.01) {
-        if (a.vehicleType === VehicleType.HELICOPTER || a.vehicleType === VehicleType.AIRPLANE) {
-          const pos = { x: a.pos.x - dir.x * s * 0.6, y: a.pos.y + 0.2, z: a.pos.z - dir.z * s * 0.6 };
-          const vel = { x: -dir.x * 0.2, y: 0.3, z: -dir.z * 0.2 };
-          this.smokeParticles.spawnOne({ pos, vel, life: 2.0, size0: 0.3, size1: 1.0, color0: [0.3, 0.3, 0.3], color1: [0.6, 0.6, 0.6] });
-        } else {
-          const pos = { x: a.pos.x - dir.x * s * 0.5, y: a.pos.y + 0.1, z: a.pos.z - dir.z * s * 0.5 };
-          const vel = { x: -dir.x * 0.1, y: 0.4, z: -dir.z * 0.1 };
-          this.dustParticles.spawnOne({ pos, vel, life: 1.0, size0: 0.2, size1: 0.6, color0: [0.5, 0.4, 0.3], color1: [0.5, 0.4, 0.3] });
-          if (a.vehicleType === VehicleType.FIRETRUCK) {
-            const pos2 = { x: a.pos.x + dir.x * s * 0.5, y: a.pos.y + 0.3, z: a.pos.z + dir.z * s * 0.5 };
-            const vel2 = { x: dir.x * 0.2, y: 0.8, z: dir.z * 0.2 };
-            this.waterParticles.spawnOne({ pos: pos2, vel: vel2, life: 1.2, size0: 0.25, size1: 0.25, color0: [0.4, 0.6, 1.0], color1: [0.4, 0.6, 1.0] });
-          }
-        }
-      }
-      // Determine turn signals from tangent change
-      if (a.prevTan && a.lastProj?.tangent) {
-        const cross = a.prevTan.x * a.lastProj.tangent.z - a.prevTan.z * a.lastProj.tangent.x;
-        if (cross > 0.05) a.turnSignalLeft = 0.5;
-        else if (cross < -0.05) a.turnSignalRight = 0.5;
-      }
-      this.syncInstance(i);
-      // Track previous state for next frame
-      if (a.lastProj?.tangent) a.prevTan = a.lastProj.tangent.clone();
-      a.prevPos = a.pos.clone();
-    }
-    // Update all vehicle instance matrices
-    for (const vehicleInstance of this.vehicleInstances.values()) {
-      vehicleInstance.instanceMatrix.needsUpdate = true;
-    }
-    this.instVane.instanceMatrix.needsUpdate = true;
-    this.instRotor.instanceMatrix.needsUpdate = true;
-    this.instHeadlight.instanceMatrix.needsUpdate = true;
-    this.instSignal.instanceMatrix.needsUpdate = true;
-    this.instFlasher.instanceMatrix.needsUpdate = true;
-    this.instHeadlight.count = this.headlightCount as any;
-    this.instSignal.count = this.signalCount as any;
-    this.instFlasher.count = this.flasherCount as any;
+    
+    // Grid-based movement logic removed - now using Frenet vehicles in main application
+    // The old logic included pathfinding, intersection handling, and agent movement
+    // Tests may still spawn static agents via spawnAt() for particle testing
+    
+    // Update particle systems only
     this.smokeParticles.update(dt, { wx: 0, wz: 0 }, 0);
     this.dustParticles.update(dt, { wx: 0, wz: 0 }, 0);
     this.waterParticles.update(dt, { wx: 0, wz: 0 }, 0);

@@ -169,32 +169,27 @@ loop.add((dt) => {
   fireRibbon.update(fireGrid as any, performance.now() / 1000);
   // Update flipbook particles (wind placeholder; can wire simEnv later)
   fireParticles.update(fireGrid as any, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
-  if (followMode === 'grid') {
-    vehicles.update(dt);
-    if (yawDebugOn && yawDiv) {
-      yawDiv.textContent = vehicles.getDebugText(0);
-    }
-  } else {
-    // Intersections TBD — no special slowing logic here
-    const groups = new Map<Path2D, number[]>();
-    for (let i = 0; i < followers.length; i++) {
-      const p = followers[i].path as Path2D;
-      if (!groups.has(p)) groups.set(p, []);
-      groups.get(p)!.push(i);
-    }
+  
+  // Always update Frenet followers
+  // Intersections TBD — no special slowing logic here
+  const groups = new Map<Path2D, number[]>();
+  for (let i = 0; i < followers.length; i++) {
+    const p = followers[i].path as Path2D;
+    if (!groups.has(p)) groups.set(p, []);
+    groups.get(p)!.push(i);
+  }
   for (const [, idxs] of groups) {
-      idxs.sort((a, b) => followers[a].s - followers[b].s);
-      for (let k = idxs.length - 1; k >= 0; k--) {
-        const i = idxs[k];
-        if (k === idxs.length - 1) {
-          followers[i].setLeader(undefined, undefined);
-        } else {
-          const lead = idxs[k + 1];
-          followers[i].setLeader(followers[lead].s, followers[lead].v);
-        }
-        followers[i].setSpacingMode(spacingMode);
-        followers[i].update(dt);
+    idxs.sort((a, b) => followers[a].s - followers[b].s);
+    for (let k = idxs.length - 1; k >= 0; k--) {
+      const i = idxs[k];
+      if (k === idxs.length - 1) {
+        followers[i].setLeader(undefined, undefined);
+      } else {
+        const lead = idxs[k + 1];
+        followers[i].setLeader(followers[lead].s, followers[lead].v);
       }
+      followers[i].setSpacingMode(spacingMode);
+      followers[i].update(dt);
     }
   }
   renderer.render(scene, rig.camera);
@@ -413,8 +408,6 @@ scene.add(roadsVis.group);
 let roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
-type FollowMode = 'grid' | 'frenet';
-let followMode: FollowMode = 'frenet';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
 type SpacingMode = 'hybrid' | 'gap' | 'time';
@@ -506,17 +499,7 @@ function seedRandomLoopsAndVehicles(count = 2) {
   updateHydrantPlacement(hydrantSystem);
   hydrantVisual.update(hydrantSystem);
   rebuildPath2Ds();
-  // Spawn grid-mode vehicles only if grid follow mode is active
-  if (followMode === 'grid') {
-    const spawnsPerLoop = Math.max(2, Math.floor(loops.length >= 2 ? 3 : 4));
-    for (const loop of loops) {
-      const step = Math.max(1, Math.floor(loop.length / spawnsPerLoop));
-      for (let i = 0; i < loop.length && i / step < spawnsPerLoop; i += step) {
-        const p = loop[i];
-        vehicles.spawnAt(p.x, p.z);
-      }
-    }
-  }
+  // No longer spawn grid-mode vehicles - only Frenet vehicles are used
 }
 function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
@@ -585,8 +568,8 @@ scene.add(vehicles.particleGroup); // Add particle group separately so it stays 
 let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
-// Show grid vehicles only in grid mode
-vehicles.group.visible = (followMode as string === 'grid');
+// Show vehicles - always visible since we only use Frenet vehicles
+vehicles.group.visible = true;
 
 // Fire Hydrants — automatic placement along roads
 let hydrantSystem = createHydrantSystem(roadMask, hm.scale);
@@ -597,9 +580,7 @@ hydrantVisual.setVisible(true); // Initially visible
 // Seed random road loops at startup and spawn moving vehicles
 seedRandomLoopsAndVehicles(2);
 rebuildPath2Ds();
-if (followMode === 'frenet') {
-  spawnFollowersOnAllPaths(3);
-}
+spawnFollowersOnAllPaths(3);
 
 // Click to ignite under cursor
 {
@@ -718,19 +699,7 @@ if (followMode === 'frenet') {
       }
       return;
     }
-    // Vehicle movement when enabled
-    if (vehiclesMoveEnabled) {
-      mouse.set(mouse.x, mouse.y);
-      ray.setFromCamera(mouse as any, rig.camera);
-      const hits = ray.intersectObject(chunked.group, true);
-      if (hits.length) {
-        const p = hits[0].point;
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
-        vehicles.setDestinationAll(gx, gz);
-      }
-      return;
-    }
+    // Vehicle movement mode no longer supported since we removed grid-based vehicles
     // Ignite when toggle is on
     if (menubar.getIgniteMode()) {
       igniteFromNDC(mouse.x, mouse.y);
@@ -768,15 +737,9 @@ if (followMode === 'frenet') {
         // Map menubar vehicle type to VehicleManager enum
         const vehicleType = mapMenubarToVehicleType(type);
         console.log(`Spawning ${type || 'generic'} vehicle (mapped to ${vehicleType})`);
-        if ((followMode as string) === 'grid') {
-          const camPos = rig.camera.getWorldPosition(new Vector3());
-          const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
-          const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
-          vehicles.spawnAt(gx, gz, vehicleType);
-        } else {
-          rebuildPath2Ds();
-          spawnFollowerAtCamera(vehicleType);
-        }
+        // Always use Frenet vehicle spawning
+        rebuildPath2Ds();
+        spawnFollowerAtCamera(vehicleType);
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => { vehicles.clear(); clearFollowers(); }

@@ -75,30 +75,27 @@ loop.add((dt) => {
   shrubs?.update(t);
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
-  if (followMode === 'grid') {
-    vehicles.update(dt);
-    if (yawDebugOn && yawDiv) yawDiv.textContent = vehicles.getDebugText(0);
-  } else {
-    // Update followers per path, front-to-back so leader uses up-to-date s
-    const groups = new Map<Path2D, number[]>();
-    for (let i = 0; i < followers.length; i++) {
-      const p = followers[i].path as Path2D;
-      if (!groups.has(p)) groups.set(p, []);
-      groups.get(p)!.push(i);
-    }
-    for (const [, idxs] of groups) {
-      idxs.sort((a, b) => followers[a].s - followers[b].s);
-      for (let k = idxs.length - 1; k >= 0; k--) {
-        const i = idxs[k];
-        if (k === idxs.length - 1) {
-          followers[i].setLeader(undefined, undefined);
-        } else {
-          const lead = idxs[k + 1];
-          followers[i].setLeader(followers[lead].s, followers[lead].v);
-        }
-        followers[i].setSpacingMode(spacingMode);
-        followers[i].update(dt);
+  
+  // Always update Frenet followers
+  // Update followers per path, front-to-back so leader uses up-to-date s
+  const groups = new Map<Path2D, number[]>();
+  for (let i = 0; i < followers.length; i++) {
+    const p = followers[i].path as Path2D;
+    if (!groups.has(p)) groups.set(p, []);
+    groups.get(p)!.push(i);
+  }
+  for (const [, idxs] of groups) {
+    idxs.sort((a, b) => followers[a].s - followers[b].s);
+    for (let k = idxs.length - 1; k >= 0; k--) {
+      const i = idxs[k];
+      if (k === idxs.length - 1) {
+        followers[i].setLeader(undefined, undefined);
+      } else {
+        const lead = idxs[k + 1];
+        followers[i].setLeader(followers[lead].s, followers[lead].v);
       }
+      followers[i].setSpacingMode(spacingMode);
+      followers[i].update(dt);
     }
   }
   renderer.render(scene, rig.camera);
@@ -169,13 +166,12 @@ let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
 
-type FollowMode = 'grid' | 'frenet';
-let followMode: FollowMode = 'frenet';
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
 let path2ds: Path2D[] = [];
 let followers: PathFollower[] = [];
-vehicles.group.visible = (followMode as FollowMode === 'grid');
+// Show vehicles - always visible since we only use Frenet vehicles  
+vehicles.group.visible = true;
 
 function rebuildPath2Ds() {
   const raw = roadsVis.getMidlinesXZ();
@@ -286,10 +282,7 @@ function spawnFollowerAtCamera() {
       }
       return;
     }
-    if (vehiclesMoveEnabled && followMode === 'grid') {
-      vehicles.setDestinationAll(gx, gz);
-      return;
-    }
+    // No grid-based vehicle movement since we removed it
   });
 
   stats.setActions({
@@ -300,30 +293,13 @@ function spawnFollowerAtCamera() {
     },
     vehicles: {
       spawn: () => {
-        if (followMode === 'grid') {
-          const camPos = rig.camera.getWorldPosition(new Vector3());
-          const gx = Math.max(0, Math.min(hm.width - 1, Math.round(camPos.x / hm.scale)));
-          const gz = Math.max(0, Math.min(hm.height - 1, Math.round(camPos.z / hm.scale)));
-          vehicles.spawnAt(gx, gz);
-        } else {
-          spawnFollowerAtCamera();
-        }
+        // Always use Frenet vehicle spawning
+        spawnFollowerAtCamera();
       },
       moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
       clear: () => { vehicles.clear(); clearFollowers(); },
       toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
       setSpacingMode: (m: 'hybrid' | 'gap' | 'time') => { spacingMode = m; },
-      setFollowMode: (m: FollowMode) => {
-        followMode = m;
-        if (followMode === 'grid') {
-          vehicles.group.visible = true;
-          followers.forEach(f => f.object.visible = false);
-        } else {
-          vehicles.group.visible = false;
-          rebuildPath2Ds();
-          followers.forEach(f => f.object.visible = true);
-        }
-      },
       toggleYawDebug: (on) => {
         yawDebugOn = on;
         vehicles.setYawDebug(on);
