@@ -26,9 +26,9 @@ export class HydrantVisual {
     // Create simple cylindrical hydrant geometry
     const geometry = new CylinderGeometry(0.15, 0.2, 0.5, 8);
     
-    // Blue/silver material for active hydrants
+    // Red material for fire hydrants
     this.material = new MeshStandardMaterial({
-      color: 0x4a90e2,
+      color: 0xcc0000,
       metalness: 0.7,
       roughness: 0.3,
     });
@@ -73,8 +73,8 @@ export class HydrantVisual {
     
     // Apply color based on state
     const color = hydrant.active ? 
-      new Color(0x4a90e2) : // Blue for active
-      new Color(0xff4444);  // Red for inactive
+      new Color(0xcc0000) : // Red for active
+      new Color(0x666666);  // Gray for inactive
     
     this.instancedMesh.setMatrixAt(index, this.tempMatrix);
     this.instancedMesh.setColorAt(index, color);
