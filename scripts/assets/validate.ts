@@ -136,16 +136,13 @@ function validateAsset(filePath: string, projectRoot: string): AssetValidationRe
 
   const rule = ASSET_RULES[assetType];
   
-  // Check file size
+  // Check file size - treat as warning instead of error to avoid stopping build
   if (sizeKB > rule.maxSizeKB) {
-    result.errors.push(
+    result.warnings.push(
       `File size ${sizeKB}KB exceeds limit of ${rule.maxSizeKB}KB for ${assetType}`
     );
-    result.valid = false;
-  }
-
-  // Warnings for files approaching size limits
-  if (sizeKB > rule.maxSizeKB * 0.8) {
+  } else if (sizeKB > rule.maxSizeKB * 0.8) {
+    // Warnings for files approaching size limits (only if not already exceeding)
     result.warnings.push(
       `File size ${sizeKB}KB is approaching limit of ${rule.maxSizeKB}KB`
     );

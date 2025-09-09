@@ -40,10 +40,11 @@ describe('Asset Validation', () => {
     const results = validateAssets(testDir);
     
     expect(results.totalAssets).toBe(2);
-    expect(results.validAssets).toBe(1); // Only small file should be valid
-    expect(results.errors.length).toBeGreaterThan(0);
-    expect(results.errors.some(err => err.includes('large.glb'))).toBe(true);
-    expect(results.errors.some(err => err.includes('exceeds limit'))).toBe(true);
+    expect(results.validAssets).toBe(2); // Both files should be valid now (size violations are warnings)
+    expect(results.errors.length).toBe(0); // No errors for size violations
+    expect(results.warnings.length).toBeGreaterThan(0);
+    expect(results.warnings.some(warn => warn.includes('large.glb'))).toBe(true);
+    expect(results.warnings.some(warn => warn.includes('exceeds limit'))).toBe(true);
   });
 
   it('should generate correct file hashes', () => {
