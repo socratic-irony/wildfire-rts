@@ -820,9 +820,7 @@ spawnFollowersOnAllPaths(3);
         // Regenerate test roads and spawn vehicles on new terrain
         seedRandomLoopsAndVehicles(2);
         rebuildPath2Ds();
-        if (followMode === 'frenet') {
-          spawnFollowersOnAllPaths(3);
-        }
+        spawnFollowersOnAllPaths(3);
         
         // Update menubar references
         menubar.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
