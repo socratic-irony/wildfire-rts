@@ -1,0 +1,159 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2025-09-09T04:53:13.800Z",
+  "projectRoot": "/home/runner/work/wildfire-rts/wildfire-rts",
+  "totalAssets": 10,
+  "totalSizeKB": 15287,
+  "validationSummary": {
+    "valid": 4,
+    "errors": 6,
+    "warnings": 7
+  },
+  "assets": {
+    "src/assets/models/bulldozer.glb": {
+      "path": "src/assets/models/bulldozer.glb",
+      "size": 1371,
+      "hash": "6b0bce8a93967cfdf0940b26f17547fd359cf1d8bdc9041d0c429dd5540e5b72",
+      "type": "models",
+      "valid": true,
+      "errors": [],
+      "warnings": []
+    },
+    "src/assets/models/firetruck.glb": {
+      "path": "src/assets/models/firetruck.glb",
+      "size": 1833,
+      "hash": "988f8d0a4bfcc40ed10abdff4367c1d65efb89eb4aa273a5756dba74dde7d687",
+      "type": "models",
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "File size 1833KB is approaching limit of 2048KB"
+      ]
+    },
+    "src/assets/models/helicopter.glb": {
+      "path": "src/assets/models/helicopter.glb",
+      "size": 1001,
+      "hash": "a4adddac16b45ef68687dfa45f4619d156235f3adceec21d701a29d3b8f81e35",
+      "type": "models",
+      "valid": true,
+      "errors": [],
+      "warnings": []
+    },
+    "src/assets/models/tanker.glb": {
+      "path": "src/assets/models/tanker.glb",
+      "size": 981,
+      "hash": "a082095586d7efd72fa40b43677fbee2c90e8d5f808f0f465eef12a2ab406836",
+      "type": "models",
+      "valid": true,
+      "errors": [],
+      "warnings": []
+    },
+    "src/assets/stills/bulldozer.png": {
+      "path": "src/assets/stills/bulldozer.png",
+      "size": 1647,
+      "hash": "992086c27711c65f7010402ca8b3871dc29a538f880363d459853c2367fe0ac8",
+      "type": "images",
+      "valid": false,
+      "errors": [
+        "File size 1647KB exceeds limit of 1024KB for images"
+      ],
+      "warnings": [
+        "File size 1647KB is approaching limit of 1024KB"
+      ]
+    },
+    "src/assets/stills/firetruck.png": {
+      "path": "src/assets/stills/firetruck.png",
+      "size": 1781,
+      "hash": "426f07d6479505d3ec7430dd4a9be4ac1c386cff2141ad198355eb48fcb06370",
+      "type": "images",
+      "valid": false,
+      "errors": [
+        "File size 1781KB exceeds limit of 1024KB for images"
+      ],
+      "warnings": [
+        "File size 1781KB is approaching limit of 1024KB"
+      ]
+    },
+    "src/assets/stills/helicopter.png": {
+      "path": "src/assets/stills/helicopter.png",
+      "size": 1640,
+      "hash": "3f8b3cad0f74e79997b10b5ce437b885dbe6206bf4f0c9252ea036ed29741236",
+      "type": "images",
+      "valid": false,
+      "errors": [
+        "File size 1640KB exceeds limit of 1024KB for images"
+      ],
+      "warnings": [
+        "File size 1640KB is approaching limit of 1024KB"
+      ]
+    },
+    "src/assets/stills/house_1.png": {
+      "path": "src/assets/stills/house_1.png",
+      "size": 1708,
+      "hash": "a0dbdab6d127abc288afc5febbb42dfdc998e2d6b3bb56e14f53556f4166c352",
+      "type": "images",
+      "valid": false,
+      "errors": [
+        "File size 1708KB exceeds limit of 1024KB for images"
+      ],
+      "warnings": [
+        "File size 1708KB is approaching limit of 1024KB"
+      ]
+    },
+    "src/assets/stills/house_2.png": {
+      "path": "src/assets/stills/house_2.png",
+      "size": 1870,
+      "hash": "f454b0d34883a516500cbe212264684d4bc10d6edb99300ee5e1178afddef99a",
+      "type": "images",
+      "valid": false,
+      "errors": [
+        "File size 1870KB exceeds limit of 1024KB for images"
+      ],
+      "warnings": [
+        "File size 1870KB is approaching limit of 1024KB"
+      ]
+    },
+    "src/assets/stills/tanker.png": {
+      "path": "src/assets/stills/tanker.png",
+      "size": 1455,
+      "hash": "84abe1598104d4e25f9b74c40f0ead03d6609b2461fe70edbf645f13e21df34f",
+      "type": "images",
+      "valid": false,
+      "errors": [
+        "File size 1455KB exceeds limit of 1024KB for images"
+      ],
+      "warnings": [
+        "File size 1455KB is approaching limit of 1024KB"
+      ]
+    }
+  },
+  "rules": {
+    "models": {
+      "extensions": [
+        ".glb",
+        ".gltf"
+      ],
+      "maxSizeKB": 2048,
+      "description": "GLB/GLTF 3D models for vehicles and objects"
+    },
+    "images": {
+      "extensions": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp"
+      ],
+      "maxSizeKB": 1024,
+      "description": "Image assets for UI and textures"
+    },
+    "audio": {
+      "extensions": [
+        ".mp3",
+        ".wav",
+        ".ogg"
+      ],
+      "maxSizeKB": 512,
+      "description": "Audio files for sound effects"
+    }
+  }
+}

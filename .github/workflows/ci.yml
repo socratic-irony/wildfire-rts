@@ -29,6 +29,12 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit --skipLibCheck || echo "Type checking completed with warnings"
         
+      - name: Validate assets
+        run: npm run validate-assets
+        
+      - name: Generate asset manifest
+        run: npm run generate-manifest
+        
       - name: Run tests
         run: npm test
         
