@@ -60,6 +60,18 @@ type Agent = {
   turnSignalRight?: number;
 };
 
+export type VehicleFxState = {
+  id: number;
+  pos: Vector3;
+  forward: Vector3;
+  up: Vector3;
+  right: Vector3;
+  speed: number;
+  type: VehicleType;
+  sprayingWater?: boolean;
+  siren?: boolean;
+};
+
 export class VehiclesManager {
   public group = new Group();
   public particleGroup = new Group(); // Separate group for particles that should always be visible
@@ -101,6 +113,10 @@ export class VehiclesManager {
   private signalCount = 0;
   private flasherCount = 0;
   private elapsed = 0;
+  private externalEmitters = new Map<number, { dustAcc: number; waterAcc: number; active: boolean }>();
+  private tmpVec = new Vector3();
+  private tmpVec2 = new Vector3();
+  private tmpVec3 = new Vector3();
 
   constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64, roadsVis?: RoadsVisual, fireGrid?: FireGrid) {
     this.hm = hm; this.terrain = terrain; this.roadMask = roadMask; this.maxAgents = maxAgents;
@@ -165,11 +181,19 @@ export class VehiclesManager {
     // Particle systems for smoke trails, dust, and water spray
     const ico = new IcosahedronGeometry(this.cellSize * 0.1, 0);
     const smokeMat = new MeshBasicMaterial({ color: 0xffffff });
-    const dustMat = new MeshBasicMaterial({ color: 0xffffff });
-    const waterMat = new MeshBasicMaterial({ color: 0xffffff });
+    const dustMat = new MeshBasicMaterial({ color: 0xc6ad8d });
+    const waterMat = new MeshBasicMaterial({ color: 0x9ec9ff });
     this.smokeParticles = new InstancedParticleSystem('smoke', ico, smokeMat, maxAgents * 40);
-    this.dustParticles = new InstancedParticleSystem('smoke', ico, dustMat, maxAgents * 40);
-    this.waterParticles = new InstancedParticleSystem('smoke', ico, waterMat, maxAgents * 30);
+    this.dustParticles = new InstancedParticleSystem('smoke', ico, dustMat, maxAgents * 40, {
+      horizontalWind: 0.25,
+      upwardAccel: 0.08,
+      slopeResponse: 0.15,
+    });
+    this.waterParticles = new InstancedParticleSystem('smoke', ico, waterMat, maxAgents * 30, {
+      horizontalWind: 0.12,
+      upwardAccel: -1.4,
+      slopeResponse: 0.0,
+    });
     this.particleGroup.add(this.smokeParticles.mesh, this.dustParticles.mesh, this.waterParticles.mesh);
   }
 
@@ -525,6 +549,7 @@ export class VehiclesManager {
     this.smokeParticles.killAll();
     this.dustParticles.killAll();
     this.waterParticles.killAll();
+    this.externalEmitters.clear();
     this.instRotor.instanceMatrix.needsUpdate = true;
     this.instHeadlight.instanceMatrix.needsUpdate = true;
     this.instSignal.instanceMatrix.needsUpdate = true;
@@ -670,6 +695,149 @@ export class VehiclesManager {
     this.smokeParticles.update(dt, { wx: 0, wz: 0 }, 0);
     this.dustParticles.update(dt, { wx: 0, wz: 0 }, 0);
     this.waterParticles.update(dt, { wx: 0, wz: 0 }, 0);
+  }
+
+  updateExternalFx(
+    dt: number,
+    states: ReadonlyArray<VehicleFxState>,
+    opts: { wind?: { wx: number; wz: number } } = {}
+  ) {
+    this.elapsed += dt;
+    const wind = opts.wind ?? { wx: 0, wz: 0 };
+
+    this.headlightCount = 0;
+    this.signalCount = 0;
+    this.flasherCount = 0;
+
+    for (const record of this.externalEmitters.values()) record.active = false;
+
+    const flasherMat = this.instFlasher.material as MeshStandardMaterial;
+    const cycle = Math.sin(this.elapsed * 6);
+    const red = Math.max(0, cycle);
+    const blue = Math.max(0, -cycle);
+    flasherMat.color.setRGB(0.25 + red * 0.75, 0.1, 0.25 + blue * 0.75);
+    flasherMat.emissive.setRGB(0.4 + red * 1.8, 0.1, 0.4 + blue * 1.8);
+    flasherMat.emissiveIntensity = 0.9 + Math.abs(cycle) * 1.6;
+
+    const headMat = this.instHeadlight.material as MeshStandardMaterial;
+    headMat.emissiveIntensity = 1.2 + 0.3 * Math.sin(this.elapsed * 2.5);
+
+    for (const state of states) {
+      let record = this.externalEmitters.get(state.id);
+      if (!record) {
+        record = { dustAcc: 0, waterAcc: 0, active: true };
+        this.externalEmitters.set(state.id, record);
+      } else {
+        record.active = true;
+      }
+
+      const isGround = state.type !== VehicleType.HELICOPTER && state.type !== VehicleType.AIRPLANE;
+      if (isGround) {
+        const front = this.cellSize * 0.5;
+        const side = this.cellSize * 0.28;
+        this.tmpVec
+          .copy(state.pos)
+          .addScaledVector(state.up, this.cellSize * 0.25)
+          .addScaledVector(state.forward, front);
+
+        this.tmpObj3.position.copy(this.tmpVec).addScaledVector(state.right, -side);
+        this.tmpObj3.quaternion.identity();
+        this.tmpObj3.updateMatrix();
+        this.instHeadlight.setMatrixAt(this.headlightCount++, this.tmpObj3.matrix as Matrix4);
+
+        this.tmpObj3.position.copy(this.tmpVec).addScaledVector(state.right, side);
+        this.tmpObj3.updateMatrix();
+        this.instHeadlight.setMatrixAt(this.headlightCount++, this.tmpObj3.matrix as Matrix4);
+
+        const dustRate = Math.max(0, state.speed) * 1.25;
+        record.dustAcc += dustRate * dt;
+        while (record.dustAcc >= 1) {
+          const jitterSide = (Math.random() - 0.5) * this.cellSize * 0.6;
+          const jitterForward = -(0.35 + Math.random() * 0.35) * this.cellSize;
+          this.tmpVec2
+            .copy(state.pos)
+            .addScaledVector(state.up, this.cellSize * 0.12 + Math.random() * this.cellSize * 0.05)
+            .addScaledVector(state.forward, jitterForward)
+            .addScaledVector(state.right, jitterSide);
+          const vel = {
+            x: state.forward.x * 0.4 + (Math.random() - 0.5) * 1.1,
+            y: 0.45 + Math.random() * 0.6,
+            z: state.forward.z * 0.4 + (Math.random() - 0.5) * 1.1,
+          };
+          this.dustParticles.spawnOne({
+            pos: { x: this.tmpVec2.x, y: this.tmpVec2.y, z: this.tmpVec2.z },
+            vel,
+            life: 1.4 + Math.random() * 0.6,
+            size0: this.cellSize * (0.045 + Math.random() * 0.035),
+            size1: this.cellSize * (0.12 + Math.random() * 0.08),
+            color0: [0.82, 0.7, 0.52],
+            color1: [0.55, 0.44, 0.32],
+          });
+          record.dustAcc -= 1;
+        }
+      } else {
+        record.dustAcc = 0;
+      }
+
+      if (state.type === VehicleType.FIRETRUCK) {
+        const sirenBase = this.tmpVec.copy(state.pos).addScaledVector(state.up, this.cellSize * 0.55);
+        const sirenOffset = this.cellSize * 0.24;
+        this.tmpObj3.position.copy(sirenBase).addScaledVector(state.right, -sirenOffset);
+        this.tmpObj3.quaternion.identity();
+        this.tmpObj3.updateMatrix();
+        this.instFlasher.setMatrixAt(this.flasherCount++, this.tmpObj3.matrix as Matrix4);
+        this.tmpObj3.position.copy(sirenBase).addScaledVector(state.right, sirenOffset);
+        this.tmpObj3.updateMatrix();
+        this.instFlasher.setMatrixAt(this.flasherCount++, this.tmpObj3.matrix as Matrix4);
+
+        if (state.sprayingWater) {
+          const waterRate = 14;
+          record.waterAcc += waterRate * dt;
+          while (record.waterAcc >= 1) {
+            const jitterSide = (Math.random() - 0.5) * this.cellSize * 0.25;
+            this.tmpVec3
+              .copy(state.pos)
+              .addScaledVector(state.up, this.cellSize * 0.3)
+              .addScaledVector(state.forward, this.cellSize * (0.9 + Math.random() * 0.25))
+              .addScaledVector(state.right, jitterSide);
+            const vel = {
+              x: state.forward.x * 3.2 + (Math.random() - 0.5) * 1.4,
+              y: 2.6 + Math.random() * 0.9,
+              z: state.forward.z * 3.2 + (Math.random() - 0.5) * 1.4,
+            };
+            this.waterParticles.spawnOne({
+              pos: { x: this.tmpVec3.x, y: this.tmpVec3.y, z: this.tmpVec3.z },
+              vel,
+              life: 1.1 + Math.random() * 0.5,
+              size0: this.cellSize * (0.05 + Math.random() * 0.03),
+              size1: this.cellSize * (0.08 + Math.random() * 0.05),
+              color0: [0.4, 0.62, 0.95],
+              color1: [0.85, 0.94, 1.0],
+            });
+            record.waterAcc -= 1;
+          }
+        } else {
+          record.waterAcc = 0;
+        }
+      } else {
+        record.waterAcc = 0;
+      }
+    }
+
+    for (const [fxId, record] of this.externalEmitters.entries()) {
+      if (!record.active) this.externalEmitters.delete(fxId);
+    }
+
+    this.instHeadlight.count = this.headlightCount as any;
+    this.instSignal.count = 0 as any;
+    this.instFlasher.count = this.flasherCount as any;
+    this.instHeadlight.instanceMatrix.needsUpdate = true;
+    this.instSignal.instanceMatrix.needsUpdate = true;
+    this.instFlasher.instanceMatrix.needsUpdate = true;
+
+    this.dustParticles.update(dt, wind, 0);
+    this.waterParticles.update(dt, wind, 0);
+    this.smokeParticles.update(dt, wind, 0);
   }
 
   private syncInstance(i: number) {

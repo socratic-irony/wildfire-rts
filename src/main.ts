@@ -1,4 +1,4 @@
-import { Mesh, Object3D, BufferAttribute, Vector3, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color, BufferGeometry, CylinderGeometry } from 'three';
+import { Mesh, Object3D, BufferAttribute, Vector3, Quaternion, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color, BufferGeometry, CylinderGeometry } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -29,7 +29,7 @@ import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
 import { applyRoadMaskToFireGrid, createRoadMask, rasterizePolyline } from './roads/state';
-import { VehiclesManager, VehicleType as VManagerVehicleType } from './vehicles/vehicles';
+import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 // import { createFireTexture } from './fire/texture';
@@ -174,24 +174,46 @@ loop.add((dt) => {
   // Intersections TBD — no special slowing logic here
   const groups = new Map<Path2D, number[]>();
   for (let i = 0; i < followers.length; i++) {
-    const p = followers[i].path as Path2D;
+    const p = followers[i].follower.path as Path2D;
     if (!groups.has(p)) groups.set(p, []);
     groups.get(p)!.push(i);
   }
   for (const [, idxs] of groups) {
-    idxs.sort((a, b) => followers[a].s - followers[b].s);
+    idxs.sort((a, b) => followers[a].follower.s - followers[b].follower.s);
     for (let k = idxs.length - 1; k >= 0; k--) {
-      const i = idxs[k];
+      const idx = idxs[k];
+      const current = followers[idx].follower;
       if (k === idxs.length - 1) {
-        followers[i].setLeader(undefined, undefined);
+        current.setLeader(undefined, undefined);
       } else {
-        const lead = idxs[k + 1];
-        followers[i].setLeader(followers[lead].s, followers[lead].v);
+        const leadIdx = idxs[k + 1];
+        const leadFollower = followers[leadIdx].follower;
+        current.setLeader(leadFollower.s, leadFollower.v);
       }
-      followers[i].setSpacingMode(spacingMode);
-      followers[i].update(dt);
+      current.setSpacingMode(spacingMode);
+      current.update(dt);
     }
   }
+
+  followerFxStates.length = 0;
+  for (const entry of followers) {
+    entry.object.matrix.decompose(tmpFollowerPos, tmpFollowerQuat, tmpFollowerScale);
+    tmpFollowerForward.set(0, 0, 1).applyQuaternion(tmpFollowerQuat).normalize();
+    tmpFollowerUp.set(0, 1, 0).applyQuaternion(tmpFollowerQuat).normalize();
+    tmpFollowerRight.set(1, 0, 0).applyQuaternion(tmpFollowerQuat).normalize();
+
+    const fx = entry.fxState;
+    fx.pos.copy(tmpFollowerPos);
+    fx.forward.copy(tmpFollowerForward);
+    fx.up.copy(tmpFollowerUp);
+    fx.right.copy(tmpFollowerRight);
+    fx.speed = entry.follower.v;
+    fx.sprayingWater = entry.type === VManagerVehicleType.FIRETRUCK && entry.follower.v > 0.6;
+    fx.siren = entry.type === VManagerVehicleType.FIRETRUCK;
+    followerFxStates.push(fx);
+  }
+  vehicles.updateExternalFx(dt, followerFxStates);
+
   renderer.render(scene, rig.camera);
   
   // Update paint system
@@ -416,7 +438,7 @@ let path2ds: Path2D[] = [];
 //    - Used for all user-spawned vehicles via UI buttons
 //    - Provides smooth Frenet-frame movement along roads
 //    - Individual Object3D instances with custom geometries
-//    - Managed in `followers: PathFollower[]` array
+//    - Managed in an `ActiveFollower[]` collection with per-vehicle FX state
 //
 // 2. VehiclesManager System (Testing & Abilities):
 //    - Uses InstancedMesh for performance with many vehicles
@@ -428,7 +450,24 @@ let path2ds: Path2D[] = [];
 // to ensure consistency when the user resets the scene.
 // ==========================================
 
-let followers: PathFollower[] = [];
+type ActiveFollower = {
+  id: number;
+  follower: PathFollower;
+  object: Object3D;
+  mesh: Mesh;
+  type: VManagerVehicleType;
+  fxState: VehicleFxState;
+};
+
+let followers: ActiveFollower[] = [];
+let followerIdCounter = 0;
+const followerFxStates: VehicleFxState[] = [];
+const tmpFollowerPos = new Vector3();
+const tmpFollowerQuat = new Quaternion();
+const tmpFollowerScale = new Vector3();
+const tmpFollowerForward = new Vector3();
+const tmpFollowerUp = new Vector3();
+const tmpFollowerRight = new Vector3();
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
 
@@ -465,20 +504,78 @@ function rebuildPath2Ds() {
     return new Path2D(pts, { closed: isClosed });
   });
 }
+
+function createFollowerMesh(vehicleType: VManagerVehicleType): Mesh {
+  const scale = hm.scale;
+  let geo: BufferGeometry;
+  let mat: MeshStandardMaterial;
+  switch (vehicleType) {
+    case VManagerVehicleType.FIRETRUCK:
+      geo = new BoxGeometry(scale * 0.9, scale * 0.6, scale * 1.6);
+      mat = new MeshStandardMaterial({
+        color: new Color(0xcc0000),
+        roughness: 0.6,
+        metalness: 0.2,
+        emissive: new Color(0x220000),
+        emissiveIntensity: 0.3,
+      });
+      break;
+    case VManagerVehicleType.BULLDOZER:
+      geo = new BoxGeometry(scale * 0.7, scale * 0.35, scale * 0.8);
+      mat = new MeshStandardMaterial({
+        color: new Color(0xffdd00),
+        roughness: 0.8,
+        metalness: 0.3,
+        emissive: new Color(0x332200),
+        emissiveIntensity: 0.2,
+      });
+      break;
+    case VManagerVehicleType.CAR:
+    default:
+      geo = new BoxGeometry(scale * 0.5, scale * 0.25, scale * 1.0);
+      mat = new MeshStandardMaterial({
+        color: new Color(0x1e90ff),
+        roughness: 0.7,
+        metalness: 0.1,
+      });
+      break;
+  }
+  const mesh = new Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
 function spawnFollowersOnAllPaths(perPath = 3) {
-  // Create visible follower objects for each path2d
+  const typeSequence = [
+    VManagerVehicleType.CAR,
+    VManagerVehicleType.FIRETRUCK,
+    VManagerVehicleType.BULLDOZER,
+  ];
   for (const p of path2ds) {
     const total = Math.max(1, perPath);
     for (let k = 0; k < total; k++) {
       const obj = new Object3D();
-      const geo = new BoxGeometry(hm.scale * 0.6, hm.scale * 0.3, hm.scale * 0.9);
-      const mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
-      const mesh = new Mesh(geo, mat); mesh.castShadow = true; obj.add(mesh);
+      const vehicleType = typeSequence[(followerIdCounter + k) % typeSequence.length];
+      const mesh = createFollowerMesh(vehicleType);
+      obj.add(mesh);
       scene.add(obj);
       const startS = (p.length / total) * k;
       const follower = new PathFollower(p, hm, obj, startS);
       follower.setSpacingMode(spacingMode);
-      followers.push(follower);
+      const id = followerIdCounter++;
+      const fxState: VehicleFxState = {
+        id,
+        pos: new Vector3(),
+        forward: new Vector3(),
+        up: new Vector3(),
+        right: new Vector3(),
+        speed: 0,
+        type: vehicleType,
+        sprayingWater: false,
+        siren: vehicleType === VManagerVehicleType.FIRETRUCK,
+      };
+      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState });
     }
   }
 }
@@ -523,6 +620,9 @@ function seedRandomLoopsAndVehicles(count = 2) {
 function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
   followers = [];
+  followerFxStates.length = 0;
+  followerIdCounter = 0;
+  vehicles.updateExternalFx(0, followerFxStates);
 }
 /**
  * Spawn a PathFollower vehicle near the camera position
@@ -540,42 +640,25 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
   }
   const obj = new Object3D();
-  
-  // Create vehicle-specific geometry and appearance based on type
-  let geo: BufferGeometry;
-  let mat: MeshStandardMaterial;
-  switch (vehicleType) {
-    case VManagerVehicleType.FIRETRUCK:
-      geo = new BoxGeometry(hm.scale * 0.9, hm.scale * 0.6, hm.scale * 1.6);
-      mat = new MeshStandardMaterial({ 
-        color: new Color(0xcc0000), 
-        roughness: 0.6, 
-        metalness: 0.2, 
-        emissive: new Color(0x220000), 
-        emissiveIntensity: 0.3 
-      });
-      break;
-    case VManagerVehicleType.BULLDOZER:
-      geo = new BoxGeometry(hm.scale * 0.7, hm.scale * 0.35, hm.scale * 0.8);
-      mat = new MeshStandardMaterial({ 
-        color: new Color(0xffdd00), 
-        roughness: 0.8, 
-        metalness: 0.3, 
-        emissive: new Color(0x332200), 
-        emissiveIntensity: 0.2 
-      });
-      break;
-    case VManagerVehicleType.CAR:
-    default:
-      geo = new BoxGeometry(hm.scale * 0.5, hm.scale * 0.25, hm.scale * 1.0);
-      mat = new MeshStandardMaterial({ color: new Color(0x1e90ff), roughness: 0.7, metalness: 0.1 });
-      break;
-  }
-  
-  const mesh = new Mesh(geo, mat); mesh.castShadow = true; obj.add(mesh);
+  const type = vehicleType ?? VManagerVehicleType.CAR;
+  const mesh = createFollowerMesh(type);
+  obj.add(mesh);
   scene.add(obj);
   const follower = new PathFollower(path2ds[bestIdx], hm, obj, bestS);
-  followers.push(follower);
+  follower.setSpacingMode(spacingMode);
+  const id = followerIdCounter++;
+  const fxState: VehicleFxState = {
+    id,
+    pos: new Vector3(),
+    forward: new Vector3(),
+    up: new Vector3(),
+    right: new Vector3(),
+    speed: 0,
+    type,
+    sprayingWater: false,
+    siren: type === VManagerVehicleType.FIRETRUCK,
+  };
+  followers.push({ id, follower, object: obj, mesh, type, fxState });
 }
 
 // Helper function to map menubar vehicle types to VehicleManager enum values

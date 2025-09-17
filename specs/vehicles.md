@@ -21,7 +21,7 @@
 - Animated rotors for helicopters
 - Smoke trails for aircraft
 - Turn signals, headlights, emergency flashers
-- Particle effects for dust and water spray
+- Particle effects for dust and water spray, now driven for PathFollower vehicles via `VehiclesManager.updateExternalFx`
 
 ---
 
@@ -70,7 +70,14 @@ Data Model
   - **vehicleInstances: Map<VehicleType, InstancedMesh>** — separate mesh per vehicle type
   - **vehicleCounts: Map<VehicleType, number>** — tracking instances per type
   - landingZones: array of grid locations available for aircraft
-  - methods: spawnAt, setDestination, setDestinationAll, update, sprayWater, addLandingZone, clear
+  - methods: spawnAt, setDestination, setDestinationAll, update, sprayWater, addLandingZone, clear, **updateExternalFx** (hooks PathFollower vehicles into particle/light FX)
+- `VehicleFxState` (PathFollower bridge)
+  - id: unique per vehicle, reused while active
+  - pos/forward/up/right: world-frame basis vectors copied from follower matrix
+  - speed: current forward speed (m/s)
+  - type: VehicleType (drives headlights/sirens)
+  - sprayingWater?: boolean flag enabling hose particles
+  - siren?: boolean flag to toggle roof flashers
 
 API Surface (Engine ↔ Game)
 
@@ -81,6 +88,7 @@ API Surface (Engine ↔ Game)
 - `sprayWater(i, radius?, intensity?)` — firetruck water suppression
 - `addLandingZone(gx, gz)` — register aircraft landing spot
 - `update(dt)` — move agents and update instance transforms
+- `updateExternalFx(dt, states, opts?)` — per-frame particle/light sync for Frenet PathFollower vehicles using `VehicleFxState`
 - `clear()` — remove all agents
 - `group` — Three.js object to add to scene
 

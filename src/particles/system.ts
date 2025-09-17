@@ -2,6 +2,12 @@ import { AdditiveBlending, BufferAttribute, BufferGeometry, DynamicDrawUsage, Gr
 
 export type ParticleSystemKind = 'flame' | 'smoke' | 'smolder';
 
+type ParticleBehavior = {
+  horizontalWind: number;
+  upwardAccel: number;
+  slopeResponse: number;
+};
+
 export type ParticleSpawn = {
   pos: { x: number; y: number; z: number };
   vel: { x: number; y: number; z: number };
@@ -36,13 +42,29 @@ export class InstancedParticleSystem {
   private aColor0: InstancedBufferAttribute;
   private aColor1: InstancedBufferAttribute;
 
-  constructor(kind: ParticleSystemKind, geom: BufferGeometry, mat: MeshStandardMaterial | MeshBasicMaterial, capacity: number) {
+  private behavior: ParticleBehavior;
+
+  constructor(
+    kind: ParticleSystemKind,
+    geom: BufferGeometry,
+    mat: MeshStandardMaterial | MeshBasicMaterial,
+    capacity: number,
+    behaviorOverrides?: Partial<ParticleBehavior>
+  ) {
     this.kind = kind;
     this.capacity = capacity;
     this.mesh = new InstancedMesh(geom, mat as any, capacity);
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     (this.mesh as any).frustumCulled = false;
     this.mesh.renderOrder = 9;
+
+    const defaults: ParticleBehavior =
+      kind === 'flame'
+        ? { horizontalWind: 0.35, upwardAccel: 1.6, slopeResponse: 0.5 }
+        : kind === 'smoke'
+          ? { horizontalWind: 0.9, upwardAccel: 0.9, slopeResponse: 0.5 }
+          : { horizontalWind: 0.4, upwardAccel: 0.35, slopeResponse: 0.5 };
+    this.behavior = { ...defaults, ...(behaviorOverrides ?? {}) };
 
     // CPU arrays
     const N = capacity;
@@ -129,11 +151,11 @@ export class InstancedParticleSystem {
       const i3 = i * 3;
       const t = this.age[i] / Math.max(0.001, this.life[i]);
       // kind-based advection weights
-      const horiz = this.kind === 'smoke' ? 0.9 : this.kind === 'smolder' ? 0.4 : 0.35;
-      const up = this.kind === 'flame' ? 1.6 : this.kind === 'smoke' ? 0.9 : 0.35;
+      const horiz = this.behavior.horizontalWind;
+      const up = this.behavior.upwardAccel;
       this.vel[i3+0] += wind.wx * horiz * dt;
       this.vel[i3+2] += wind.wz * horiz * dt;
-      this.vel[i3+1] += up * dt + slopeLift * dt * 0.5;
+      this.vel[i3+1] += up * dt + slopeLift * dt * this.behavior.slopeResponse;
       this.pos[i3+0] += this.vel[i3+0] * dt;
       this.pos[i3+1] += this.vel[i3+1] * dt;
       this.pos[i3+2] += this.vel[i3+2] * dt;
