@@ -11,7 +11,7 @@ This spec captures the particle FX approach used to visualize wildfire combustio
     - Distance LOD throttles emission; hard cap via `mesh.count`.
   - Perimeter ribbon strip (`src/particles/ribbon.ts`): expanded line rendered as one mesh with animated UV flow; UI exposes `visible/width/opacity/speed`.
   - Wired in `src/main.ts`: created once, updated every frame; ribbon controls in Debug UI Fire panel.
-- Legacy (kept for reference): CPU‑pooled instanced spheres (`src/particles/system.ts` + `src/particles/fireParticles.ts`). Not used by `main.ts` anymore; useful as a baseline and for potential embers.
+- Legacy (kept for reference): CPU‑pooled instanced spheres (`src/particles/system.ts` + `src/particles/fireParticles.ts`). Not used by `main.ts` anymore; useful as a baseline, for potential embers, and now configurable (wind/vertical response overrides) so other systems like vehicle FX can reuse it for dust/water sprays.
 
 ## Outstanding Work
 
