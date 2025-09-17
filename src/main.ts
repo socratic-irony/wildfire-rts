@@ -34,6 +34,7 @@ import { makeAngularPath } from './roads/path';
 import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
+import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
 // import { createFireTexture } from './fire/texture';
 
 // Config and console system
@@ -165,15 +166,14 @@ loop.add((dt) => {
   // Update flipbook particles (wind placeholder; can wire simEnv later)
   fireParticles.update(fireGrid as any, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
   
-  // Always update Frenet followers
-  // Intersections TBD — no special slowing logic here
+  // Always update Frenet followers with intersection-aware speed control
   const groups = new Map<Path2D, number[]>();
   for (let i = 0; i < followers.length; i++) {
     const p = followers[i].follower.path as Path2D;
     if (!groups.has(p)) groups.set(p, []);
     groups.get(p)!.push(i);
   }
-  for (const [, idxs] of groups) {
+  for (const [path, idxs] of groups) {
     idxs.sort((a, b) => followers[a].follower.s - followers[b].follower.s);
     for (let k = idxs.length - 1; k >= 0; k--) {
       const idx = idxs[k];
@@ -186,7 +186,9 @@ loop.add((dt) => {
         current.setLeader(leadFollower.s, leadFollower.v);
       }
       current.setSpacingMode(spacingMode);
+      intersectionManager.preUpdateFollower(current, path, dt);
       current.update(dt);
+      intersectionManager.postUpdateFollower(current, path);
     }
   }
 
@@ -466,39 +468,65 @@ const tmpFollowerUp = new Vector3();
 const tmpFollowerRight = new Vector3();
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
+let pathIntersections: IntersectionInfo[][] = [];
+const intersectionManager = new IntersectionManager();
 
 function rebuildPath2Ds() {
+  roadsVis.buildIntersections();
   const raw = roadsVis.getMidlinesXZ();
-  const stitched: Array<Array<{x:number; z:number}>> = [];
+  const rawIntersections = raw.map((_, idx) => roadsVis.getIntersectionsForPath(idx));
+  const stitched: Array<{ pts: Array<{ x: number; z: number }>; components: number[] }> = [];
   const used = new Array(raw.length).fill(false);
   const eps = hm.scale * 0.6;
-  const near = (a:{x:number;z:number}, b:{x:number;z:number}) => Math.hypot(a.x-b.x, a.z-b.z) <= eps;
+  const near = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z) <= eps;
   for (let i = 0; i < raw.length; i++) {
     if (used[i] || raw[i].length < 2) continue;
-    let cur = raw[i].slice(); used[i] = true;
+    let cur = raw[i].slice();
+    const comps = [i];
+    used[i] = true;
     let extended = true;
     while (extended) {
       extended = false;
       for (let j = 0; j < raw.length; j++) {
         if (used[j] || raw[j].length < 2) continue;
-        const a0 = cur[0], a1 = cur[cur.length-1];
-        const b0 = raw[j][0], b1 = raw[j][raw[j].length-1];
-        if (near(a1, b0)) { cur = cur.concat(raw[j].slice(1)); used[j] = true; extended = true; }
-        else if (near(a1, b1)) { cur = cur.concat(raw[j].slice(0, raw[j].length-1).reverse()); used[j] = true; extended = true; }
-        else if (near(a0, b1)) { cur = raw[j].concat(cur.slice(1)); used[j] = true; extended = true; }
-        else if (near(a0, b0)) { cur = raw[j].slice().reverse().concat(cur.slice(1)); used[j] = true; extended = true; }
+        const a0 = cur[0], a1 = cur[cur.length - 1];
+        const b0 = raw[j][0], b1 = raw[j][raw[j].length - 1];
+        if (near(a1, b0)) { cur = cur.concat(raw[j].slice(1)); used[j] = true; comps.push(j); extended = true; }
+        else if (near(a1, b1)) { cur = cur.concat(raw[j].slice(0, raw[j].length - 1).reverse()); used[j] = true; comps.push(j); extended = true; }
+        else if (near(a0, b1)) { cur = raw[j].concat(cur.slice(1)); used[j] = true; comps.push(j); extended = true; }
+        else if (near(a0, b0)) { cur = raw[j].slice().reverse().concat(cur.slice(1)); used[j] = true; comps.push(j); extended = true; }
       }
     }
-    stitched.push(cur);
+    stitched.push({ pts: cur, components: comps });
   }
-  for (let i = 0; i < raw.length; i++) if (!used[i]) stitched.push(raw[i]);
-  // Treat each smoothed midline as a closed loop if it appears to form a circuit
-  path2ds = stitched.map(pts => {
+  for (let i = 0; i < raw.length; i++) {
+    if (!used[i] && raw[i].length >= 2) stitched.push({ pts: raw[i], components: [i] });
+  }
+
+  const newPaths: Path2D[] = [];
+  const newIntersections: IntersectionInfo[][] = [];
+  for (const { pts, components } of stitched) {
+    if (pts.length < 2) continue;
     const first = pts[0];
     const last = pts[pts.length - 1];
     const isClosed = Math.hypot(first.x - last.x, first.z - last.z) < hm.scale * 1.5;
-    return new Path2D(pts, { closed: isClosed });
-  });
+    const path = new Path2D(pts, { closed: isClosed });
+    const interMap = new Map<number, IntersectionInfo>();
+    for (const idx of components) {
+      const list = rawIntersections[idx] || [];
+      for (const inter of list) {
+        if (interMap.has(inter.id)) continue;
+        const proj = path.project({ x: inter.pos.x, z: inter.pos.z });
+        interMap.set(inter.id, { id: inter.id, s: proj.s, pos: { x: inter.pos.x, z: inter.pos.z } });
+      }
+    }
+    const ordered = Array.from(interMap.values()).sort((a, b) => a.s - b.s);
+    newPaths.push(path);
+    newIntersections.push(ordered);
+  }
+  path2ds = newPaths;
+  pathIntersections = newIntersections;
+  intersectionManager.setPaths(path2ds.map((path, idx) => ({ path, intersections: pathIntersections[idx] || [] })));
 }
 
 function createFollowerMesh(vehicleType: VManagerVehicleType): Mesh {
@@ -619,6 +647,7 @@ function clearFollowers() {
   followerFxStates.length = 0;
   followerIdCounter = 0;
   vehicles.updateExternalFx(0, followerFxStates);
+  intersectionManager.clearFollowers();
 }
 /**
  * Spawn a PathFollower vehicle near the camera position
