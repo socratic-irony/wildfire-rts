@@ -2,7 +2,8 @@ Intersection Logic Spec (Vehicles on Procedural Roads)
 
 Status
 
-- TBD in code: Intersection logic is not currently enabled. A simple all‑way stop manager was explored but removed for now due to tuning issues. The next iteration will implement the “All‑Way Stop” method described here (queues, deterministic ordering, spillback check), followed by tokenized conflict zones.
+- ✅ Implemented: each registered intersection now runs an all-way stop controller. Vehicles detect upcoming crossings, slow to a stop line, queue, wait one second after coming to rest, and then enter in first-come order while others remain halted. Visual pads mark every intersection so players can see where stops occur.
+- 🚧 Next: upgrade to richer node semantics (approach metadata, left/through/right movement tracking, spillback checks) and eventually reserved conflict zones for higher throughput scenarios.
 
 0) Goals
 	•	No collisions, no deadlocks, no jitter.

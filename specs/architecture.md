@@ -72,12 +72,13 @@ Key Abstractions & Data
   - FireViz: overlay instances and vertex tint; perimeter overlay hugging terrain; analytics via `computePerimeter` + `computeFireStats`.
 - Roads
   - CostField: elevation/slope/valley; slope-block threshold; turn penalty in `main.ts` when planning player roads.
-  - Visual: adaptive midline resampling; 3-lane (L/M/R) cross-section; normal-offset; shoulders; dashed stripe.
+  - Visual: adaptive midline resampling; 3-lane (L/M/R) cross-section; normal-offset; shoulders; dashed stripe; circular pads mark intersections so crossings read distinctly.
   - Mask: `Uint8Array` marking road tiles; consumed by vehicles pathing and fire integration.
 - Vehicles
   - Agent: `{ pos, grid, path[], pathIdx, speedTilesPerSec, autoFollowRoad, prev? }`.
   - Movement: interpolate along grid path; altitude from heightmap; orientation from terrain normal + path direction.
   - Pathing: A* restricted to road tiles; auto-follow advances along connected road neighbors.
+  - Intersection manager (`vehicles/intersectionManager.ts`): detects registered crossings, queues vehicles as four-way stops with a one-second dwell, and feeds speed caps into Frenet followers.
 - **Fire Hydrants (HIGH PRIORITY)**
   - System: `{ hydrants[], roadMask, minSpacingTiles, idealSpacingTiles }` with automatic placement and coverage calculation.
   - Placement: Auto-spawn every ~50m along roads with 100+ tile minimum spacing; dynamic updates on road changes.

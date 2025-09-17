@@ -31,8 +31,9 @@ Status (current - v0.1 base features)
 - Demo seeding (vehicles branch): at startup, the main app auto-seeds 1–2 random rectangular road loops and spawns a few vehicles on them so behavior is visible immediately. Clear via debug UI to draw your own roads.
 - Update: baseline road-follow now prefers 4-neighbor (N/E/S/W) turns, considering diagonals only when needed, for clearer cornering. Added a small heading “weathervane” debug marker per agent for quick orientation diagnostics.
 - Intersection routing: auto-follow uses the road midline tangent to pick the correct branch at crossings, keeping vehicles on their intended road.
-- Intersections behave as four-way stops: vehicles queue, pause briefly, and proceed one at a time to avoid collisions.
+- Intersections behave as four-way stops: an intersection manager queues arrivals, forces a full stop with a one second wait, and releases vehicles in arrival order so only one crosses at a time.
 - Road visuals: adaptive smoothed ribbon that hugs terrain via normal offset, dusty shoulders, dashed center stripe; polygon offset to avoid z-fighting.
+- Intersection visuals: every registered intersection renders a subtle circular pad above the terrain so crossings read distinctly from the overlapping road ribbons.
 - Road building: cost field includes slope penalty and hard block for steep tiles; turn penalty biases A* to reduce sharp curves; rasterized road mask integrates with fire grid.
 - Reverted (pending rework): projecting vehicle position/orientation directly to road midline each frame (caused freezes under some conditions).
 - Unit tests cover road A* pathfinding (obstacle avoidance and turn penalties) and terrain cost normalization (elevation, slope, valley).

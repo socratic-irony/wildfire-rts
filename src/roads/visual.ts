@@ -1,4 +1,15 @@
-import { BufferAttribute, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector2, Vector3 } from 'three';
+import {
+  BufferAttribute,
+  BufferGeometry,
+  CircleGeometry,
+  Float32BufferAttribute,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  Vector2,
+  Vector3
+} from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 
 export class RoadsVisual {
@@ -21,6 +32,18 @@ export class RoadsVisual {
   // Intersections cache
   private intersections: Array<{ id: number; pos: Vector2; a:{path:number;s:number;seg:number;t:number}; b:{path:number;s:number;seg:number;t:number} }> = [];
   private perPathIntersections: Array<Array<{ id:number; s:number; pos: Vector2; otherPath:number; otherS:number }>> = [];
+  private intersectionGroup = new Group();
+  private intersectionGeo?: CircleGeometry;
+  private intersectionMat = new MeshStandardMaterial({
+    color: 0x7a7a7a,
+    roughness: 0.85,
+    metalness: 0.05,
+    transparent: true,
+    opacity: 0.92,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4
+  });
   constructor(hm: Heightmap) { this.hm = hm; }
 
   clear() {
@@ -32,6 +55,10 @@ export class RoadsVisual {
     this.segs = [];
     this.intersections = [];
     this.perPathIntersections = [];
+    while (this.intersectionGroup.children.length) {
+      this.intersectionGroup.remove(this.intersectionGroup.children[0]);
+    }
+    this.intersectionGeo = undefined;
   }
 
   // Expose smoothed midlines as world XZ arrays for controllers
@@ -42,6 +69,13 @@ export class RoadsVisual {
   // Public API remains compatible; scale/y ignored (derived from heightmap)
   addPath(points: Array<{ x: number; z: number }>, _scale?: number, _y?: number) {
     if (!points || points.length < 2) return;
+    if (!this.intersectionGeo) {
+      this.intersectionGeo = new CircleGeometry(this.hm.scale * 0.75, 24);
+      this.intersectionGeo.rotateX(-Math.PI / 2);
+      this.group.add(this.intersectionGroup);
+    } else if (!this.group.children.includes(this.intersectionGroup)) {
+      this.group.add(this.intersectionGroup);
+    }
     const scale = this.hm.scale;
     let centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
     // Detect closed loop if first and last are near; remove duplicate last if repeated
@@ -188,6 +222,29 @@ export class RoadsVisual {
     }
     // sort per path by s
     for (let p = 0; p < this.perPathIntersections.length; p++) this.perPathIntersections[p].sort((a,b)=>a.s-b.s);
+
+    // Refresh intersection markers so they read distinctly from ribbons
+    while (this.intersectionGroup.children.length) {
+      this.intersectionGroup.remove(this.intersectionGroup.children[0]);
+    }
+    if (this.intersections.length) {
+      if (!this.intersectionGeo) {
+        this.intersectionGeo = new CircleGeometry(this.hm.scale * 0.75, 24);
+        this.intersectionGeo.rotateX(-Math.PI / 2);
+      }
+      if (!this.group.children.includes(this.intersectionGroup)) {
+        this.group.add(this.intersectionGroup);
+      }
+      for (const inter of this.intersections) {
+        const marker = new Mesh(this.intersectionGeo!, this.intersectionMat);
+        const wy = this.hm.sample(inter.pos.x, inter.pos.y) + this.yOffset * 1.15;
+        marker.position.set(inter.pos.x, wy, inter.pos.y);
+        marker.renderOrder = 9;
+        marker.receiveShadow = false;
+        marker.castShadow = false;
+        this.intersectionGroup.add(marker);
+      }
+    }
   }
 
   getNextIntersection(pathIndex: number, s: number, lookahead = 6): { id:number; s:number; dist:number; pos:{x:number;z:number} } | null {
