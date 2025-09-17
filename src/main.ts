@@ -825,15 +825,29 @@ spawnFollowersOnAllPaths(3);
         scene.add(rocks.inst);
         
         // Clear existing roads, vehicles, and hydrants from old terrain
+        scene.remove(roadsVis.group);
         roadsVis.clear();
         vehicles.clear();
         clearFollowers();
         clearHydrants(hydrantSystem);
         roadEndpoints = [];
-        
+
         // Rebuild road-related systems for new terrain
         roadCost = buildTerrainCost(hm);
         roadMask = createRoadMask(hm.width, hm.height);
+
+        // Recreate road visual bound to the new heightmap so ribbons hug regenerated terrain
+        roadsVis = new RoadsVisual(hm);
+        scene.add(roadsVis.group);
+
+        // Reset hydrant system/visual with the refreshed road mask and heightmap
+        const hydrantsVisible = hydrantVisual.group.visible;
+        scene.remove(hydrantVisual.group);
+        hydrantVisual.dispose();
+        hydrantSystem = createHydrantSystem(roadMask, hm.scale);
+        hydrantVisual = new HydrantVisual(hm);
+        hydrantVisual.setVisible(hydrantsVisible);
+        scene.add(hydrantVisual.group);
         
         // Rebuild fire grid and related systems
         fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
