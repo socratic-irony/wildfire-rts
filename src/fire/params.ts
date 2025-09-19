@@ -1,6 +1,6 @@
 export type FuelKey = 'grass' | 'chaparral' | 'forest' | 'rock' | 'water' | 'urban';
 
-export type FuelParams = {
+type FuelParams = {
   baseROS: number;      // m/s baseline rate of spread on flat, no wind
   fuelLoad: number;     // arbitrary units (relative intensity)
   flameDur: number;     // s, active flaming duration

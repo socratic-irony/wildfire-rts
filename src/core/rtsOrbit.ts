@@ -1,6 +1,6 @@
 import { Object3D, PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three';
 
-export type HeightSampler = (x: number, z: number) => number;
+type HeightSampler = (x: number, z: number) => number;
 
 export class RTSOrbitCamera {
   private dom: HTMLElement;

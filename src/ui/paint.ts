@@ -4,7 +4,7 @@ import { applyWaterAoE, applyRetardantLine } from '../fire/grid';
 import { Heightmap } from '../terrain/heightmap';
 import type { ToolMode } from './menubar';
 
-export type PaintSystemHandle = {
+type PaintSystemHandle = {
   update: (dt: number) => void;
   setCurrentTool: (tool: ToolMode) => void;
   getCurrentTool: () => ToolMode;

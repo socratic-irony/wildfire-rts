@@ -8,6 +8,7 @@
 - Hydrant coverage radius of **25 tiles (~50 m)** enforced by `isInHydrantCoverage` and consumed by `applyWaterAoEWithHydrants`
 - Suppression integration that boosts water application by **1.5× intensity** for tiles under active hydrant coverage
 - Visual instancing via `HydrantVisual` that mirrors the data in `HydrantSystem`
+- Query helpers (`canSuppressAt`, `findNearestHydrant`, `getHydrantCoverage`) covered by unit tests alongside placement/removal flows
 
 ### ⏳ Outstanding
 - Gameplay tuning for coverage falloff, hydrant damage/disable states, and roadside clearance rules

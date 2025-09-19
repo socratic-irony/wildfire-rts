@@ -148,7 +148,7 @@ function makeMaterial(atlas: Texture, frames: number) {
   });
 }
 
-export type ParticleQuality = 'low' | 'med' | 'high';
+type ParticleQuality = 'low' | 'med' | 'high';
 
 export function createFlipbookParticles(hm: Heightmap) {
   const group = new Group();

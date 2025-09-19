@@ -1,6 +1,6 @@
 import { Group, PerspectiveCamera } from 'three';
 
-export type CameraRig = {
+type CameraRig = {
   root: Group;
   yaw: Group;
   pitch: Group;

@@ -1,4 +1,4 @@
-export type Ticker = (dt: number, elapsed: number) => void;
+type Ticker = (dt: number, elapsed: number) => void;
 
 export class Loop {
   private last = performance.now();

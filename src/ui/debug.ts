@@ -6,7 +6,7 @@ import { config } from '../config/features';
 import { computeFireStats, FireStats } from '../fire/stats';
 import { FireGrid } from '../fire/grid';
 
-export type StatsHandle = {
+type StatsHandle = {
   update: (dt: number, renderer: import('three').WebGLRenderer) => void;
   getIgniteMode: () => boolean;
   setVisible: (visible: boolean) => void;

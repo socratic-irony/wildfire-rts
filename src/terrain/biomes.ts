@@ -6,7 +6,7 @@ export type BiomeMask = {
   chaparral: Uint8Array;
 };
 
-export type BiomeThresholds = {
+type BiomeThresholds = {
   rockSlopeDeg: number;        // slope above which becomes rock
   rockHighHeight: number;      // height considered "high"
   rockHighSlopeDeg: number;    // slope above which high areas become rock

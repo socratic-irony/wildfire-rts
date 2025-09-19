@@ -28,7 +28,7 @@ This spec captures the particle FX approach used to visualize wildfire combustio
 - Hero plumes (later)
   - Cross‑card or blob meshes with slow vertex noise for rare, dramatic events.
 
-Tests: `src/__tests__/particles_flipbook.test.ts` covers basic capacity and update wiring.
+Tests: `src/__tests__/particles_flipbook.test.ts` covers basic capacity and update wiring; `src/__tests__/fire_particles.test.ts` sanity-checks the legacy instanced system setup.
 
 ## Goals
 

@@ -5,20 +5,20 @@
  * following the requirement to avoid coupling with forbidden systems.
  */
 
-export interface DebugConfig {
+interface DebugConfig {
   overlay_visible_on_start: boolean;
   console_enabled: boolean;
   memory_metrics_enabled: boolean;
   performance_monitoring: boolean;
 }
 
-export interface Features {
+interface Features {
   debug_overlay: boolean;
   console_commands: boolean;
   advanced_metrics: boolean;
 }
 
-export interface AppConfig {
+interface AppConfig {
   features: Features;
   debug: DebugConfig;
 }

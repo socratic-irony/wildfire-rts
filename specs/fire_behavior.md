@@ -9,6 +9,7 @@ specs/fire_behavior.md
 - Spotting pass (single-hop downwind), ignition queue promotion, burning→smoldering progression, and containment heuristic (`isContained`)
 - Visualization stack: overlay instancing, vertex tint mode, water/retardant decals, perimeter ribbon, and menubar stats powered by `computeFireStats`
 - Player tooling: unified menubar actions plus paint system for ignition, water, and retardant applications directly on the fire grid
+- Helper queries (`sampleTile`, `isContained`) covered by unit tests to lock down API behavior
 
 ### ⏳ Outstanding
 - Edge-based fireline field with crown-level bypass rules and integration with tile `lineStrength`
