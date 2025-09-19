@@ -2,7 +2,7 @@ import { Color, DoubleSide, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D,
 import { Heightmap } from '../terrain/heightmap';
 import { FireGrid, indexToCoord } from './grid';
 
-export function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; depthTest?: boolean; renderOrder?: number }) {
+function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; depthTest?: boolean; renderOrder?: number }) {
   const plane = new PlaneGeometry(1, 1);
   plane.rotateX(-Math.PI / 2); // Make it horizontal
   
@@ -68,7 +68,7 @@ export function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; dept
   return { inst, update, setOffsetY, setDepthTest } as const;
 }
 
-export function createRetardantDecals(hm: Heightmap, opts?: { offsetY?: number; depthTest?: boolean; renderOrder?: number }) {
+function createRetardantDecals(hm: Heightmap, opts?: { offsetY?: number; depthTest?: boolean; renderOrder?: number }) {
   const plane = new PlaneGeometry(1, 1);
   plane.rotateX(-Math.PI / 2); // Make it horizontal
   

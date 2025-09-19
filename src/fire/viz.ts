@@ -4,7 +4,7 @@ import type { FireGrid } from './grid';
 import { createFireOverlay } from './overlay';
 import { createFirePerimeter } from './perimeter';
 
-export type FireVizMode = 'overlay' | 'raised' | 'vertex';
+type FireVizMode = 'overlay' | 'raised' | 'vertex';
 
 export function createFireViz(hm: Heightmap, chunkGroup: Group) {
   // Overlay instance shared for overlay/raised

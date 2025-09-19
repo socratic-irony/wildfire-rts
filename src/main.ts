@@ -3,10 +3,10 @@ import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
+import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
 import { buildTerrainGeometry } from './terrain/mesh';
 import { createTerrainMaterial } from './terrain/material';
-// import { RTSCameraController } from './core/rtsCamera';
 import { RTSOrbitCamera } from './core/rtsOrbit';
 import { applyBiomeVertexColors, computeBiomes, computeBiomesTuned } from './terrain/biomes';
 import { createForest } from './actors/trees';
@@ -19,6 +19,7 @@ import { createMenubar } from './ui/menubar';
 import { createPaintSystem } from './ui/paint';
 import { buildFireGrid, ignite as igniteTiles, FireState } from './fire/grid';
 import { FireSim } from './fire/sim';
+import type { Env as FireEnv } from './fire/sim';
 import { createFireViz } from './fire/viz';
 import { createFireRibbon } from './particles/ribbon';
 import { createFlipbookParticles } from './particles/flipbook';
@@ -44,6 +45,7 @@ const rig = createCameraRig(app);
 scene.add(rig.root);
 
 const renderer = createRenderer(app);
+const input = attachInput(renderer.domElement);
 installGlobalErrorOverlay(app);
 // Hover tile debug overlay state (sample at ~10 Hz)
 let _hoverAcc = 0;
@@ -91,29 +93,16 @@ const orbit = new RTSOrbitCamera(
 
 const loop = new Loop();
 loop.add((dt) => {
-  const keys = new Set(Array.from([])); // placeholder for future direct key handling
   const move = {
-    left: (window as any).keyDown?.('a') || false,
-    right: (window as any).keyDown?.('d') || false,
-    up: (window as any).keyDown?.('w') || false,
-    down: (window as any).keyDown?.('s') || false,
-    yawL: (window as any).keyDown?.('q') || false,
-    yawR: (window as any).keyDown?.('e') || false,
-    tiltU: (window as any).keyDown?.('r') || false,
-    tiltD: (window as any).keyDown?.('f') || false,
+    left: input.keys.has('a') || input.keys.has('arrowleft'),
+    right: input.keys.has('d') || input.keys.has('arrowright'),
+    up: input.keys.has('w') || input.keys.has('arrowup'),
+    down: input.keys.has('s') || input.keys.has('arrowdown'),
+    yawL: input.keys.has('q'),
+    yawR: input.keys.has('e'),
+    tiltU: input.keys.has('r'),
+    tiltD: input.keys.has('f'),
   };
-  // Simple key detection without external libs
-  // Attach once
-  if (!(window as any)._wf_keys) {
-    (window as any)._wf_keys = new Set<string>();
-    window.addEventListener('keydown', (e) => (window as any)._wf_keys.add(e.key.toLowerCase()));
-    window.addEventListener('keyup', (e) => (window as any)._wf_keys.delete(e.key.toLowerCase()));
-    (window as any).keyDown = (k: string) => (window as any)._wf_keys.has(k);
-  }
-  move.left = (window as any).keyDown('a') || (window as any).keyDown('arrowleft');
-  move.right = (window as any).keyDown('d') || (window as any).keyDown('arrowright');
-  move.up = (window as any).keyDown('w') || (window as any).keyDown('arrowup');
-  move.down = (window as any).keyDown('s') || (window as any).keyDown('arrowdown');
 
   orbit.update(dt, move);
   // Wind sway updates (Stage F)
@@ -397,7 +386,7 @@ onResize();
 
 // Stage A-L (fire behavior) — initialize grid + viz, click to ignite
 let fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
-let simEnv = { windDirRad: 0, windSpeed: 0 };
+let simEnv: FireEnv = { windDirRad: 0, windSpeed: 0 };
 let fireSim = new FireSim(fireGrid, simEnv);
 
 // Initialize paint system now that fire grid is available

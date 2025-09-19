@@ -1,4 +1,4 @@
-import type { RoadMask } from '../roads/state';
+import { isRoad, type RoadMask } from '../roads/state';
 
 export type FireHydrant = {
   id: number;
@@ -78,11 +78,6 @@ export function getHydrantCoverage(hydrant: FireHydrant): Array<{ x: number; z: 
   }
   
   return coverage;
-}
-
-function isRoad(roadMask: RoadMask, x: number, z: number): boolean {
-  if (x < 0 || z < 0 || x >= roadMask.width || z >= roadMask.height) return false;
-  return roadMask.mask[z * roadMask.width + x] === 1;
 }
 
 function isValidHydrantPosition(system: HydrantSystem, pos: { x: number; z: number }): boolean {

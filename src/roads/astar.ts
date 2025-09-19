@@ -1,4 +1,4 @@
-export type GridPoint = { x: number; z: number };
+type GridPoint = { x: number; z: number };
 
 export type CostField = {
   width: number;
@@ -6,7 +6,7 @@ export type CostField = {
   costAt: (x: number, z: number, stepDir: { dx: number; dz: number }, prevDir?: { dx: number; dz: number }) => number;
 };
 
-export type AStarOpts = {
+type AStarOpts = {
   diag?: boolean;       // allow diagonals
   heuristic?: 'euclid' | 'manhattan';
   maxIter?: number;     // safety cap

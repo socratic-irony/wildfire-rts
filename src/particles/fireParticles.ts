@@ -4,7 +4,7 @@ import type { FireGrid } from '../fire/grid';
 import { FireState } from '../fire/grid';
 import { InstancedParticleSystem } from './system';
 
-export type ParticleQuality = 'low' | 'med' | 'high';
+type ParticleQuality = 'low' | 'med' | 'high';
 
 function fuelMultipliers(fuel: string) {
   // multipliers for rates and sizes by fuel

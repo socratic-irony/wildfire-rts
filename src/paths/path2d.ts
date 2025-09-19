@@ -1,6 +1,6 @@
 export type V2 = { x: number; z: number };
 
-export const v2 = {
+const v2 = {
   sub: (a: V2, b: V2): V2 => ({ x: a.x - b.x, z: a.z - b.z }),
   add: (a: V2, b: V2): V2 => ({ x: a.x + b.x, z: a.z + b.z }),
   dot: (a: V2, b: V2) => a.x * b.x + a.z * b.z,

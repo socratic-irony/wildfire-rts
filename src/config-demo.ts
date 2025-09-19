@@ -5,7 +5,7 @@ import { ConfigurableLogger } from '../tools/logger';
  * Configuration demo showing feature flag usage in a non-critical path
  * This can be called to demonstrate the configuration system
  */
-export async function demonstrateConfiguration(): Promise<void> {
+async function demonstrateConfiguration(): Promise<void> {
   console.log('=== Configuration System Demo ===');
   
   try {

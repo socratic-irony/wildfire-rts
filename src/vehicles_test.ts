@@ -3,6 +3,7 @@ import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
+import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
 import { createTerrainMaterial } from './terrain/material';
 import { computeBiomes, applyBiomeVertexColors } from './terrain/biomes';
@@ -25,6 +26,7 @@ const rig = createCameraRig(app);
 scene.add(rig.root);
 
 const renderer = createRenderer(app);
+const input = attachInput(renderer.domElement);
 
 // Small, mostly-flat map for vehicle/road tests
 const hm = generateHeightmap(32, 32, 1, {
@@ -52,21 +54,15 @@ const orbit = new RTSOrbitCamera(
 const loop = new Loop();
 loop.add((dt) => {
   // simple WASD + arrows + QE/RF
-  if (!(window as any)._wf_keys) {
-    (window as any)._wf_keys = new Set<string>();
-    window.addEventListener('keydown', (e) => (window as any)._wf_keys.add(e.key.toLowerCase()));
-    window.addEventListener('keyup', (e) => (window as any)._wf_keys.delete(e.key.toLowerCase()));
-    (window as any).keyDown = (k: string) => (window as any)._wf_keys.has(k);
-  }
   const move = {
-    left: (window as any).keyDown('a') || (window as any).keyDown('arrowleft'),
-    right: (window as any).keyDown('d') || (window as any).keyDown('arrowright'),
-    up: (window as any).keyDown('w') || (window as any).keyDown('arrowup'),
-    down: (window as any).keyDown('s') || (window as any).keyDown('arrowdown'),
-    yawL: (window as any).keyDown('q') || false,
-    yawR: (window as any).keyDown('e') || false,
-    tiltU: (window as any).keyDown('r') || false,
-    tiltD: (window as any).keyDown('f') || false,
+    left: input.keys.has('a') || input.keys.has('arrowleft'),
+    right: input.keys.has('d') || input.keys.has('arrowright'),
+    up: input.keys.has('w') || input.keys.has('arrowup'),
+    down: input.keys.has('s') || input.keys.has('arrowdown'),
+    yawL: input.keys.has('q'),
+    yawR: input.keys.has('e'),
+    tiltU: input.keys.has('r'),
+    tiltD: input.keys.has('f'),
   };
 
   orbit.update(dt, move);

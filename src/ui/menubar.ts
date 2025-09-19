@@ -24,22 +24,22 @@ const ICONS = {
 } as const;
 
 // Vehicle types available for spawning
-export type VehicleType = 'firetruck' | 'bulldozer' | 'generic';
+type VehicleType = 'firetruck' | 'bulldozer' | 'generic';
 
-export const VEHICLE_TYPES = {
+const VEHICLE_TYPES = {
   firetruck: { name: 'Fire Truck', icon: ICONS.firetruck, description: 'Fast response vehicle for water delivery' },
   bulldozer: { name: 'Bulldozer', icon: ICONS.bulldozer, description: 'Heavy vehicle for creating firebreaks' },
   generic: { name: 'Generic Vehicle', icon: ICONS.vehicle, description: 'Standard utility vehicle' },
 } as const;
 
-export type ToolMode = 
+export type ToolMode =
   | 'ignite' 
   | 'water' 
   | 'retardant' 
   | 'roads' 
   | 'none';
 
-export type MenubarHandle = {
+type MenubarHandle = {
   setVisible: (visible: boolean) => void;
   isVisible: () => boolean;
   getCurrentTool: () => ToolMode;
@@ -55,7 +55,7 @@ export type MenubarHandle = {
   getIgniteMode: () => boolean;
 };
 
-export type MenubarActions = {
+type MenubarActions = {
   fire?: {
     ignite?: () => void;
     igniteCenter?: () => void;

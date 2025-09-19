@@ -10,7 +10,7 @@ export const enum FireState {
   Burned = 4,
 }
 
-export type Tile = {
+type Tile = {
   state: FireState;
   heat: number;          // 0..1
   progress: number;      // 0..1, burn progression
@@ -23,13 +23,6 @@ export type Tile = {
   slopeTan: number;      // |tan(slope)|
   downX: number;         // downslope direction (unit, xz)
   downZ: number;
-};
-
-export type Env = {
-  windDirRad: number;  // radians, direction wind blows TO (0 = +Z)
-  windSpeed: number;   // m/s
-  airTempC: number;    // not used yet
-  humidity: number;    // 0..1, not used yet
 };
 
 export type FireGrid = {

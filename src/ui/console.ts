@@ -7,13 +7,13 @@
 
 import { getConfigValue, setConfigValue } from '../config/features';
 
-export interface Command {
+interface Command {
   name: string;
   description: string;
   execute: (args: string[]) => string | Promise<string>;
 }
 
-export interface ConsoleOptions {
+interface ConsoleOptions {
   maxHistory: number;
   maxOutput: number;
 }

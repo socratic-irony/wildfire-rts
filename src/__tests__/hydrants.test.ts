@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { createRoadMask } from '../roads/state';
-import { createHydrantSystem, updateHydrantPlacement, isInHydrantCoverage } from '../fire/hydrants';
+import {
+  canSuppressAt,
+  createHydrantSystem,
+  findNearestHydrant,
+  getHydrantCoverage,
+  isInHydrantCoverage,
+  placeHydrant,
+  removeHydrant,
+  updateHydrantPlacement,
+} from '../fire/hydrants';
 import { generateHeightmap } from '../terrain/heightmap';
 import { computeBiomes } from '../terrain/biomes';
 import {
@@ -118,5 +127,30 @@ describe('hydrant-enhanced suppression', () => {
     const boostedFar = hydrantGrid.tiles[baseOutsideIdx];
     expect(boostedFar.wetness).toBeCloseTo(baseFar.wetness, 5);
     expect(boostedFar.heat).toBeCloseTo(baseFar.heat, 5);
+  });
+});
+
+describe('hydrant utility helpers', () => {
+  it('supports placement, queries, and removal', () => {
+    const mask = createRoadMask(40, 3);
+    for (let x = 0; x < mask.width; x++) {
+      mask.mask[1 * mask.width + x] = 1;
+    }
+
+    const system = createHydrantSystem(mask, 2);
+    expect(placeHydrant(system, { x: 5, z: 1 })).toBe(true);
+    const hydrant = system.hydrants[0];
+
+    const coverage = getHydrantCoverage(hydrant);
+    expect(coverage).toContainEqual({ x: hydrant.gridPos.x, z: hydrant.gridPos.z });
+
+    expect(canSuppressAt(system, hydrant.gridPos)).toBe(true);
+    expect(canSuppressAt(system, { x: hydrant.gridPos.x + hydrant.coverageRadius + 10, z: hydrant.gridPos.z })).toBe(false);
+
+    const nearest = findNearestHydrant(system, { x: hydrant.gridPos.x + 4, z: hydrant.gridPos.z });
+    expect(nearest?.id).toBe(hydrant.id);
+
+    expect(removeHydrant(system, hydrant.id)).toBe(true);
+    expect(system.hydrants.length).toBe(0);
   });
 });

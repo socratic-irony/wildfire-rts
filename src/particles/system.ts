@@ -1,6 +1,6 @@
 import { AdditiveBlending, BufferAttribute, BufferGeometry, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, Vector3 } from 'three';
 
-export type ParticleSystemKind = 'flame' | 'smoke' | 'smolder';
+type ParticleSystemKind = 'flame' | 'smoke' | 'smolder';
 
 type ParticleBehavior = {
   horizontalWind: number;
@@ -8,7 +8,7 @@ type ParticleBehavior = {
   slopeResponse: number;
 };
 
-export type ParticleSpawn = {
+type ParticleSpawn = {
   pos: { x: number; y: number; z: number };
   vel: { x: number; y: number; z: number };
   life: number;           // seconds
