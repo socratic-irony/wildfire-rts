@@ -1,36 +1,43 @@
 specs/fire_behavior.md
 
-Status (current)
+## Status
 
-- Implemented in code: FireGrid build with per-tile slope and downslope direction, fuels (grass/chaparral/forest/rock/water/urban) with tunable params, ignition API (`ignite`) and fixed-step simulation (`FireSim.step`) at 4 Hz, neighbor ignition probability based on fractional advance with wind/slope and moisture damping, simple spotting, Igniting→Burning promotion timer, combustion/heat progression (Burning→Smoldering→Burned), wetness/retardant fields with exponential decay, suppression hooks (`applyWaterAoE`, `applyRetardantLine`, `writeFirelineEdges`), tile-based `lineStrength` barriering, and a containment heuristic (`isContained`). Visuals: instanced overlay and vertex‑tint fire viz modes, thin perimeter outline render. Analytics: perimeter extraction (`computePerimeter`) and `computeFireStats` (active counts, burned tiles/area, perimeter length).
-- Not yet (high level): edge‑based firelines, crown fire mode, particle flames/smoke, burned‑ground decals, water/retardant/handline paint UI, wind tuning UI.
+### ✅ Implemented
+- FireGrid tile build with per-tile slope, downslope direction, and biome-driven fuels (`grass`, `chaparral`, `forest`, `rock`, `water`, `urban`)
+- Deterministic `FireSim` stepping at 4 Hz with humidity drift toward ambient conditions, moisture gating (`fuelMoisture` + `wetness` + retardant), and early extinguish when heat falls below `thresholds.extinguishHeat`
+- Suppression hooks: `applyWaterAoE`, `applyWaterAoEWithHydrants` (1.5× boost under coverage), `applyRetardantLine`, and tile-based `writeFirelineEdges`
+- Spotting pass (single-hop downwind), ignition queue promotion, burning→smoldering progression, and containment heuristic (`isContained`)
+- Visualization stack: overlay instancing, vertex tint mode, water/retardant decals, perimeter ribbon, and menubar stats powered by `computeFireStats`
+- Player tooling: unified menubar actions plus paint system for ignition, water, and retardant applications directly on the fire grid
 
-Outstanding Work (v0.1 audit)
+### ⏳ Outstanding
+- Edge-based fireline field with crown-level bypass rules and integration with tile `lineStrength`
+- Crown fire modeling tied to `thresholds.crownHeat` and canopy/ember behavior
+- Enhanced rate-of-spread shaping (elliptical head bias), richer multi-hop spotting, and gust variability
+- Retardant gel knockback/decay tuning and handline/clearing workflows along edges
+- Particle FX (flames/smoke), burned-ground decals, and vegetation scorch tinting
+- Expanded UI controls (wind sliders, overlay toggles) and containment badges within the menubar
+- Optional data layout upgrade to typed-array SoA if profiling indicates AoS object storage is a bottleneck
+
+## Outstanding Work (v0.1 audit)
 
 - Core engine:
-  - Igniting stage: tuned timings/UX (baseline implemented with `tIgnite` and `lastIgnitedAt`).
-  - Early extinguish: rule to push Burning → Smoldering when `heat < thresholds.extinguishHeat` and isolated.
-  - Moisture gating: hard gate on ignition when effective moisture is very high (e.g., `fuelMoistureEff < 0.9`) — currently only soft damping.
-  - Fuel moisture & humidity: per‑tile `fuelMoisture` and slow drift toward `Env.humidity` not applied.
-  - Line barriers: edge‑based line field (separate from tile `lineStrength`) and crown‑threshold bypass behavior.
+  - Line barriers: edge-based line field (separate from tile `lineStrength`) and crown-threshold bypass behavior.
   - Crown fire: behavior switches tied to `thresholds.crownHeat`.
-  - Perimeter: visualization polish (thickness, color ramp) and optional smoothing; UI counters wired to stats.
+  - Perimeter: visualization polish (thickness, color ramp) and optional smoothing for large fires.
   - Data layout: current AoS objects; optional SoA typed arrays if/when perf dictates.
 - Spread/probability:
   - Head/elliptical bias based on wind/slope azimuth (current model uses Poisson from fractional advance without an extra head bias).
   - Spotting details: angular jitter, distance sampling and moisture check as described; current version is a simplified single hop.
 - Suppression:
-  - Water knockdown: immediate heat reduction on application (in addition to wetness field).
-  - Retardant gel “knockback”: short‑term increase to `retardant` (e.g., +0.15) for ~10 s after drops.
+  - Retardant gel “knockback”: short-term increase to `retardant` (e.g., +0.15) for ~10 s after drops.
   - Handline/Cleared: writing along edges and optional tile clearing (state=5) with fuel reduction.
 - Visuals:
-  - Particles (flames/smoke) and burned‑ground/wetness/retardant decals.
-  - Perimeter line visualization.
-  - Vegetation burn tint: trees and shrubs darken → brown → near‑black based on tile state (Burning/Smoldering/Burned), updated ~2 Hz.
+  - Particles (flames/smoke) and burned-ground decals.
+  - Vegetation burn tint: trees and shrubs darken → brown → near-black based on tile state (Burning/Smoldering/Burned), updated ~2 Hz.
 - UI/Debug:
-  - Wind controls (speed/direction sliders), water/retardant/handline paint tools.
-  - Stats UI: burning count, burned area, perimeter length shown in debug overlay (monospace). Mean ROS and contained/not‑contained badge pending.
-  - Overlays: slope/wind vectors, wetness/retardant.
+  - Wind controls (speed/direction sliders) and overlay toggles for slope, wetness, retardant.
+  - Stats UI: containment badge and mean ROS display.
 
 0) Purpose & Scope
 
@@ -76,7 +83,7 @@ interface Tile {
   lastIgnitedAt: number;     // seconds
 }
 
-Data is stored in structure-of-arrays (SoA) for JS/TS perf: Float32Array/Uint8Array per field.
+Data is currently stored as an array of tile objects (AoS) for implementation simplicity; migrate to typed-array SoA only if profiling shows pressure.
 
 ⸻
 

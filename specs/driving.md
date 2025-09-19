@@ -2,7 +2,9 @@ Intersection Logic Spec (Vehicles on Procedural Roads)
 
 Status
 
-- TBD in code: Intersection logic is not currently enabled. A simple all‑way stop manager was explored but removed for now due to tuning issues. The next iteration will implement the “All‑Way Stop” method described here (queues, deterministic ordering, spillback check), followed by tokenized conflict zones.
+- ✅ Implemented in `VehiclesManager`: four-way-stop intersection queues, per-node occupant tracking, and stop-time gating for grid-follow vehicles
+- ⏳ Pending integration for Frenet `PathFollower` vehicles; share queue tokens and spillback checks across both controllers before expanding to priority or reservation systems
+- Refer to `docs/vehicles/dual_architecture.md` for how intersection data currently stays inside the instanced manager layer
 
 0) Goals
 	•	No collisions, no deadlocks, no jitter.

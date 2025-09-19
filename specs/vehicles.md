@@ -1,45 +1,42 @@
 # Vehicles Spec (v0.3) - Behaviors & Abilities
 
-## 🎯 STATUS: HANDOFF READY 
+## Status
 
-**Core multi-vehicle type system with type-specific behaviors is complete and functional.** The architecture now supports 6 vehicle types with per-type speed/handling, airborne movement for aircraft, and fire suppression abilities.
+### ✅ Implemented
+- Dual vehicle architecture: Frenet `PathFollower` vehicles for player spawns plus instanced `VehiclesManager` agents for mass simulation, particles, and abilities
+- `VehiclesManager` four-way-stop intersection queues, particle/light FX, and water spray integration (`updateExternalFx`)
+- Menubar and debug tooling to spawn/clear followers, toggle move modes, and sync spacing parameters
+- Per-type instanced meshes, vehicle counts, and ability hooks (spray water, landing zones)
 
-### ✅ COMPLETED v0.3 Features:
+### ⏳ Outstanding
+- Share intersection/spacing logic with `PathFollower` controllers and reconcile duplicate movement stacks
+- Reintroduce robust road-midline projection with spatial indexing and curvature-aware steering
+- Expand geometry/visual polish for helicopter/airplane/firefighter models and siren/lighting fidelity
+
+> See `docs/vehicles/dual_architecture.md` for how the Frenet followers and `VehiclesManager` exchange FX data.
+
+## Completed Milestones
+
+### ✅ v0.3 Feature Highlights
 - Vehicle-specific speed/handling (bulldozers slower, aircraft faster with obstacle-free flight)
 - Firetruck water spraying that wets and cools nearby fire tiles
 - Optional landing zones for aircraft via `addLandingZone`
-
-### ✅ COMPLETED v0.2 Features:
-- **6 Vehicle Types**: CAR, FIRETRUCK, BULLDOZER, HELICOPTER, AIRPLANE, FIREFIGHTER
-- **Separate InstancedMesh per type** for optimal performance
-- **Random vehicle spawning** with type variety
-- **Distinct colors and basic geometries** for each vehicle type
-- **Vehicle type tracking** in manager with counts per type
-- **Extended API** to support optional vehicle type specification
-
-### ✅ COMPLETED v0.3 Visual Polish
-- Animated rotors for helicopters
-- Smoke trails for aircraft
-- Turn signals, headlights, emergency flashers
 - Particle effects for dust and water spray, now driven for PathFollower vehicles via `VehiclesManager.updateExternalFx`
 
----
+### ✅ v0.2 Foundation
+- Six vehicle types (car, firetruck, bulldozer, helicopter, airplane, firefighter) with per-type instanced meshes and colors
+- Random vehicle spawning with type variety and per-type counts
+- Extended API for explicit vehicle type selection
 
-Status (current - v0.1 base features)
+## Runtime Snapshot
 
-- Implemented: instanced vehicles with a simple grid-follow model constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction), spawn near nearest road, road-only A* for explicit destinations, and an auto-follow mode that advances along connected road tiles. UI hooks to spawn/move/clear. Vehicles render reliably after rollback to terrain-only alignment.
-- Demo seeding (vehicles branch): at startup, the main app auto-seeds 1–2 random rectangular road loops and spawns a few vehicles on them so behavior is visible immediately. Clear via debug UI to draw your own roads.
-- Update: baseline road-follow now prefers 4-neighbor (N/E/S/W) turns, considering diagonals only when needed, for clearer cornering. Added a small heading “weathervane” debug marker per agent for quick orientation diagnostics.
-- Intersection routing: auto-follow uses the road midline tangent to pick the correct branch at crossings, keeping vehicles on their intended road.
-- Intersections behave as four-way stops: vehicles queue, pause briefly, and proceed one at a time to avoid collisions.
-- Road visuals: adaptive smoothed ribbon that hugs terrain via normal offset, dusty shoulders, dashed center stripe; polygon offset to avoid z-fighting.
-- Road building: cost field includes slope penalty and hard block for steep tiles; turn penalty biases A* to reduce sharp curves; rasterized road mask integrates with fire grid.
-- Reverted (pending rework): projecting vehicle position/orientation directly to road midline each frame (caused freezes under some conditions).
-- Unit tests cover road A* pathfinding (obstacle avoidance and turn penalties) and terrain cost normalization (elevation, slope, valley).
-- Testbed page: `vehicles-test.html` runs `src/vehicles_test.ts` with a 32×32 mostly-flat terrain and preset roads:
-  - Variants: rectangular loop and figure‑8 (switchable in the debug UI).
-  - Behavior: vehicles auto-spawn on the road, immediately moving; yaw aligns with segment direction; pitch/roll align to terrain normal.
-  - Purpose: quick manual validation without touching the main app wiring.
+- Instanced vehicles with grid-follow fallback constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction)
+- Auto-seeded demo loops at startup plus menubar hooks to spawn/move/clear vehicles
+- Four-way-stop intersection management to avoid collisions
+- Road visuals: smoothed ribbon with dashed center stripe, dusty shoulders, polygon offset to avoid z-fighting
+- Road building: cost field includes slope penalty and hard blocks for steep tiles; turn penalty biases A* to reduce sharp curves
+- Unit tests cover road A* pathfinding, terrain cost normalization, and vehicle ability plumbing
+
 
 Goals
 
@@ -133,39 +130,14 @@ Performance Targets
 - ≤ 0.5 ms/update for 100 vehicles on typical roads.
 - No stutters on first spawn or after long road placement.
 
- Known Issues / Outstanding Work
+## Outstanding Focus Areas
 
-## 🎯 HANDOFF READY: Multi-Vehicle System Complete (v0.2)
-
-The foundational multi-vehicle type system is complete and ready for handoff. Future agents can work on:
-
-### Next Chunk 1: Enhanced Vehicle Geometries
-- Improve HELICOPTER: sphere body + rotor disk + tail boom
-- Improve AIRPLANE: T-shape fuselage with wings and tail
-- Improve FIREFIGHTER: three stick figure (head/torso/legs) with visibility outline
-
-### Next Chunk 2: Vehicle Behaviors & Abilities  
-- Vehicle-specific speed/handling (helicopters fly over obstacles, bulldozers slower)
-- Water spraying for firetrucks, fire suppression abilities
-- Landing zones for aircraft, different movement patterns
-
-### Next Chunk 3: Visual Polish
-- Animated rotors for helicopters, smoke trails for aircraft
-- Turn signals, headlights, emergency flashers
-- Particle effects for dust, water spray, etc.
-
----
-
-## Previous Outstanding Work (v0.1):
-
-- Midline projection (safe): Reintroduce vehicle projection/orientation to road midline using a spatial index (grid or BVH) per road to avoid O(N·M) scans. Maintain per-agent path+segment hints for O(1) neighborhood queries. Guard against degenerate segments (zero length).
-  - Current status: orientation uses midline projection with a gentle lateral nudge; a per-road spatial index and stable segment pinning are next.
-- Steering/yaw smoothing: Reapply forward vector smoothing (lerp/slerp) once projection is stable to get visually pleasing steering through curves.
-- Speed model: Modulate speed by grade, curvature, and road class; cap speed on steep slopes and sharp turns.
-- Collision/spacing: Four-way stop queues reduce intersection collisions; lane-based spacing and smarter convoy behavior remain.
-- Laneing/width: Optional lanes and side-of-road offsets; passability width vs terrain slope.
-- Robust spawn: Ensure spawn locks to the intended road polyline and valid segment; fallback if none.
-- Telemetry/Debug: Add per-frame timings for road projection (when reintroduced), active agents, and path lengths; draw path overlays for diagnostics.
+- PathFollower vehicles do not yet consume the `VehiclesManager` intersection queues; share gating logic so both controllers obey the same four-way-stop rules.
+- Reintroduce road-midline projection with spatial indexing to keep followers pinned to centerlines and smooth yaw through tight curves.
+- Expand the speed model to factor in grade, curvature, and road class, and add lane/offset support for wider roads.
+- Improve collision spacing for long convoys (lane-based offsets, platooning heuristics) beyond the current leader-follow spacing.
+- Upgrade geometry and VFX fidelity for helicopter/airplane/firefighter meshes, siren lights, and dust/water emitters.
+- Extend telemetry/debug overlays with per-frame timings, path visualizations, and intersection queue state.
 
 Acceptance Criteria (v0.3)
 

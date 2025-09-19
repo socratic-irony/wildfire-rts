@@ -2,14 +2,15 @@
 
 A real-time strategy game prototype featuring procedural terrain, wildfire simulation, road building, and vehicle management built with Three.js and TypeScript.
 
-![Wildfire RTS Prototype](https://img.shields.io/badge/status-prototype-yellow) ![Build Status](https://img.shields.io/badge/build-passing-brightgreen) ![Tests](https://img.shields.io/badge/tests-59%20passing-brightgreen)
+![Wildfire RTS Prototype](https://img.shields.io/badge/status-prototype-yellow) ![Build Status](https://img.shields.io/badge/build-passing-brightgreen) ![Tests](https://img.shields.io/badge/tests-100%20passing-brightgreen)
 
 ## Features
 
 - **Procedural Terrain**: Rolling hills with biome-based vegetation (forest, chaparral, rock)
 - **Wildfire Simulation**: Physics-based fire spread with wind/slope influence, suppression mechanics
 - **Road System**: A*-based pathfinding with valley-preferring cost function and smooth ribbon rendering
-- **Vehicle Management**: Instanced vehicles that follow roads with terrain-aligned positioning
+- **Vehicle Management**: Dual system with Frenet PathFollower vehicles for player spawns and instanced `VehiclesManager` agents with intersection handling and abilities
+- **Unified Menubar & Paint Tools**: Central toolbar for fire, road, hydrant, and vehicle actions plus water/retardant painting tied to the fire grid
 - **RTS Camera**: Pan, rotate, tilt, and zoom controls optimized for strategy gameplay
 - **Debug UI**: Comprehensive controls for all systems with performance stats
 
@@ -108,8 +109,9 @@ This project follows spec-first development:
 
 ## Current Limitations
 
-- **Fire System**: Crown fire behavior and edge-based firelines not fully implemented
-- **Vehicles**: Intersection logic specified but not yet implemented
+- **Fire System**: Crown fire behavior, edge-based firelines, and retardant gel knockback remain outstanding
+- **Vehicles**: Frenet PathFollower vehicles do not yet share the VehiclesManager intersection queues or advanced spacing logic
+- **Hydrants**: Coverage tuning, damage states, and overlay polish are still planned
 - **Particles**: Using placeholder textures, soft particles not implemented
 - **Persistence**: Scenario save/load out of scope for v1
 - **Multiplayer**: Out of scope; single-player only
@@ -117,10 +119,10 @@ This project follows spec-first development:
 ## Roadmap
 
 ### Near-term (v0.2)
-- [ ] Complete fire system crown behavior and early extinguish rules
-- [ ] Implement vehicle intersection logic (well-specified in `specs/driving.md`)
-- [ ] Add water/retardant paint tools for fire suppression
-- [ ] Wire fire statistics into debug UI
+- [ ] Implement crown fire mode and edge-based fireline barriers
+- [ ] Share intersection/spacing logic with Frenet PathFollower vehicles
+- [ ] Tune hydrant coverage falloff, damage states, and overlay visualization
+- [ ] Expand menubar controls (wind tuning, suppression presets) and document workflows
 
 ### Medium-term (v0.3)
 - [ ] Replace placeholder particle assets with proper flame/smoke textures

@@ -4,7 +4,7 @@
 - Source: `src/` (TypeScript). Core engines in `src/core/` (`renderer.ts`, `scene.ts`, `camera.ts`, `input.ts`, `loop.ts`).
 - Terrain: `src/terrain/` (`heightmap.ts`, `mesh.ts`, `material.ts`, `grid.ts`, `biomes.ts`).
 - Actors: `src/actors/` (`trees.ts`, `shrubs.ts`, `rocks.ts`).
-- UI: `src/ui/` (`debug.ts`). Entry: `src/main.ts`. Static HTML: `index.html`.
+- UI: `src/ui/` (`menubar.ts`, `paint.ts`, `debug.ts`, `errorOverlay.ts`, `console.ts`). Entry: `src/main.ts`. Static HTML: `index.html`.
 - Reference: see SPEC.md for planned interfaces and acceptance criteria.
 
 ## Build, Test, and Development Commands
@@ -12,7 +12,7 @@
 - `npm run dev`: start Vite dev server with hot reload.
 - `npm run build`: production bundle to `dist/`.
 - `npm run preview`: serve the built app locally.
-- Tests: not yet configured. When added (Vitest recommended), use `npm run test` and place tests as noted below.
+- `npm run test`: run the Vitest suite (`src/__tests__/**`). Update or add tests alongside code changes.
 
 ## Coding Style & Naming Conventions
 - Language: TypeScript, `strict` enabled; ES modules only.
