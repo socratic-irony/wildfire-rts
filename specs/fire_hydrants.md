@@ -1,8 +1,18 @@
-# Fire Hydrant System Specification (v0.1)
+# Fire Hydrant System Specification (v0.2)
 
-## Status (current)
-- Not yet implemented
-- High priority feature for v0.1
+## Status
+
+### ✅ Implemented
+- Automatic placement along rasterized road masks with a minimum spacing of **8 tiles (~16 m)** and an ideal spacing target of **10 tiles (~20 m)**
+- Alternating roadside offsets sampled from the local road tangent with a **0.7 tile lateral shift** baked into `worldPos`
+- Hydrant coverage radius of **25 tiles (~50 m)** enforced by `isInHydrantCoverage` and consumed by `applyWaterAoEWithHydrants`
+- Suppression integration that boosts water application by **1.5× intensity** for tiles under active hydrant coverage
+- Visual instancing via `HydrantVisual` that mirrors the data in `HydrantSystem`
+
+### ⏳ Outstanding
+- Gameplay tuning for coverage falloff, hydrant damage/disable states, and roadside clearance rules
+- UI overlays and menubar controls for manual placement/removal beyond the debug toggle set
+- Firefighter deployment hooks that differentiate between hydrant-supplied operations and limited truck tanks
 
 ## Purpose & Scope
 
@@ -11,20 +21,18 @@ Design a fire hydrant system that provides strategic water access points along r
 ## Core Requirements
 
 ### 1. Automatic Placement
-- **Spacing**: Fire hydrants spawn automatically every ~50 meters along any built road
-- **Minimum Distance**: When roads are joined, modified, or extended, ensure NO LESS THAN 100 road tiles apart between hydrants
-- **Road Integration**: Hydrants only exist on road tiles; they are removed if the underlying road is destroyed
+- ✅ **Spacing**: Hydrants spawn during `updateHydrantPlacement` with an ideal spacing target of ~20 m (10 tiles) and a hard minimum of ~16 m (8 tiles)
+- ✅ **Road Integration**: Placement only occurs on road-mask tiles and hydrants are culled if the underlying tile is cleared
+- ⏳ **Adaptive tuning**: Future work may vary spacing based on road class or nearby structures
 
 ### 2. Coverage Areas
-- **Hydrant Radius**: ~10m coverage area (5 tiles at 2m/tile scale)
-- **Firetruck Radius**: Smaller radius (~8m / 4 tiles) for comparison
-- **Road Restriction**: Firefighter units can only deploy and operate from road tiles within coverage
+- ✅ **Hydrant Radius**: Each hydrant currently projects a 25 tile (~50 m) disk stored per hydrant
+- ⏳ **Comparative Ranges**: Firetruck hose radius vs hydrant radius balancing is still being tuned
+- ⏳ **Road Restriction**: Firefighter deployment rules using hydrant coverage remain to be wired
 
 ### 3. Suppression Integration
-- **Water Source**: Hydrants provide unlimited water supply within their coverage area
-- **Firefighter Deployment**: Any road tile within hydrant coverage allows firefighter unit deployment
-- **Spray Operations**: Firefighters can spray water using existing `applyWaterAoE` mechanics
-- **Combined Coverage**: Areas with both hydrants and firetrucks provide maximum suppression capability
+- ✅ **Water Source**: `applyWaterAoEWithHydrants` boosts wetness/heat knockdown by 1.5× inside coverage while honoring base logic outside
+- ⏳ **Combined Coverage**: Additional stacking rules for vehicles + hydrants are planned but not yet modeled
 
 ## Data Model
 
@@ -33,7 +41,7 @@ type FireHydrant = {
   id: number;
   gridPos: { x: number; z: number };    // Grid tile position
   worldPos: { x: number; z: number };   // World space position
-  coverageRadius: number;               // Tiles (typically 5)
+  coverageRadius: number;               // Tiles (currently 25 for ~50 m reach)
   active: boolean;                      // Can be disabled/damaged
   waterPressure: number;                // 0..1 (future: affects spray effectiveness)
 };
@@ -42,10 +50,18 @@ type HydrantSystem = {
   hydrants: FireHydrant[];
   roadMask: RoadMask;                   // Reference to road system
   nextId: number;
-  minSpacingTiles: number;              // Minimum 100 tiles between hydrants
-  idealSpacingTiles: number;            // Target ~50 meters / 25 tiles at 2m scale
+  minSpacingTiles: number;              // Minimum 8 tiles (~16 m) between hydrants
+  idealSpacingTiles: number;            // Target 10 tiles (~20 m) at 2 m scale
 };
 ```
+
+## Implementation Notes
+
+- Data lives in plain arrays (array-of-structs). Performance has been adequate; migrate to typed arrays only if profiling calls for it.
+- `updateHydrantPlacement` recomputes candidates from the full road mask, then `placeHydrant` enforces minimum spacing before committing. This double check keeps legacy hydrants compatible with new spacing rules.
+- Offsets alternate left/right by sampling the local road tangent (`findRoadDirection`) and shifting 0.7 tiles perpendicular before converting to meters (`cellSize`).
+- `HydrantVisual` consumes `worldPos` directly, so any change to offset math must keep that contract intact.
+- Suppression uses `applyWaterAoEWithHydrants`, multiplying wetness/heat knockdown by 1.5× when coverage is active and leaving off-coverage tiles at base intensity.
 
 ## Placement Algorithm
 
@@ -158,19 +174,19 @@ function canDeployFirefighter(hydrants: FireHydrant[], roadMask: RoadMask, pos: 
 ## Implementation Phases
 
 ### Phase 1: Core System
-- [ ] Basic hydrant data structures and placement algorithm
-- [ ] Road integration and automatic placement
-- [ ] Simple visual representation (colored cubes)
+- ✅ Basic hydrant data structures and placement algorithm (`createHydrantSystem`, `updateHydrantPlacement`)
+- ✅ Road integration and automatic placement tied to the rasterized mask
+- ✅ Instanced cylindrical visuals via `HydrantVisual`
 
-### Phase 2: Suppression Integration  
-- [ ] Coverage calculation and firefighter deployment
-- [ ] Integration with existing `applyWaterAoE` system
-- [ ] UI controls and debug visualization
+### Phase 2: Suppression Integration
+- ✅ Coverage calculation and hydrant-aware water application (`applyWaterAoEWithHydrants`)
+- ⏳ Firefighter deployment rules that require hydrant coverage
+- ✅ Menubar/debug actions for toggling, refreshing, and clearing hydrants
 
 ### Phase 3: Polish & Balance
-- [ ] 3D hydrant models and proper rendering
-- [ ] Coverage overlays and visual feedback
-- [ ] Performance optimization and testing
+- ⏳ High-fidelity hydrant models, LOD, and material polish
+- ⏳ Coverage overlays, damage/pressure indicators, and roadside clearance prompts
+- ⏳ Performance telemetry and large-network stress testing
 
 ## API Surface
 
