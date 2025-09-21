@@ -4,6 +4,7 @@ import { VehiclesManager, VehicleType } from '../vehicles/vehicles';
 import { generateHeightmap } from '../terrain/heightmap';
 import { buildTerrainCost } from '../roads/cost';
 import { createRoadMask, rasterizePolyline } from '../roads/state';
+import { makeAngularPath } from '../roads/path';
 
 describe('Particle Effects Integration', () => {
   it('should spawn and update particles even when grid vehicles are hidden', () => {
@@ -14,9 +15,9 @@ describe('Particle Effects Integration', () => {
     const roadMask = createRoadMask(64, 64);
     
     // Create a simple road loop for vehicles to move on
-    const roadLoop = [
+    const roadLoop = makeAngularPath([
       { x: 20, z: 20 }, { x: 40, z: 20 }, { x: 40, z: 40 }, { x: 20, z: 40 }, { x: 20, z: 20 }
-    ];
+    ]);
     rasterizePolyline(roadMask, roadLoop, 1.0);
     
     // Create vehicles manager and add to scene

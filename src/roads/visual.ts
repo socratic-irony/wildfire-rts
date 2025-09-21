@@ -1,5 +1,27 @@
-import { BufferAttribute, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector2, Vector3 } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector2, Vector3 } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
+import { makeAngularPath } from './path';
+
+const WORLD_UP = new Vector3(0, 1, 0);
+
+type RoadFrame = {
+  center: Vector3;
+  up: Vector3;
+  left: Vector3;
+  tangent: Vector3;
+  terrainNormal: Vector3;
+  rawHeight: number;
+};
+
+type ClosestHit = {
+  segIndex: number;
+  t: number;
+  px: number;
+  pz: number;
+  abx: number;
+  abz: number;
+  d2: number;
+};
 
 export class RoadsVisual {
   public group = new Group();
@@ -9,6 +31,7 @@ export class RoadsVisual {
   private yOffset = 0.05;
   private hm: Heightmap;
   private paths: Vector2[][] = [];
+  private frames: RoadFrame[][] = [];
   private cumS: number[][] = [];
   private closedFlags: boolean[] = [];
 
@@ -26,6 +49,7 @@ export class RoadsVisual {
   clear() {
     for (const c of [...this.group.children]) this.group.remove(c);
     this.paths = [];
+    this.frames = [];
     this.cumS = [];
     this.closedFlags = [];
     this.grid = [];
@@ -42,24 +66,23 @@ export class RoadsVisual {
   // Public API remains compatible; scale/y ignored (derived from heightmap)
   addPath(points: Array<{ x: number; z: number }>, _scale?: number, _y?: number) {
     if (!points || points.length < 2) return;
+    const angular = makeAngularPath(points);
+    if (angular.length < 2) return;
     const scale = this.hm.scale;
-    let centers = points.map(p => new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale));
-    // Detect closed loop if first and last are near; remove duplicate last if repeated
-    const closed = centers.length > 2 && Math.hypot(centers[0].x - centers[centers.length - 1].x, centers[0].y - centers[centers.length - 1].y) < scale * 1.0;
-    if (closed) {
-      // remove duplicate endpoint to avoid zero-length seam
-      if (Math.hypot(centers[0].x - centers[centers.length - 1].x, centers[0].y - centers[centers.length - 1].y) < 1e-3) {
-        centers = centers.slice(0, centers.length - 1);
-      }
+    let centers = angular.map(p => snapToTileCenter(new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale), scale));
+    const closed = centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < scale * 0.25;
+    centers = dedupeVec2(centers);
+    if (closed && centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < 1e-3) {
+      centers = centers.slice(0, centers.length - 1);
     }
-    const simplified = simplifyRDP(centers, scale * 0.2, closed);
-    const smooth = catmullRomAdaptiveResample(simplified, { maxSegLen: scale * 0.25, sagEps: closed ? scale * 0.01 : scale * 0.02, closed });
+    if (centers.length < 2) return;
     const width = 0.5 * scale; // approx half tile width
-    // Store smoothed midline for projection queries
-    const mid = smooth.map(p => p.clone());
+    const mid = centers.map(p => p.clone());
     const pathIndex = this.paths.length;
     this.paths.push(mid);
     this.closedFlags[pathIndex] = closed;
+    const frames = computeRoadFrames(mid, width, this.hm, closed);
+    this.frames[pathIndex] = frames;
     // Build cumulative s for this path
     const cum: number[] = []; let accS = 0;
     const M = mid.length; const segCount = closed ? M : (M - 1);
@@ -79,7 +102,7 @@ export class RoadsVisual {
     this.perPathIntersections[pathIndex] = [];
     // Main road surface
     {
-      const { positions, colors, indices } = buildRibbonStrip(smooth, width, this.hm, this.yOffset, closed);
+      const { positions, colors, indices } = buildRibbonStrip(frames, width, this.yOffset, closed);
       const geo = new BufferGeometry();
       geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
       geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
@@ -93,7 +116,7 @@ export class RoadsVisual {
     // Shoulders: faint dusty brown bands outside the road
     {
       const shoulder = Math.max(0.25 * scale, 0.3 * width);
-      const { positions, colors, indices } = buildShoulderBands(smooth, width, shoulder, this.hm, this.yOffset * 0.8, closed);
+      const { positions, colors, indices } = buildShoulderBands(frames, width, shoulder, this.hm, this.yOffset * 0.8, closed);
       const geo = new BufferGeometry();
       geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
       geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
@@ -107,7 +130,7 @@ export class RoadsVisual {
       const stripeWidth = 0.12 * scale;
       const dash = 1.2 * scale;
       const gap = 0.8 * scale;
-      const geo = buildCenterDashed(smooth, stripeWidth, dash, gap, this.hm, this.yOffset + 0.02, closed);
+      const geo = buildCenterDashed(frames, stripeWidth, dash, gap, this.yOffset + 0.02, closed);
       const mesh = new Mesh(geo, this.stripeMat);
       mesh.renderOrder = 8;
       this.group.add(mesh);
@@ -241,30 +264,21 @@ export class RoadsVisual {
   // Project a world XZ point to the nearest point on any road midline and return pos/normal/tangent
   projectToMidline(wx: number, wz: number) {
     if (this.paths.length === 0) return null as null;
-    let best: { px: number; pz: number; abx: number; abz: number } | null = null;
-    let bestD2 = Infinity;
-    for (const path of this.paths) {
-      for (let i = 0; i < path.length - 1; i++) {
-        const a = path[i];
-        const b = path[i + 1];
-        const apx = wx - a.x, apz = wz - a.y; // Vector2: y holds z
-        const abx = b.x - a.x, abz = b.y - a.y;
-        const ab2 = abx * abx + abz * abz || 1e-6;
-        let t = (apx * abx + apz * abz) / ab2; t = Math.max(0, Math.min(1, t));
-        const px = a.x + abx * t;
-        const pz = a.y + abz * t;
-        const dx = wx - px, dz = wz - pz;
-        const d2 = dx * dx + dz * dz;
-        if (d2 < bestD2) { bestD2 = d2; best = { px, pz, abx, abz }; }
+    let best: { pathIndex: number; hit: ClosestHit } | null = null;
+    for (let p = 0; p < this.paths.length; p++) {
+      const path = this.paths[p];
+      const closed = this.closedFlags[p];
+      const segCount = closed ? path.length : path.length - 1;
+      if (segCount <= 0) continue;
+      const hit = closestPointOnPath(path, closed, wx, wz, 0, segCount - 1);
+      if (!hit) continue;
+      if (!best || hit.d2 < best.hit.d2) {
+        best = { pathIndex: p, hit };
       }
     }
     if (!best) return null as null;
-    const n = sampleNormal(this.hm, best.px, best.pz);
-    const y = this.hm.sample(best.px, best.pz);
-    const pos = new Vector3(best.px, y, best.pz).addScaledVector(n, this.yOffset);
-    const len = Math.hypot(best.abx, best.abz) || 1;
-    const tangent = new Vector3(best.abx / len, 0, best.abz / len);
-    return { pos, normal: n, tangent } as const;
+    const { pos, normal, tangent } = this.buildProjection(best.pathIndex, best.hit);
+    return { pos, normal, tangent } as const;
   }
 
   // Find nearest path index using a coarse scan
@@ -289,242 +303,122 @@ export class RoadsVisual {
   projectToMidlineOnPath(pathIndex: number, wx: number, wz: number, hintSeg?: number, window = 96) {
     if (pathIndex < 0 || pathIndex >= this.paths.length) return this.projectToMidline(wx, wz);
     const path = this.paths[pathIndex];
-    let best: { px: number; pz: number; abx: number; abz: number; i: number } | null = null;
+    const closed = this.closedFlags[pathIndex];
+    const segCount = closed ? path.length : path.length - 1;
+    if (segCount <= 0) return this.projectToMidline(wx, wz);
+    let iStart = 0;
+    let iEnd = segCount - 1;
+    let coarseIdx = -1;
     let bestD2 = Infinity;
-    let iStart = 0, iEnd = path.length - 2;
-    if (hintSeg != null && path.length > 2) {
-      iStart = Math.max(0, Math.min(path.length - 2, hintSeg - window));
-      iEnd = Math.max(iStart, Math.min(path.length - 2, hintSeg + window));
-    } else if (path.length > 128) {
-      // coarse pass to find a neighborhood quickly
-      const step = Math.max(1, Math.floor((path.length - 1) / 64));
-      let coarseIdx = 0;
-      for (let i = 0; i < path.length - 1; i += step) {
-        const a = path[i]; const b = path[i + 1];
-        const apx = wx - a.x, apz = wz - a.y; const abx = b.x - a.x, abz = b.y - a.y;
+    if (hintSeg != null && segCount > 2) {
+      iStart = Math.max(0, Math.min(segCount - 1, hintSeg - window));
+      iEnd = Math.max(iStart, Math.min(segCount - 1, hintSeg + window));
+    } else if (segCount > 128) {
+      const step = Math.max(1, Math.floor(segCount / 64));
+      for (let i = 0; i < segCount; i += step) {
+        const j = (i + 1) % path.length;
+        if (!closed && j === 0) continue;
+        const a = path[i];
+        const b = path[j];
+        const abx = b.x - a.x;
+        const abz = b.y - a.y;
         const ab2 = abx * abx + abz * abz || 1e-6;
+        const apx = wx - a.x;
+        const apz = wz - a.y;
         let t = (apx * abx + apz * abz) / ab2; t = Math.max(0, Math.min(1, t));
-        const px = a.x + abx * t; const pz = a.y + abz * t;
-        const dx = wx - px, dz = wz - pz; const d2 = dx * dx + dz * dz;
-        if (d2 < bestD2) { bestD2 = d2; best = { px, pz, abx, abz, i }; coarseIdx = i; }
+        const px = a.x + abx * t;
+        const pz = a.y + abz * t;
+        const dx = wx - px;
+        const dz = wz - pz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; coarseIdx = i; }
       }
-      iStart = Math.max(0, coarseIdx - window);
-      iEnd = Math.min(path.length - 2, coarseIdx + window);
-      best = null; bestD2 = Infinity;
+      if (coarseIdx >= 0) {
+        iStart = Math.max(0, coarseIdx - window);
+        iEnd = Math.min(segCount - 1, coarseIdx + window);
+      }
     }
-    for (let i = iStart; i <= iEnd; i++) {
-      const a = path[i];
-      const b = path[i + 1];
-      const apx = wx - a.x, apz = wz - a.y;
-      const abx = b.x - a.x, abz = b.y - a.y;
-      const ab2 = abx * abx + abz * abz || 1e-6;
-      let t = (apx * abx + apz * abz) / ab2; t = Math.max(0, Math.min(1, t));
-      const px = a.x + abx * t;
-      const pz = a.y + abz * t;
-      const dx = wx - px, dz = wz - pz;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < bestD2) { bestD2 = d2; best = { px, pz, abx, abz, i }; }
+    const hit = closestPointOnPath(path, closed, wx, wz, iStart, iEnd);
+    if (!hit) return this.projectToMidline(wx, wz);
+    const res = this.buildProjection(pathIndex, hit);
+    return { pos: res.pos, normal: res.normal, tangent: res.tangent, segIndex: res.segIndex } as const;
+  }
+
+  private buildProjection(pathIndex: number, hit: ClosestHit) {
+    const frames = this.frames[pathIndex];
+    const closed = this.closedFlags[pathIndex];
+    if (frames && frames.length) {
+      const N = frames.length;
+      const nextIndex = closed ? (hit.segIndex + 1) % N : Math.min(N - 1, hit.segIndex + 1);
+      const sample = nextIndex >= N
+        ? frames[hit.segIndex]
+        : interpolateFrame(frames, hit.segIndex, nextIndex, hit.t);
+      const center = sample.center.clone();
+      const up = sample.up.clone();
+      const tangent = sample.tangent.clone();
+      const pos = center.clone().addScaledVector(up, this.yOffset);
+      return { pos, normal: up, tangent, segIndex: hit.segIndex, t: hit.t } as const;
     }
-    if (!best) return null as null;
-    const n = sampleNormal(this.hm, best.px, best.pz);
-    const y = this.hm.sample(best.px, best.pz);
-    const pos = new Vector3(best.px, y, best.pz).addScaledVector(n, this.yOffset);
-    const len = Math.hypot(best.abx, best.abz) || 1;
-    const tangent = new Vector3(best.abx / len, 0, best.abz / len);
-    return { pos, normal: n, tangent, segIndex: best.i } as const;
+    const terrainNormal = sampleNormal(this.hm, hit.px, hit.pz)
+      .multiplyScalar(0.4)
+      .addScaledVector(WORLD_UP, 0.6)
+      .normalize();
+    const y = this.hm.sample(hit.px, hit.pz);
+    const pos = new Vector3(hit.px, y, hit.pz).addScaledVector(terrainNormal, this.yOffset);
+    const len = Math.hypot(hit.abx, hit.abz) || 1;
+    const tangent = new Vector3(hit.abx / len, 0, hit.abz / len);
+    return { pos, normal: terrainNormal, tangent, segIndex: hit.segIndex, t: hit.t } as const;
   }
 }
 
-function buildRibbonStrip(path: Vector2[], width: number, hm: Heightmap, yOffset: number, closed = false) {
+function snapToTileCenter(p: Vector2, scale: number) {
+  const gx = Math.round(p.x / scale - 0.5);
+  const gz = Math.round(p.y / scale - 0.5);
+  return new Vector2((gx + 0.5) * scale, (gz + 0.5) * scale);
+}
+
+function dedupeVec2(points: Vector2[]) {
+  if (!points.length) return points;
+  const out: Vector2[] = [points[0].clone()];
+  for (let i = 1; i < points.length; i++) {
+    const prev = out[out.length - 1];
+    const cur = points[i];
+    if (prev.distanceToSquared(cur) < 1e-6) continue;
+    out.push(cur.clone());
+  }
+  return out;
+}
+
+function buildRibbonStrip(frames: RoadFrame[], width: number, yOffset: number, closed = false) {
   const half = width * 0.5;
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
-  const lefts: Vector3[] = [];
-  const mids: Vector3[] = [];
-  const rights: Vector3[] = [];
-  const nls: Vector3[] = [];
-  const nms: Vector3[] = [];
-  const nrs: Vector3[] = [];
-
-  const N = path.length;
+  const N = frames.length;
   for (let i = 0; i < N; i++) {
-    const p = path[i];
-    const pPrev = closed ? path[(i - 1 + N) % N] : path[Math.max(0, i - 1)];
-    const pNext = closed ? path[(i + 1) % N] : path[Math.min(N - 1, i + 1)];
-    const tx = pNext.x - pPrev.x;
-    const tz = pNext.y - pPrev.y;
-    const len = Math.hypot(tx, tz) || 1;
-    const nx = -tz / len; // left normal (xz plane)
-    const nz = tx / len;
-    // left/center/right world positions
-    const lx = p.x + nx * half;
-    const lz = p.y + nz * half;
-    const cx = p.x;
-    const cz = p.y;
-    const rx = p.x - nx * half;
-    const rz = p.y - nz * half;
-    const ly0 = hm.sample(lx, lz);
-    const cy0 = hm.sample(cx, cz);
-    const ry0 = hm.sample(rx, rz);
-    const nl = sampleNormal(hm, lx, lz);
-    const nm = sampleNormal(hm, cx, cz);
-    const nr = sampleNormal(hm, rx, rz);
-    lefts.push(new Vector3(lx, ly0, lz).addScaledVector(nl, yOffset));
-    mids.push(new Vector3(cx, cy0, cz).addScaledVector(nm, yOffset));
-    rights.push(new Vector3(rx, ry0, rz).addScaledVector(nr, yOffset));
-    nls.push(nl); nms.push(nm); nrs.push(nr);
-  }
-
-  // build vertices/colors (L, M, R per sample)
-  for (let i = 0; i < path.length; i++) {
-    const L = lefts[i], M = mids[i], R = rights[i];
-    positions.push(L.x, L.y, L.z, M.x, M.y, M.z, R.x, R.y, R.z);
-    // slightly lighter edges and a darker center strip
+    const frame = frames[i];
+    const left = frame.center.clone().addScaledVector(frame.left, half).addScaledVector(frame.up, yOffset);
+    const mid = frame.center.clone().addScaledVector(frame.up, yOffset);
+    const right = frame.center.clone().addScaledVector(frame.left, -half).addScaledVector(frame.up, yOffset);
+    positions.push(left.x, left.y, left.z, mid.x, mid.y, mid.z, right.x, right.y, right.z);
     const edge = [0.76, 0.76, 0.76];
-    const mid = [0.64, 0.64, 0.64];
-    colors.push(...edge, ...mid, ...edge);
+    const midCol = [0.64, 0.64, 0.64];
+    colors.push(...edge, ...midCol, ...edge);
   }
-  // indices: stitch between (L,M,R) at i and i+1 -> four triangles (two quads)
-  for (let i = 0; i < N - 1; i++) {
+  const segCount = closed ? N : Math.max(0, N - 1);
+  for (let i = 0; i < segCount; i++) {
+    const j = (i + 1) % N;
+    if (!closed && j === 0) continue;
     const iL = i * 3;
     const iM = i * 3 + 1;
     const iR = i * 3 + 2;
-    const jL = (i + 1) * 3;
-    const jM = (i + 1) * 3 + 1;
-    const jR = (i + 1) * 3 + 2;
-    // left quad
-    indices.push(iL, jL, iM, iM, jL, jM);
-    // right quad
-    indices.push(iM, jM, iR, iR, jM, jR);
-  }
-  // stitch last to first if closed
-  if (closed && N > 1) {
-    const i = N - 1;
-    const iL = i * 3, iM = i * 3 + 1, iR = i * 3 + 2;
-    const jL = 0, jM = 1, jR = 2;
+    const jL = j * 3;
+    const jM = j * 3 + 1;
+    const jR = j * 3 + 2;
     indices.push(iL, jL, iM, iM, jL, jM);
     indices.push(iM, jM, iR, iR, jM, jR);
   }
   return { positions, colors, indices };
-}
-
-// Ramer–Douglas–Peucker simplification on 2D points
-function simplifyRDP(pts: Vector2[], eps: number, closed = false): Vector2[] {
-  if (pts.length <= 2) return pts.slice();
-  if (!closed) {
-    const keep = new Array(pts.length).fill(false);
-    keep[0] = keep[pts.length - 1] = true;
-    function distPointSeg(p: Vector2, a: Vector2, b: Vector2) {
-      const abx = b.x - a.x, abz = b.y - a.y;
-      const apx = p.x - a.x, apz = p.y - a.y;
-      const t = Math.max(0, Math.min(1, (apx * abx + apz * abz) / (abx * abx + abz * abz || 1)));
-      const cx = a.x + t * abx, cz = a.y + t * abz;
-      return Math.hypot(p.x - cx, p.y - cz);
-    }
-    function recurse(i0: number, i1: number) {
-      let maxD = -1, idx = -1;
-      for (let i = i0 + 1; i < i1; i++) {
-        const d = distPointSeg(pts[i], pts[i0], pts[i1]);
-        if (d > maxD) { maxD = d; idx = i; }
-      }
-      if (maxD > eps && idx !== -1) {
-        keep[idx] = true;
-        recurse(i0, idx);
-        recurse(idx, i1);
-      }
-    }
-    recurse(0, pts.length - 1);
-    const out: Vector2[] = [];
-    for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
-    return out;
-  }
-  // Closed: approximate by rotating, simplifying open, then rotating back
-  const N = pts.length;
-  const mid = Math.floor(N / 2);
-  const rotated = pts.slice(mid).concat(pts.slice(0, mid));
-  const open = simplifyRDP(rotated, eps, false);
-  // Rotate back to original order (find rotated[0])
-  const idx0 = open.findIndex(p => p.x === rotated[0].x && p.y === rotated[0].y);
-  const back = idx0 >= 0 ? open.slice(idx0).concat(open.slice(0, idx0)) : open;
-  // Remove potential duplicate last==first
-  const out: Vector2[] = [];
-  for (let i = 0; i < back.length; i++) {
-    const a = back[i], b = back[(i + 1) % back.length];
-    out.push(a);
-    if (Math.hypot(a.x - b.x, a.y - b.y) < 1e-6) i++;
-  }
-  return out;
-}
-
-// Catmull-Rom resampling for smoother curves
-// Catmull-Rom adaptive resampling using midpoint sag error and max segment length
-function catmullRomAdaptiveResample(pts: Vector2[], opts: { maxSegLen: number; sagEps: number; closed?: boolean }): Vector2[] {
-  if (pts.length <= 2) return pts.slice();
-  const out: Vector2[] = [];
-  const closed = !!opts.closed;
-  const P = (i: number) => closed ? pts[(i % pts.length + pts.length) % pts.length] : pts[Math.max(0, Math.min(pts.length - 1, i))];
-
-  // Centripetal Catmull–Rom point evaluation (alpha=0.5)
-  const centripetalCR = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t01: number) => {
-    const alpha = 0.5;
-    const td = (a: Vector2, b: Vector2) => Math.pow(Math.hypot(b.x - a.x, b.y - a.y), alpha) || 1e-6;
-    const t0 = 0;
-    const t1 = t0 + td(p0, p1);
-    const t2 = t1 + td(p1, p2);
-    const t3 = t2 + td(p2, p3);
-    const u = t1 + t01 * (t2 - t1); // map [0,1] -> [t1,t2]
-    const lerp = (A: Vector2, B: Vector2, ta: number, tb: number) => {
-      const denom = (tb - ta) || 1e-6;
-      const w = (u - ta) / denom;
-      return new Vector2(
-        A.x + (B.x - A.x) * w,
-        A.y + (B.y - A.y) * w,
-      );
-    };
-    const A1 = lerp(p0, p1, t0, t1);
-    const A2 = lerp(p1, p2, t1, t2);
-    const A3 = lerp(p2, p3, t2, t3);
-    const B1 = lerp(A1, A2, t0, t2);
-    const B2 = lerp(A2, A3, t1, t3);
-    const C = lerp(B1, B2, t1, t2);
-    return C;
-  };
-
-  const subdivide = (p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) => {
-    const a = p1.clone();
-    const b = p2.clone();
-    const stack: Array<{ t0: number; t1: number; A: Vector2; B: Vector2 }> = [{ t0: 0, t1: 1, A: a, B: b }];
-    const segs: Vector2[] = [];
-    while (stack.length) {
-      const { t0, t1, A, B } = stack.pop()!;
-      const midT = (t0 + t1) * 0.5;
-      const M = centripetalCR(p0, p1, p2, p3, midT);
-      // linear midpoint between A and B
-      const Lx = (A.x + B.x) * 0.5;
-      const Lz = (A.y + B.y) * 0.5; // careful: Vector2.y is our z coordinate
-      const sag = Math.hypot(M.x - Lx, M.y - Lz);
-      const segLen = Math.hypot(B.x - A.x, B.y - A.y);
-      if (sag > opts.sagEps || segLen > opts.maxSegLen) {
-        // split
-        stack.push({ t0: midT, t1, A: M, B });
-        stack.push({ t0, t1: midT, A, B: M });
-      } else {
-        segs.push(B);
-      }
-    }
-    return segs;
-  };
-
-  const last = closed ? pts.length : (pts.length - 1);
-  for (let i = 0; i < last; i++) {
-    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
-    if (i === 0) out.push(p1.clone());
-    const seg = subdivide(p0, p1, p2, p3);
-    for (const s of seg) out.push(s);
-  }
-  if (closed) out.pop();
-  return out;
 }
 
 function sampleNormal(hm: Heightmap, wx: number, wz: number) {
@@ -541,130 +435,214 @@ function sampleNormal(hm: Heightmap, wx: number, wz: number) {
 }
 
 // Build faint shoulder bands outside the road surface
-function buildShoulderBands(path: Vector2[], width: number, shoulder: number, hm: Heightmap, yOffset: number, closed = false) {
+function buildShoulderBands(frames: RoadFrame[], width: number, shoulder: number, hm: Heightmap, yOffset: number, closed = false) {
   const half = width * 0.5;
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
-  const OL: Vector3[] = [], L: Vector3[] = [], R: Vector3[] = [], OR: Vector3[] = [];
-  const N = path.length;
+  const N = frames.length;
+  const heightBlend = 0.45;
+  const normalBlend = 0.6;
+  const outerOffset = yOffset * 0.5;
   for (let i = 0; i < N; i++) {
-    const p = path[i];
-    const pPrev = closed ? path[(i - 1 + N) % N] : path[Math.max(0, i - 1)];
-    const pNext = closed ? path[(i + 1) % N] : path[Math.min(N - 1, i + 1)];
-    const tx = pNext.x - pPrev.x;
-    const tz = pNext.y - pPrev.y;
-    const len = Math.hypot(tx, tz) || 1;
-    const nx = -tz / len, nz = tx / len;
-    const lx = p.x + nx * half;
-    const lz = p.y + nz * half;
-    const rx = p.x - nx * half;
-    const rz = p.y - nz * half;
-    const olx = p.x + nx * (half + shoulder);
-    const olz = p.y + nz * (half + shoulder);
-    const orx = p.x - nx * (half + shoulder);
-    const orz = p.y - nz * (half + shoulder);
-    const nl = sampleNormal(hm, lx, lz);
-    const nr = sampleNormal(hm, rx, rz);
-    const nol = sampleNormal(hm, olx, olz);
-    const nor = sampleNormal(hm, orx, orz);
-    L.push(new Vector3(lx, hm.sample(lx, lz), lz).addScaledVector(nl, yOffset));
-    R.push(new Vector3(rx, hm.sample(rx, rz), rz).addScaledVector(nr, yOffset));
-    OL.push(new Vector3(olx, hm.sample(olx, olz), olz).addScaledVector(nol, yOffset));
-    OR.push(new Vector3(orx, hm.sample(orx, orz), orz).addScaledVector(nor, yOffset));
+    const frame = frames[i];
+    const innerLeft = frame.center.clone().addScaledVector(frame.left, half).addScaledVector(frame.up, yOffset);
+    const innerRight = frame.center.clone().addScaledVector(frame.left, -half).addScaledVector(frame.up, yOffset);
+    const outerLeftBase = frame.center.clone().addScaledVector(frame.left, half + shoulder);
+    const outerRightBase = frame.center.clone().addScaledVector(frame.left, -half - shoulder);
+    const sampleLeft = hm.sample(outerLeftBase.x, outerLeftBase.z);
+    const sampleRight = hm.sample(outerRightBase.x, outerRightBase.z);
+    outerLeftBase.y = sampleLeft * (1 - heightBlend) + frame.center.y * heightBlend;
+    outerRightBase.y = sampleRight * (1 - heightBlend) + frame.center.y * heightBlend;
+    const outerLeftNormal = sampleNormal(hm, outerLeftBase.x, outerLeftBase.z)
+      .multiplyScalar(1 - normalBlend)
+      .addScaledVector(frame.up, normalBlend)
+      .normalize();
+    const outerRightNormal = sampleNormal(hm, outerRightBase.x, outerRightBase.z)
+      .multiplyScalar(1 - normalBlend)
+      .addScaledVector(frame.up, normalBlend)
+      .normalize();
+    const outerLeft = outerLeftBase.clone().addScaledVector(outerLeftNormal, outerOffset);
+    const outerRight = outerRightBase.clone().addScaledVector(outerRightNormal, outerOffset);
+    positions.push(
+      outerLeft.x, outerLeft.y, outerLeft.z,
+      innerLeft.x, innerLeft.y, innerLeft.z,
+      innerRight.x, innerRight.y, innerRight.z,
+      outerRight.x, outerRight.y, outerRight.z
+    );
+    const outerColor = [0.41, 0.33, 0.25];
+    const innerColor = [0.53, 0.44, 0.35];
+    colors.push(...outerColor, ...innerColor, ...innerColor, ...outerColor);
   }
-  for (let i = 0; i < path.length; i++) {
-    const a = OL[i], b = L[i], c = R[i], d = OR[i];
-    // vertices order: OL, L, R, OR
-    positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
-    // color gradient: outer darker brown, inner slightly lighter
-    const outer = [0.41, 0.33, 0.25];
-    const inner = [0.53, 0.44, 0.35];
-    colors.push(...outer, ...inner, ...inner, ...outer);
-  }
-  for (let i = 0; i < N - 1; i++) {
+  const segCount = closed ? N : Math.max(0, N - 1);
+  for (let i = 0; i < segCount; i++) {
+    const next = (i + 1) % N;
+    if (!closed && next === 0) continue;
     const base = i * 4;
-    const next = (i + 1) * 4;
-    // left shoulder quad (OL-L)
-    indices.push(base + 0, next + 0, base + 1, base + 1, next + 0, next + 1);
-    // right shoulder quad (R-OR)
-    indices.push(base + 2, next + 2, base + 3, base + 3, next + 2, next + 3);
-  }
-  if (closed && N > 1) {
-    const base = (N - 1) * 4;
-    const next = 0;
-    indices.push(base + 0, next + 0, base + 1, base + 1, next + 0, next + 1);
-    indices.push(base + 2, next + 2, base + 3, base + 3, next + 2, next + 3);
+    const nextBase = next * 4;
+    indices.push(base + 0, nextBase + 0, base + 1, base + 1, nextBase + 0, nextBase + 1);
+    indices.push(base + 2, nextBase + 2, base + 3, base + 3, nextBase + 2, nextBase + 3);
   }
   return { positions, colors, indices };
 }
 
 // Build a dashed center stripe along the midline
-function buildCenterDashed(path: Vector2[], stripeWidth: number, dashLen: number, gapLen: number, hm: Heightmap, yOffset: number, closed = false) {
+function buildCenterDashed(frames: RoadFrame[], stripeWidth: number, dashLen: number, gapLen: number, yOffset: number, closed = false) {
   const geo = new BufferGeometry();
   const pos: number[] = [];
   const idx: number[] = [];
   const col: number[] = [];
   const halfW = stripeWidth * 0.5;
   const cycle = dashLen + gapLen;
-  let acc = 0; // accumulated distance along path in world units
-  let last = path[0];
+  let acc = 0;
+  const N = frames.length;
+  const segCount = closed ? N : Math.max(0, N - 1);
   let vert = 0;
-  const N = path.length;
-  const segCount = closed ? N : (N - 1);
   for (let si = 0; si < segCount; si++) {
     const aIdx = si;
-    const bIdx = (si + 1) % N;
-    const cur = path[bIdx];
-    const segLen = Math.hypot(cur.x - last.x, cur.y - last.y);
-    if (segLen <= 1e-6) { last = cur; continue; }
+    const bIdx = closed ? (si + 1) % N : si + 1;
+    if (!closed && bIdx >= N) continue;
+    const segLen = frames[aIdx].center.distanceTo(frames[bIdx].center);
+    if (segLen <= 1e-6) continue;
     let progressed = 0;
     while (progressed < segLen - 1e-6) {
       const phaseDist = acc % cycle;
       const inDash = phaseDist < dashLen;
       const remainingInPhase = (inDash ? dashLen - phaseDist : cycle - phaseDist);
       let step = Math.min(segLen - progressed, remainingInPhase);
-      if (step <= 1e-6) { // guard against numerical lock
-        const eps = Math.min(1e-4, segLen - progressed);
-        step = eps;
-      }
+      if (step <= 1e-6) step = Math.min(1e-4, segLen - progressed);
       if (inDash) {
         const t0 = progressed / segLen;
         const t1 = (progressed + step) / segLen;
-        const ax = last.x + (cur.x - last.x) * t0;
-        const az = last.y + (cur.y - last.y) * t0;
-        const bx = last.x + (cur.x - last.x) * t1;
-        const bz = last.y + (cur.y - last.y) * t1;
-        const tx = bx - ax, tz = bz - az; const tlen = Math.hypot(tx, tz) || 1;
-        const nx = -tz / tlen, nz = tx / tlen;
-        const lax = ax + nx * halfW, laz = az + nz * halfW;
-        const lbx = bx + nx * halfW, lbz = bz + nz * halfW;
-        const rax = ax - nx * halfW, raz = az - nz * halfW;
-        const rbx = bx - nx * halfW, rbz = bz - nz * halfW;
-        const nlA = sampleNormal(hm, lax, laz);
-        const nlB = sampleNormal(hm, lbx, lbz);
-        const nrA = sampleNormal(hm, rax, raz);
-        const nrB = sampleNormal(hm, rbx, rbz);
-        const lAy = hm.sample(lax, laz);
-        const lBy = hm.sample(lbx, lbz);
-        const rAy = hm.sample(rax, raz);
-        const rBy = hm.sample(rbx, rbz);
-        const LA = new Vector3(lax, lAy, laz).addScaledVector(nlA, yOffset);
-        const LB = new Vector3(lbx, lBy, lbz).addScaledVector(nlB, yOffset);
-        const RA = new Vector3(rax, rAy, raz).addScaledVector(nrA, yOffset);
-        const RB = new Vector3(rbx, rBy, rbz).addScaledVector(nrB, yOffset);
-        pos.push(LA.x, LA.y, LA.z, RA.x, RA.y, RA.z, LB.x, LB.y, LB.z, RB.x, RB.y, RB.z);
+        const frame0 = interpolateFrame(frames, aIdx, bIdx, t0);
+        const frame1 = interpolateFrame(frames, aIdx, bIdx, t1);
+        const left0 = frame0.center.clone().addScaledVector(frame0.left, halfW).addScaledVector(frame0.up, yOffset);
+        const right0 = frame0.center.clone().addScaledVector(frame0.left, -halfW).addScaledVector(frame0.up, yOffset);
+        const left1 = frame1.center.clone().addScaledVector(frame1.left, halfW).addScaledVector(frame1.up, yOffset);
+        const right1 = frame1.center.clone().addScaledVector(frame1.left, -halfW).addScaledVector(frame1.up, yOffset);
+        pos.push(
+          left0.x, left0.y, left0.z,
+          right0.x, right0.y, right0.z,
+          left1.x, left1.y, left1.z,
+          right1.x, right1.y, right1.z
+        );
         idx.push(vert + 0, vert + 2, vert + 1, vert + 1, vert + 2, vert + 3);
-        for (let k = 0; k < 4; k++) col.push(0.85, 0.87, 0.90);
+        for (let k = 0; k < 4; k++) col.push(0.85, 0.87, 0.9);
         vert += 4;
       }
       progressed += step;
       acc += step;
     }
-    last = cur;
   }
   geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   return geo;
+}
+
+function smoothHeights(values: number[], hm: Heightmap, closed: boolean) {
+  if (values.length <= 2) return values.slice();
+  const base = values.slice();
+  const out = values.slice();
+  const tmp = new Array(values.length).fill(0);
+  const strength = 0.6;
+  const iterations = 3;
+  const maxDelta = hm.scale * 1.25;
+  for (let iter = 0; iter < iterations; iter++) {
+    for (let i = 0; i < values.length; i++) {
+      const prev = out[closed ? (i - 1 + values.length) % values.length : Math.max(0, i - 1)];
+      const next = out[closed ? (i + 1) % values.length : Math.min(values.length - 1, i + 1)];
+      const prev2 = out[closed ? (i - 2 + values.length) % values.length : Math.max(0, i - 2)];
+      const next2 = out[closed ? (i + 2) % values.length : Math.min(values.length - 1, i + 2)];
+      const avg = (out[i] * 2 + prev + next + 0.5 * (prev2 + next2)) / 5;
+      let smoothed = out[i] * (1 - strength) + avg * strength;
+      const delta = smoothed - base[i];
+      if (delta > maxDelta) smoothed = base[i] + maxDelta;
+      else if (delta < -maxDelta) smoothed = base[i] - maxDelta;
+      tmp[i] = smoothed;
+    }
+    for (let i = 0; i < values.length; i++) out[i] = tmp[i];
+  }
+  return out;
+}
+
+function computeRoadFrames(path: Vector2[], _width: number, hm: Heightmap, closed: boolean): RoadFrame[] {
+  const N = path.length;
+  if (N === 0) return [];
+  const rawHeights = path.map(p => hm.sample(p.x, p.y));
+  const leveled = smoothHeights(rawHeights, hm, closed);
+  const centers = path.map((p, i) => new Vector3(p.x, leveled[i], p.y));
+  const frames: RoadFrame[] = [];
+  const FLATTEN_TILT = 0.75;
+  for (let i = 0; i < N; i++) {
+    const prevIdx = closed ? (i - 1 + N) % N : Math.max(0, i - 1);
+    const nextIdx = closed ? (i + 1) % N : Math.min(N - 1, i + 1);
+    const prev = centers[prevIdx];
+    const next = centers[nextIdx];
+    const tangent = next.clone().sub(prev);
+    if (tangent.lengthSq() < 1e-6) tangent.set(1, 0, 0);
+    tangent.normalize();
+    const terrainNormal = sampleNormal(hm, path[i].x, path[i].y);
+    const up = terrainNormal.clone().multiplyScalar(1 - FLATTEN_TILT).addScaledVector(WORLD_UP, FLATTEN_TILT).normalize();
+    let left = new Vector3().crossVectors(up, tangent);
+    if (left.lengthSq() < 1e-6) left.set(-tangent.z, 0, tangent.x);
+    left.normalize();
+    frames.push({
+      center: centers[i],
+      up,
+      left,
+      tangent: tangent.clone(),
+      terrainNormal,
+      rawHeight: rawHeights[i],
+    });
+  }
+  return frames;
+}
+
+function interpolateFrame(frames: RoadFrame[], aIdx: number, bIdx: number, t: number) {
+  const fa = frames[aIdx];
+  const fb = frames[bIdx];
+  const center = new Vector3().lerpVectors(fa.center, fb.center, t);
+  const up = new Vector3().lerpVectors(fa.up, fb.up, t).normalize();
+  const tangent = new Vector3().lerpVectors(fa.tangent, fb.tangent, t);
+  if (tangent.lengthSq() < 1e-6) {
+    tangent.copy(fb.center).sub(fa.center);
+  }
+  if (tangent.lengthSq() < 1e-6) tangent.set(1, 0, 0);
+  tangent.normalize();
+  let left = new Vector3().lerpVectors(fa.left, fb.left, t);
+  if (left.lengthSq() < 1e-6) left.crossVectors(up, tangent);
+  if (left.lengthSq() < 1e-6) left.set(-tangent.z, 0, tangent.x);
+  left.normalize();
+  return { center, up, left, tangent };
+}
+
+function closestPointOnPath(path: Vector2[], closed: boolean, wx: number, wz: number, segStart: number, segEnd: number): ClosestHit | null {
+  const N = path.length;
+  if (N < 2) return null;
+  const segCount = closed ? N : N - 1;
+  if (segCount <= 0) return null;
+  let best: ClosestHit | null = null;
+  const start = Math.max(0, Math.min(segCount - 1, segStart));
+  const end = Math.max(start, Math.min(segCount - 1, segEnd));
+  for (let i = start; i <= end; i++) {
+    const j = (i + 1) % N;
+    if (!closed && j === 0) continue;
+    const a = path[i];
+    const b = path[j];
+    const abx = b.x - a.x;
+    const abz = b.y - a.y;
+    const ab2 = abx * abx + abz * abz || 1e-6;
+    const apx = wx - a.x;
+    const apz = wz - a.y;
+    let t = (apx * abx + apz * abz) / ab2;
+    t = Math.max(0, Math.min(1, t));
+    const px = a.x + abx * t;
+    const pz = a.y + abz * t;
+    const dx = wx - px;
+    const dz = wz - pz;
+    const d2 = dx * dx + dz * dz;
+    if (!best || d2 < best.d2) best = { segIndex: i, t, px, pz, abx, abz, d2 };
+  }
+  return best;
 }
