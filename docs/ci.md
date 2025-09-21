@@ -12,19 +12,39 @@ The wildfire-rts project uses GitHub Actions for continuous integration and depl
 - Push to `main` or `develop` branches
 - Pull requests targeting `main` or `develop` branches
 
+**Jobs:**
+
+#### 1. Build & Test (Matrix Job)
 **Matrix Strategy:**
 - Tests against Node.js versions 18 and 20
 - Ensures compatibility across supported Node.js LTS versions
+- Creates separate status checks: `Build & Test (Node 18)` and `Build & Test (Node 20)`
+- Both checks are required - they are NOT duplicates but test different Node.js environments
 
 **Steps:**
 1. **Checkout**: Gets the latest code
 2. **Setup Node.js**: Installs the specified Node.js version with npm caching
 3. **Install Dependencies**: Runs `npm ci` for clean, reproducible installs
 4. **Type Check**: Runs `tsc --noEmit --skipLibCheck` for TypeScript validation (non-blocking)
-5. **Run Tests**: Executes the test suite via `npm test`
-6. **Build Project**: Creates production build via `npm run build`
-7. **Upload Artifacts**: (Main branch only, Node 20) Uploads build artifacts for 30 days
-8. **Upload Test Results**: Uploads test results and coverage (if available)
+5. **Validate Assets**: Runs asset validation scripts
+6. **Generate Asset Manifest**: Creates asset manifest for build
+7. **Run Tests**: Executes the full test suite via `npm test`
+8. **Build Project**: Creates production build via `npm run build`
+9. **Upload Artifacts**: (Main branch only, Node 20) Uploads build artifacts for 30 days
+10. **Upload Test Results**: Uploads test results and coverage (if available)
+
+#### 2. Test Changed Files (PR-only Job)
+**Purpose:** Runs only tests that cover files affected by pull request changes for faster feedback
+
+**Triggers:**
+- Pull requests only (not triggered on direct pushes)
+
+**Steps:**
+1. **Checkout**: Gets the full git history for changed file detection
+2. **Setup Node.js**: Uses Node.js 20 for consistency
+3. **Install Dependencies**: Runs `npm ci` 
+4. **Run Changed File Tests**: Uses `vitest --changed` against the PR base branch
+5. **Upload Test Results**: Uploads focused test results
 
 **Caching:**
 - npm cache is automatically handled by `actions/setup-node@v4`
@@ -63,6 +83,9 @@ npx tsc --noEmit --skipLibCheck
 # Run tests
 npm test
 
+# Run only tests for changed files (useful during development)
+npm run test:changed
+
 # Build project
 npm run build
 ```
@@ -82,7 +105,7 @@ The CI pipeline uploads test results and coverage data (when available). Test co
 While not configured automatically, the following branch protection rules are recommended for the main branch:
 
 - **Require status checks to pass before merging**
-- **Required status checks**: `build-and-test (18)`, `build-and-test (20)`
+- **Required status checks**: `Build & Test (Node 18)`, `Build & Test (Node 20)`, `Test Changed Files`
 - **Require branches to be up to date before merging**
 - **Require pull request reviews before merging**
 - **Dismiss stale pull request reviews when new commits are pushed**

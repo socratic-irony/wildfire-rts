@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:changed": "vitest run --changed=HEAD~1",
     "validate-assets": "tsx scripts/assets/validate.ts",
     "generate-manifest": "tsx scripts/assets/generate-manifest.ts"
   },

@@ -8,6 +8,7 @@ on:
 
 jobs:
   build-and-test:
+    name: Build & Test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -54,6 +55,48 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results-node${{ matrix.node-version }}
+          path: |
+            coverage/
+            test-results.xml
+          retention-days: 5
+          if-no-files-found: ignore
+
+  test-changed-files:
+    name: Test Changed Files
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for changed file detection
+          
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run tests for changed files
+        run: |
+          # For PRs, compare against the base branch
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "Running tests for files changed in PR against base branch"
+            npm run test:changed -- --changed=origin/${{ github.event.pull_request.base.ref }}
+          else
+            echo "Running tests for files changed in recent commit"
+            npm run test:changed
+          fi
+        
+      - name: Upload changed files test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: changed-files-test-results
           path: |
             coverage/
             test-results.xml
