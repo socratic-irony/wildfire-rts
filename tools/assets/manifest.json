@@ -1,48 +1,37 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2025-09-09T17:24:40.641Z",
+  "generatedAt": "2025-09-21T04:31:53.459Z",
   "projectRoot": "/home/runner/work/wildfire-rts/wildfire-rts",
-  "totalAssets": 10,
-  "totalSizeKB": 15287,
+  "totalAssets": 9,
+  "totalSizeKB": 10611,
   "validationSummary": {
-    "valid": 10,
+    "valid": 9,
     "errors": 0,
-    "warnings": 7
+    "warnings": 6
   },
   "assets": {
-    "src/assets/models/bulldozer.glb": {
-      "path": "src/assets/models/bulldozer.glb",
-      "size": 1371,
-      "hash": "6b0bce8a93967cfdf0940b26f17547fd359cf1d8bdc9041d0c429dd5540e5b72",
+    "src/assets/models/Airplane.glb": {
+      "path": "src/assets/models/Airplane.glb",
+      "size": 104,
+      "hash": "7be3ac286c45111b40bb8dfbf0a70139efbb0c1d21b55275a28073ab2c43cdf1",
       "type": "models",
       "valid": true,
       "errors": [],
       "warnings": []
     },
-    "src/assets/models/firetruck.glb": {
-      "path": "src/assets/models/firetruck.glb",
-      "size": 1833,
-      "hash": "988f8d0a4bfcc40ed10abdff4367c1d65efb89eb4aa273a5756dba74dde7d687",
-      "type": "models",
-      "valid": true,
-      "errors": [],
-      "warnings": [
-        "File size 1833KB is approaching limit of 2048KB"
-      ]
-    },
-    "src/assets/models/helicopter.glb": {
-      "path": "src/assets/models/helicopter.glb",
-      "size": 1001,
-      "hash": "a4adddac16b45ef68687dfa45f4619d156235f3adceec21d701a29d3b8f81e35",
+    "src/assets/models/Bulldozer.glb": {
+      "path": "src/assets/models/Bulldozer.glb",
+      "size": 156,
+      "hash": "ff6613f62cb740f4ba150836cd11565c0cd9d51bb1e1b50dc9d72453ac2abf9c",
       "type": "models",
       "valid": true,
       "errors": [],
       "warnings": []
     },
-    "src/assets/models/tanker.glb": {
-      "path": "src/assets/models/tanker.glb",
-      "size": 981,
-      "hash": "a082095586d7efd72fa40b43677fbee2c90e8d5f808f0f465eef12a2ab406836",
+    "src/assets/models/Fire_Truck.glb": {
+      "path": "src/assets/models/Fire_Truck.glb",
+      "size": 250,
+      "hash": "4a5bbbeb51b744ba2b59f8943176f90d0f0378575892097c4a311cca8151f476",
       "type": "models",
       "valid": true,
       "errors": [],
