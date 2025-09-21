@@ -2,7 +2,7 @@
 
 Status (current)
 
-- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint, instanced trees (conifer + broadleaf variants) and shrubs with light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (A* over valley-favoring cost) rendered as ground-hugging smoothed ribbons at ~½-tile width.
+- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint, instanced trees (conifer + broadleaf variants) and shrubs with light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (A* with valley bonus plus strong slope/grade penalties) rendered as leveled angular ribbons that plane into hillsides while snapping to tile centres with 10° (orthogonal) turns at ~½-tile width.
 - Terrain regeneration replaces the road visual and hydrant systems with instances bound to the new heightmap/mask, keeping ribbons and hydrants flush with the refreshed terrain.
 - Unit tests verify terrain cost field derivation (elevation normalization, slope, valley) for road pathfinding.
 - In progress/available toggles: grid on/off, fire visualization modes (overlay/raised/vertex) for the separate fire spec work.

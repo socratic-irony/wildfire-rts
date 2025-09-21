@@ -30,6 +30,7 @@ import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
 import { applyRoadMaskToFireGrid, createRoadMask, rasterizePolyline } from './roads/state';
+import { makeAngularPath } from './roads/path';
 import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
@@ -593,7 +594,7 @@ function seedRandomLoopsAndVehicles(count = 2) {
     const x1 = Math.min(hm.width - 1 - pad, x0 + w);
     const z1 = Math.min(hm.height - 1 - pad, z0 + h);
     const loop = buildRectLoop(x0, z0, x1, z1);
-    const closed = loop.concat([loop[0]]);
+    const closed = makeAngularPath(loop.concat([loop[0]]));
     loops.push(closed);
     roadsVis.addPath(closed);
     rasterizePolyline(roadMask, closed, 0.9);
@@ -761,9 +762,10 @@ spawnFollowersOnAllPaths(3);
         if (roadEndpoints.length >= 2) {
           const [a, b] = [roadEndpoints[roadEndpoints.length - 2], roadEndpoints[roadEndpoints.length - 1]];
           // Build cost function on the fly
-          const WE = 0.6, WS = 2.0, WV = 0.8; // weights for elevation, slope, valley bonus (more slope penalty)
+          const WE = 0.4, WS = 6.0, WV = 0.5; // weights for elevation, slope, valley bonus (more slope penalty)
           const SLOPE_MAX_TAN = 0.7; // ~35 degrees; block steeper
-          const CURV_W = 1.6;       // curvature/turning penalty
+          const CURV_W = 2.8;       // curvature/turning penalty
+          const WG = 14.0;          // grade penalty weight for elevation change along segment
           const costField = {
             width: roadCost.width,
             height: roadCost.height,
@@ -772,6 +774,25 @@ spawnFollowersOnAllPaths(3);
               const base = 1 + WE * roadCost.elev[i] + WS * roadCost.slope[i] - WV * roadCost.valley[i];
               // Hard block steep terrain
               if (roadCost.slope[i] > SLOPE_MAX_TAN) return Infinity;
+              let grade = 0;
+              const prevX = x - stepDir.dx;
+              const prevZ = z - stepDir.dz;
+              if (
+                prevX >= 0 && prevZ >= 0 &&
+                prevX < roadCost.width && prevZ < roadCost.height
+              ) {
+                const wxPrev = (prevX + 0.5) * hm.scale;
+                const wzPrev = (prevZ + 0.5) * hm.scale;
+                const wxCur = (x + 0.5) * hm.scale;
+                const wzCur = (z + 0.5) * hm.scale;
+                const hPrev = hm.sample(wxPrev, wzPrev);
+                const hCur = hm.sample(wxCur, wzCur);
+                const horiz = Math.hypot(stepDir.dx, stepDir.dz) * hm.scale;
+                if (horiz > 1e-4) {
+                  const slope = Math.abs(hCur - hPrev) / horiz;
+                  grade = WG * Math.pow(slope, 1.35);
+                }
+              }
               // Curvature penalty: prefer straighter continuation if prevDir is provided
               let curv = 0;
               if (prevDir && (prevDir.dx !== 0 || prevDir.dz !== 0)) {
@@ -783,10 +804,11 @@ spawnFollowersOnAllPaths(3);
                 // Penalize turns; 0 for straight, up to CURV_W for 180°
                 curv = CURV_W * (1 - Math.max(0, dot));
               }
-              return Math.max(0.05, base + curv);
+              return Math.max(0.05, base + grade + curv);
             }
           };
-          const path = aStarPath(costField as any, a, b, { diag: true, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
+          const rawPath = aStarPath(costField as any, a, b, { diag: false, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
+          const path = makeAngularPath(rawPath);
           if (path.length) {
             roadsVis.addPath(path);
             rasterizePolyline(roadMask, path, 0.9);

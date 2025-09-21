@@ -11,6 +11,7 @@ import { buildChunkedTerrain } from './terrain/chunks';
 import { buildTerrainCost } from './roads/cost';
 import { RoadsVisual } from './roads/visual';
 import { createRoadMask, rasterizePolyline } from './roads/state';
+import { makeAngularPath } from './roads/path';
 import { VehiclesManager, VehicleType } from './vehicles/vehicles';
 import { RTSOrbitCamera } from './core/rtsOrbit';
 
@@ -68,8 +69,9 @@ const roadPaths = [
 ];
 
 for (const path of roadPaths) {
-  roadsVis.addPath(path);
-  rasterizePolyline(roadMask, path, 0.9);
+  const angular = makeAngularPath(path);
+  roadsVis.addPath(angular);
+  rasterizePolyline(roadMask, angular, 0.9);
 }
 
 // Create vehicles manager with enhanced particle settings

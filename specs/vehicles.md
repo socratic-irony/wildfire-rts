@@ -33,8 +33,8 @@
 - Instanced vehicles with grid-follow fallback constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction)
 - Auto-seeded demo loops at startup plus menubar hooks to spawn/move/clear vehicles
 - Four-way-stop intersection management to avoid collisions
-- Road visuals: smoothed ribbon with dashed center stripe, dusty shoulders, polygon offset to avoid z-fighting
-- Road building: cost field includes slope penalty and hard blocks for steep tiles; turn penalty biases A* to reduce sharp curves
+- Road visuals: leveled tile-centred ribbon with dashed center stripe, dusty shoulders that blend into terrain, polygon offset to avoid z-fighting
+- Road building: cost field includes aggressive slope/grade penalties with hard blocks for steep tiles; turn penalty biases A* to reduce sharp curves and favour straight, level alignments
 - Unit tests cover road A* pathfinding, terrain cost normalization, and vehicle ability plumbing
 
 
@@ -47,7 +47,7 @@ Goals
 Coord System & Timing
 
 - World XZ plane in meters; height from heightmap sample in meters.
-- Grid-based roads on tile centers, optionally with diagonal connections.
+- Grid-based roads snap to tile centres with orthogonal 10° turns (diagonals disabled for angular routing).
 - Fixed simulation loop runs per-frame; vehicles update with `dt` from render loop.
 
 Data Model
@@ -106,7 +106,7 @@ Movement & Orientation
 Roads (Visual + Mask)
 
 - Visual
-  - Smoothed ribbon with adaptive resampling (shorter segments on sharper curves), 3-column cross-section (L/M/R).
+  - Angular ribbon aligned to tile centres, 3-column cross-section (L/M/R) without curve smoothing.
   - Shoulders: translucent dusty bands outside road.
   - Center stripe: dashed gray quads along midline.
   - Vertices offset along terrain normal; polygon offset to avoid z-fighting.
@@ -117,7 +117,7 @@ Path Planning (Road Building)
 
 - Cost field = base + elevation (WE) + slope (WS) − valley (WV) + turn penalty.
 - Hard block: tiles above slope threshold (e.g., tanθ > ~0.7, ~35°).
-- Turn penalty biases straighter solutions; diagonals allowed for connectivity.
+- Turn penalty biases straighter solutions; diagonals are disabled to keep 10° (90°) angular segments.
 
 UI
 

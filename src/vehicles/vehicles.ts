@@ -8,6 +8,7 @@ import type { TerrainCost } from '../roads/cost';
 import type { FireGrid } from '../fire/grid';
 import { applyWaterAoE } from '../fire/grid';
 import { aStarPath } from '../roads/astar';
+import { makeAngularPath } from '../roads/path';
 
 type GridPoint = { x: number; z: number };
 
@@ -598,7 +599,8 @@ export class VehiclesManager {
         return this.roadMask.mask[z * W + x] === 1 ? 1 : Infinity;
       }
     };
-    const path = aStarPath(field as any, startRoad, goalRoad, { diag: true, heuristic: 'euclid', maxIter: W * H * 6 });
+    const rawPath = aStarPath(field as any, startRoad, goalRoad, { diag: false, heuristic: 'euclid', maxIter: W * H * 6 });
+    const path = makeAngularPath(rawPath);
     if (path.length) { a.path = path; a.pathIdx = 0; a.prev = undefined; }
   }
 

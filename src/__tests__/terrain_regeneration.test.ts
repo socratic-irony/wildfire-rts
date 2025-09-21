@@ -5,6 +5,7 @@ import { RoadsVisual } from '../roads/visual';
 import { VehiclesManager } from '../vehicles/vehicles';
 import { buildTerrainCost } from '../roads/cost';
 import { createRoadMask, rasterizePolyline, applyRoadMaskToFireGrid } from '../roads/state';
+import { makeAngularPath } from '../roads/path';
 import { createHydrantSystem, clearHydrants } from '../fire/hydrants';
 import { buildFireGrid } from '../fire/grid';
 
@@ -33,8 +34,9 @@ describe('Terrain Regeneration', () => {
     const testPath = [
       { x: 10, z: 10 }, { x: 15, z: 10 }, { x: 20, z: 10 }, { x: 20, z: 15 }
     ];
-    roadsVis.addPath(testPath);
-    rasterizePolyline(roadMask, testPath, 0.9);
+    const angularTestPath = makeAngularPath(testPath);
+    roadsVis.addPath(angularTestPath);
+    rasterizePolyline(roadMask, angularTestPath, 0.9);
     applyRoadMaskToFireGrid(fireGrid, roadMask);
     
     // Spawn some vehicles
@@ -71,8 +73,9 @@ describe('Terrain Regeneration', () => {
     const newTestPath = [
       { x: 25, z: 25 }, { x: 30, z: 25 }, { x: 35, z: 25 }, { x: 35, z: 30 }
     ];
-    roadsVis.addPath(newTestPath);
-    rasterizePolyline(roadMask, newTestPath, 0.9);
+    const angularNewTestPath = makeAngularPath(newTestPath);
+    roadsVis.addPath(angularNewTestPath);
+    rasterizePolyline(roadMask, angularNewTestPath, 0.9);
     applyRoadMaskToFireGrid(fireGrid, roadMask);
     
     // Re-spawn vehicles on new roads (THE FIX)
@@ -129,8 +132,9 @@ describe('Terrain Regeneration', () => {
       ];
       
       for (const path of paths) {
-        roadsVis.addPath(path);
-        rasterizePolyline(roadMask, path, 0.9);
+        const angular = makeAngularPath(path);
+        roadsVis.addPath(angular);
+        rasterizePolyline(roadMask, angular, 0.9);
       }
       
       vehicles.spawnAt(7, 5);
