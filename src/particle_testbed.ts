@@ -256,8 +256,8 @@ loop.add((dt) => {
 
 // Handle window resize
 window.addEventListener('resize', () => {
-  resizeRenderer(renderer);
-  resizeCamera(rig.camera, renderer);
+  resizeRenderer(renderer, app);
+  resizeCamera(rig, app);
 });
 
 loop.start();

@@ -39,6 +39,11 @@ import { PathFollower } from './vehicles/frenet';
 // Config and console system
 import { config, isFeatureEnabled } from './config/features';
 import { DebugConsole } from './ui/console';
+import { getLogger } from '../tools/logging/index.js';
+
+// Initialize logging for application startup
+const logger = getLogger();
+logger.info('Wildfire RTS application starting');
 
 const app = document.getElementById('app')!;
 const scene = createScene();
@@ -373,6 +378,7 @@ if (isFeatureEnabled('console_commands')) {
 }
 
 loop.start();
+logger.info('Wildfire RTS application fully initialized and running');
 
 // Vegetation burn tint cadence accumulator
 let vegTintAcc = 0;
