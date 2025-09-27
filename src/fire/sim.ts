@@ -1,5 +1,6 @@
 import { FireGrid, FireState, coordToIndex, indexToCoord } from './grid';
 import { FireParams } from './params';
+import { getLogger } from '../../tools/logging/index.js';
 
 export type Env = {
   windDirRad: number; // radians; 0 = +Z, pi/2 = +X
@@ -70,6 +71,9 @@ export class FireSim {
   private grid: FireGrid;
   private env: Env;
   private acc = 0;
+  private logger = getLogger();
+  private stepCount = 0;
+  
   constructor(grid: FireGrid, env?: Partial<Env>) {
     this.grid = grid;
     this.env = { windDirRad: 0, windSpeed: 0, humidity: 0.3, ...env } as Env;
@@ -86,6 +90,19 @@ export class FireSim {
       this.tick(fixed);
       this.acc -= fixed;
       steps++;
+      this.stepCount++;
+    }
+    
+    // Log fire simulation state periodically (every 30 steps = ~1 second)
+    if (this.stepCount % 30 === 0) {
+      this.logger.debug('Fire simulation state', {
+        igniting: this.grid.iCount,
+        burning: this.grid.bCount,
+        smoldering: this.grid.sCount,
+        windSpeed: this.env.windSpeed.toFixed(1),
+        windDirection: (this.env.windDirRad * 180 / Math.PI).toFixed(0) + '°',
+        simTime: this.grid.time.toFixed(1) + 's'
+      });
     }
   }
 
