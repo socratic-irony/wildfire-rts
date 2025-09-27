@@ -26,6 +26,22 @@ The debug interface has been unified into a single, comprehensive toolbar that e
 - **Terrain**: Chunk count, LOD distribution (high/low detail)
 - **Instances**: Tree count (conifer + broadleaf), shrub count, rock count
 
+### Runtime Logging Integration
+
+The application now includes strategic logging for better runtime visibility:
+
+- **Main Loop Performance**: Logs FPS, frame time, and tickers count every 5 seconds
+- **Fire Simulation**: Logs burning/igniting tile counts and wind conditions every second  
+- **Application Lifecycle**: Logs startup and initialization events
+- **Configurable Levels**: Adjust logging verbosity via `config/logging.json`
+
+To view logs in the browser console:
+```typescript
+import { getLogger } from '../tools/logging/index.js';
+const logger = getLogger();
+logger.info('Custom log message', { data: 'structured logging supported' });
+```
+
 ### Expandable Controls
 
 Click the ⚙️ settings button to access detailed configuration panels for:
