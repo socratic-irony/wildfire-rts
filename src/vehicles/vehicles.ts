@@ -184,13 +184,13 @@ export class VehiclesManager {
     const smokeMat = new MeshBasicMaterial({ color: 0xffffff });
     const dustMat = new MeshBasicMaterial({ color: 0xc6ad8d });
     const waterMat = new MeshBasicMaterial({ color: 0x9ec9ff });
-    this.smokeParticles = new InstancedParticleSystem('smoke', ico, smokeMat, maxAgents * 40);
-    this.dustParticles = new InstancedParticleSystem('smoke', ico, dustMat, maxAgents * 40, {
+    this.smokeParticles = new InstancedParticleSystem('smoke', ico.clone(), smokeMat, maxAgents * 40);
+    this.dustParticles = new InstancedParticleSystem('smoke', ico.clone(), dustMat, maxAgents * 40, {
       horizontalWind: 0.25,
       upwardAccel: 0.08,
       slopeResponse: 0.15,
     });
-    this.waterParticles = new InstancedParticleSystem('smoke', ico, waterMat, maxAgents * 30, {
+    this.waterParticles = new InstancedParticleSystem('smoke', ico.clone(), waterMat, maxAgents * 30, {
       horizontalWind: 0.12,
       upwardAccel: -1.4,
       slopeResponse: 0.0,

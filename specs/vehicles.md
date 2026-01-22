@@ -169,3 +169,6 @@ Roadmap (next for handoff agents)
 1) **Enhanced Geometries**: Improve helicopter (sphere+rotor), airplane (wings), firefighter (stick figure)
 2) **Visual Effects**: Animations, particles, lights, trails
 3) **Advanced Features**: Safe midline projector, spacing/avoidance, speed modulation
+
+### Implementation Notes
+- **Particle Systems**: `InstancedParticleSystem` modifies geometry attributes for shader effects. When multiple systems share a base geometry (e.g., `IcosahedronGeometry`), the geometry must be cloned for each system to prevent attribute conflicts and WebGL errors (e.g., instance count mismatches).

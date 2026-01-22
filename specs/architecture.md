@@ -73,7 +73,7 @@ Key Abstractions & Data
   - FireViz: overlay instances and vertex tint; perimeter overlay hugging terrain; analytics via `computePerimeter` + `computeFireStats`.
 - Roads
   - CostField: elevation/slope/valley; slope-block threshold; turn penalty in `main.ts` when planning player roads.
-  - Visual: adaptive midline resampling; 3-lane (L/M/R) cross-section; normal-offset; shoulders; dashed stripe.
+  - Visual: Catmull–Rom smoothed midlines resampled to uniform spacing (~2 tile asphalt width) with 3-lane cross-section; normal-offset plus depth-test-disabled overlays so roads sit visibly above terrain; dusty shoulders blended back into terrain; dashed center stripe polygon-offset above the surface.
   - Mask: `Uint8Array` marking road tiles; consumed by vehicles pathing and fire integration.
 - Vehicles
   - Agent: `{ pos, grid, path[], pathIdx, speedTilesPerSec, autoFollowRoad, prev? }`.

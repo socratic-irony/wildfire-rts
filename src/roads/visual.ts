@@ -25,10 +25,10 @@ type ClosestHit = {
 
 export class RoadsVisual {
   public group = new Group();
-  private mat = new MeshStandardMaterial({ color: 0x666666, roughness: 0.95, metalness: 0.0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-  private shoulderMat = new MeshBasicMaterial({ color: 0x6e563e, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  private stripeMat = new MeshBasicMaterial({ color: 0xcfd3d6, transparent: true, opacity: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, vertexColors: true });
-  private yOffset = 0.05;
+  private mat = new MeshStandardMaterial({ color: 0x222428, roughness: 0.95, metalness: 0.05, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: true, depthTest: false });
+  private shoulderMat = new MeshBasicMaterial({ color: 0x7a6247, transparent: true, opacity: 0.38, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  private stripeMat = new MeshBasicMaterial({ color: 0xf5f5f5, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, vertexColors: false });
+  private yOffset: number;
   private hm: Heightmap;
   private paths: Vector2[][] = [];
   private frames: RoadFrame[][] = [];
@@ -44,7 +44,11 @@ export class RoadsVisual {
   // Intersections cache
   private intersections: Array<{ id: number; pos: Vector2; a:{path:number;s:number;seg:number;t:number}; b:{path:number;s:number;seg:number;t:number} }> = [];
   private perPathIntersections: Array<Array<{ id:number; s:number; pos: Vector2; otherPath:number; otherS:number }>> = [];
-  constructor(hm: Heightmap) { this.hm = hm; }
+  constructor(hm: Heightmap) {
+    this.hm = hm;
+    this.yOffset = Math.max(0.3, hm.scale * 0.24); // lift roads above terrain to avoid z-fighting on all GPUs
+    this.group.renderOrder = 10;
+  }
 
   clear() {
     for (const c of [...this.group.children]) this.group.remove(c);
@@ -69,19 +73,27 @@ export class RoadsVisual {
     const angular = makeAngularPath(points);
     if (angular.length < 2) return;
     const scale = this.hm.scale;
+    const width = Math.max(scale * 1.6, scale * 1.1); // visible surface spanning ~2 tiles
     let centers = angular.map(p => snapToTileCenter(new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale), scale));
-    const closed = centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < scale * 0.25;
+    const initialClosed = centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < scale * 0.4;
     centers = dedupeVec2(centers);
-    if (closed && centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < 1e-3) {
-      centers = centers.slice(0, centers.length - 1);
+    const spacing = Math.max(scale * 0.6, width * 0.35);
+    centers = smoothAndResample(centers, Math.max(spacing, 1e-3), initialClosed);
+    // Re-evaluate closure after smoothing/resampling so we don't create long wrap segments
+    let closed = initialClosed && centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < Math.max(scale * 0.6, 0.6);
+    if (closed && centers[0].distanceToSquared(centers[centers.length - 1]) > 1e-6) {
+      // Explicitly stitch to avoid a long diagonal
+      centers.push(centers[0].clone());
+    } else if (!closed && centers.length > 1 && centers[0].distanceToSquared(centers[centers.length - 1]) < 1e-6) {
+      centers.pop();
     }
     if (centers.length < 2) return;
-    const width = 0.5 * scale; // approx half tile width
     const mid = centers.map(p => p.clone());
     const pathIndex = this.paths.length;
     this.paths.push(mid);
     this.closedFlags[pathIndex] = closed;
     const frames = computeRoadFrames(mid, width, this.hm, closed);
+    if (frames.length < 2) return;
     this.frames[pathIndex] = frames;
     // Build cumulative s for this path
     const cum: number[] = []; let accS = 0;
@@ -105,7 +117,7 @@ export class RoadsVisual {
       const { positions, colors, indices } = buildRibbonStrip(frames, width, this.yOffset, closed);
       const geo = new BufferGeometry();
       geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
-      geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
+      if (colors.length) geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
       geo.setIndex(indices);
       geo.computeVertexNormals();
       const mesh = new Mesh(geo, this.mat);
@@ -115,7 +127,7 @@ export class RoadsVisual {
     }
     // Shoulders: faint dusty brown bands outside the road
     {
-      const shoulder = Math.max(0.25 * scale, 0.3 * width);
+      const shoulder = Math.max(0.45 * scale, 0.35 * width);
       const { positions, colors, indices } = buildShoulderBands(frames, width, shoulder, this.hm, this.yOffset * 0.8, closed);
       const geo = new BufferGeometry();
       geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
@@ -127,10 +139,11 @@ export class RoadsVisual {
     }
     // Center stripe: dashed gray line along midline
     {
-      const stripeWidth = 0.12 * scale;
-      const dash = 1.2 * scale;
-      const gap = 0.8 * scale;
-      const geo = buildCenterDashed(frames, stripeWidth, dash, gap, this.yOffset + 0.02, closed);
+      const stripeWidth = Math.max(0.14 * scale, 0.08 * width);
+      const dash = Math.max(1.6 * scale, width * 0.9);
+      const gap = Math.max(1.0 * scale, width * 0.55);
+      const stripeYOffset = this.yOffset + Math.max(0.02, 0.04 * scale);
+      const geo = buildCenterDashed(frames, stripeWidth, dash, gap, stripeYOffset, closed);
       const mesh = new Mesh(geo, this.stripeMat);
       mesh.renderOrder = 8;
       this.group.add(mesh);
@@ -389,6 +402,69 @@ function dedupeVec2(points: Vector2[]) {
   return out;
 }
 
+function catmullRom(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: number) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+  const y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+  return new Vector2(x, y);
+}
+
+function resampleUniform(points: Vector2[], spacing: number, closed: boolean) {
+  if (points.length < 2) return points.map((p) => p.clone());
+  const pts = points.map((p) => p.clone());
+  if (closed) pts.push(points[0]);
+  const out: Vector2[] = [pts[0].clone()];
+  let carry = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    let a = pts[i];
+    const b = pts[i + 1];
+    let segLen = a.distanceTo(b);
+    if (segLen < 1e-6) continue;
+    while (carry + segLen >= spacing) {
+      const t = (spacing - carry) / segLen;
+      const nx = a.x + (b.x - a.x) * t;
+      const nz = a.y + (b.y - a.y) * t;
+      const next = new Vector2(nx, nz);
+      out.push(next);
+      // Continue along the remainder of this segment
+      segLen -= (spacing - carry);
+      a = next;
+      carry = 0;
+    }
+    carry += segLen;
+  }
+  if (!closed) {
+    const last = pts[pts.length - 1];
+    if (out[out.length - 1].distanceTo(last) > spacing * 0.35) out.push(last.clone());
+  } else {
+    // Remove duplicate start for closed loops
+    if (out.length > 1 && out[out.length - 1].distanceToSquared(out[0]) < 1e-6) out.pop();
+  }
+  return dedupeVec2(out);
+}
+
+function smoothAndResample(points: Vector2[], spacing: number, closed: boolean) {
+  if (points.length < 2) return points.map((p) => p.clone());
+  const dense: Vector2[] = [];
+  const N = points.length;
+  const segCount = closed ? N : N - 1;
+  for (let i = 0; i < segCount; i++) {
+    const p0 = points[closed ? (i - 1 + N) % N : Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[(i + 1) % N];
+    const p3 = points[closed ? (i + 2) % N : Math.min(N - 1, i + 2)];
+    const segLen = Math.max(1e-5, p1.distanceTo(p2));
+    const samples = Math.max(4, Math.ceil(segLen / spacing) * 3);
+    for (let s = 0; s < samples; s++) {
+      const t = s / samples;
+      dense.push(catmullRom(p0, p1, p2, p3, t));
+    }
+  }
+  dense.push(points[closed ? 0 : points.length - 1].clone());
+  return resampleUniform(dense, spacing, closed);
+}
+
 function buildRibbonStrip(frames: RoadFrame[], width: number, yOffset: number, closed = false) {
   const half = width * 0.5;
   const positions: number[] = [];
@@ -401,9 +477,6 @@ function buildRibbonStrip(frames: RoadFrame[], width: number, yOffset: number, c
     const mid = frame.center.clone().addScaledVector(frame.up, yOffset);
     const right = frame.center.clone().addScaledVector(frame.left, -half).addScaledVector(frame.up, yOffset);
     positions.push(left.x, left.y, left.z, mid.x, mid.y, mid.z, right.x, right.y, right.z);
-    const edge = [0.76, 0.76, 0.76];
-    const midCol = [0.64, 0.64, 0.64];
-    colors.push(...edge, ...midCol, ...edge);
   }
   const segCount = closed ? N : Math.max(0, N - 1);
   for (let i = 0; i < segCount; i++) {
@@ -573,7 +646,7 @@ function computeRoadFrames(path: Vector2[], _width: number, hm: Heightmap, close
   const leveled = smoothHeights(rawHeights, hm, closed);
   const centers = path.map((p, i) => new Vector3(p.x, leveled[i], p.y));
   const frames: RoadFrame[] = [];
-  const FLATTEN_TILT = 0.75;
+  const FLATTEN_TILT = 0.7;
   for (let i = 0; i < N; i++) {
     const prevIdx = closed ? (i - 1 + N) % N : Math.max(0, i - 1);
     const nextIdx = closed ? (i + 1) % N : Math.min(N - 1, i + 1);

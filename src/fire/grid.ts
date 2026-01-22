@@ -265,6 +265,25 @@ export function applyRetardantLine(grid: FireGrid, polyline: Array<{ x: number; 
   }
 }
 
+// Restore biome-driven fuels for any tiles that were marked as urban (e.g., after clearing roads)
+export function restoreFuelsFromBiomes(grid: FireGrid, biomes: BiomeMask) {
+  const cols = grid.width + 1;
+  const chooseFuel = (gi: number): FuelKey => {
+    if (biomes.rock[gi]) return 'rock';
+    if (biomes.forest[gi]) return 'forest';
+    if (biomes.chaparral[gi]) return 'chaparral';
+    return 'grass';
+  };
+  for (let z = 0; z < grid.height; z++) {
+    for (let x = 0; x < grid.width; x++) {
+      const tile = grid.tiles[z * grid.width + x];
+      if (tile.fuel !== 'urban') continue;
+      const gi = z * cols + x;
+      tile.fuel = chooseFuel(gi);
+    }
+  }
+}
+
 export function writeFirelineEdges(grid: FireGrid, edgePath: Array<{ x: number; z: number }>, strength: number) {
   for (const p of edgePath) {
     const x = Math.round(p.x), z = Math.round(p.z);
