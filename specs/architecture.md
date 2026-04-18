@@ -16,7 +16,7 @@ Agent Adherence (Required)
 Repository Topology
 
 - Entry: `src/main.ts` wires all systems (terrain, camera, fire, roads, vehicles, UI) and owns the frame loop.
-- Testbed: `vehicles-test.html` + `src/vehicles_test.ts` — a minimal, isolated page for vehicle/road experiments on a small flat map with preset road layouts (loop / figure‑8). Does not affect the main app.
+- Testbed: `vehicles-test.html` + `src/vehicles_test.ts` — a minimal, isolated page for vehicle/road experiments on a small flat map with preset road layouts (loop / figure-8). Does not affect the main app.
 - Core: `src/core/`
   - `renderer.ts`: WebGL renderer factory and resize logic.
   - `scene.ts`: Three.js scene creation; minimal global lights.
@@ -39,8 +39,13 @@ Repository Topology
   - `cost.ts`: per-tile elevation/slope/valley fields for road A* cost.
   - `astar.ts`: grid A* (4/8-neigh), cost callback, with diag support.
   - `visual.ts`: smoothed ribbon mesh (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe.
+  - `procedural.ts`: procedural loop generator (oval/figure-8/rectangle) for boot/regenerate seeding.
   - `state.ts`: rasterization of road paths to a road mask; integration hooks (e.g., fire grid fuel adjustments).
 - Vehicles: `src/vehicles/vehicles.ts`: instanced agents with road and air pathing, terrain-aligned pose, and fire-suppression hooks.
+  - `src/vehicles/types.ts`: shared vehicle enums + FX state types.
+  - `src/vehicles/vehicleFx.ts`: particle/light FX helpers for vehicles and external emitters.
+  - `src/vehicles/followerOrders.ts`: selection + order utilities for Frenet followers (including off-road bulldozer orders).
+  - `src/vehicles/menubarMapping.ts`: UI type mapping for spawn commands.
 - **Fire Hydrants (HIGH PRIORITY)**: `src/fire/hydrants.ts`: automatic placement along roads (50m spacing, 100+ tiles min), coverage areas (~10m), integration with suppression system to enable firefighter deployment from road tiles within coverage.
 - UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
 - Specs: `specs/` contains domain specs (terrain, fire_behavior, vehicles, architecture).
@@ -53,7 +58,7 @@ Runtime Model
   2) Create scene/renderer/camera rig and heightmap.
   3) Build chunked terrain, material, and apply biome colors.
   4) Instantiate fire grid/sim/viz and attach viz nodes to scene.
-  5) Build road cost field, visualization group, and road mask.
+  5) Build road cost field, visualization group, road mask, then seed procedural road loops.
   6) Create vehicles manager and add to scene.
   7) Install debug UI (if enabled) and console system with commands.
   8) Install input handlers for ignite, road draw, and vehicle modes.
@@ -75,6 +80,7 @@ Key Abstractions & Data
   - CostField: elevation/slope/valley; slope-block threshold; turn penalty in `main.ts` when planning player roads.
   - Visual: Catmull–Rom smoothed midlines resampled to uniform spacing (~2 tile asphalt width) with 3-lane cross-section; normal-offset plus depth-test-disabled overlays so roads sit visibly above terrain; dusty shoulders blended back into terrain; dashed center stripe polygon-offset above the surface.
   - Mask: `Uint8Array` marking road tiles; consumed by vehicles pathing and fire integration.
+  - Procedural: road loops are generated in tile space on boot/regenerate and re-projected onto the current heightmap via `RoadsVisual`.
 - Vehicles
   - Agent: `{ pos, grid, path[], pathIdx, speedTilesPerSec, autoFollowRoad, prev? }`.
   - Movement: interpolate along grid path; altitude from heightmap; orientation from terrain normal + path direction.

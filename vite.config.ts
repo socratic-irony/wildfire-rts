@@ -22,5 +22,27 @@ export default defineConfig({
     hmr: {
       overlay: false, // Disable error overlay in favor of our custom error handling
     }
+  },
+  test: {
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts', 'tools/**/*.ts'],
+      exclude: [
+        'src/main.ts',
+        'src/config-demo.ts',
+        'src/particle_testbed.ts',
+        'src/vehicles_test.ts',
+        'src/ui/**',
+        'src/core/**',
+        'src/actors/**',
+        'src/particles/**',
+        'src/roads/visual.ts',
+        'src/vehicles/frenet.ts',
+        'src/fire/viz.ts',
+        'src/fire/overlay.ts',
+        'src/fire/decals.ts',
+        'src/fire/hydrantVisual.ts'
+      ]
+    }
   }
 });

@@ -44,7 +44,7 @@ describe('fire hydrant placement', () => {
       expect(dist).toBeGreaterThanOrEqual(system.minSpacingTiles);
     }
 
-    const lateralOffset = system.cellSize * 0.7;
+    const lateralOffset = system.cellSize * 1.4;
     let offsetSampled = 0;
     for (const hydrant of hydrants) {
       expect(hydrant.coverageRadius).toBe(25);

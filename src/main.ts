@@ -29,12 +29,16 @@ import { HydrantVisual } from './fire/hydrantVisual';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
-import { applyRoadMaskToFireGrid, createRoadMask, rasterizePolyline } from './roads/state';
+import { applyRoadMaskToFireGrid, clearRoadMask, createRoadMask, rasterizePolyline } from './roads/state';
 import { makeAngularPath } from './roads/path';
+import { generateProceduralRoads } from './roads/procedural';
 import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
+import { getDefaults } from './vehicles/typeDefaults';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
+import { createFollowerSelection, findFollowerHit, issueMoveOrder, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
+import { mapMenubarToVehicleType } from './vehicles/menubarMapping';
 // import { createFireTexture } from './fire/texture';
 
 // Config and console system
@@ -123,6 +127,7 @@ loop.add((dt) => {
     forest?.applyFireTint?.(fireGrid as any);
     shrubs?.applyFireTint?.(fireGrid as any);
   }
+  selection.update();
   // Update LOD for terrain chunks
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
@@ -168,7 +173,9 @@ loop.add((dt) => {
   
   // Always update Frenet followers with intersection-aware speed control
   const groups = new Map<Path2D, number[]>();
+  updateOffroadFollowers(followers as FollowerEntry[], hm, dt);
   for (let i = 0; i < followers.length; i++) {
+    if (followers[i].type === VManagerVehicleType.BULLDOZER && followers[i].offroadTarget) continue;
     const p = followers[i].follower.path as Path2D;
     if (!groups.has(p)) groups.set(p, []);
     groups.get(p)!.push(i);
@@ -205,7 +212,8 @@ loop.add((dt) => {
     fx.up.copy(tmpFollowerUp);
     fx.right.copy(tmpFollowerRight);
     fx.speed = entry.follower.v;
-    fx.sprayingWater = entry.type === VManagerVehicleType.FIRETRUCK && entry.follower.v > 0.6;
+    // Firetrucks always spray for now to test sweep pattern
+    fx.sprayingWater = entry.type === VManagerVehicleType.FIRETRUCK;
     fx.siren = entry.type === VManagerVehicleType.FIRETRUCK;
     followerFxStates.push(fx);
   }
@@ -224,7 +232,7 @@ loop.add((dt) => {
   }
   
   // Update unified menubar/debug interface
-  menubar.update(dt, renderer, { chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
+  menubar.update(dt, renderer, { chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid, followers });
   // (intersection manager already ran pre-update in Frenet mode)
 });
 
@@ -419,6 +427,7 @@ let fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 });
 scene.add(fireRibbon.mesh);
 
 // Update debug interface with fireGrid reference now that it's available
+// (followers wired in later via setRefs once declared)
 menubar.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
 
 // Roads — cost field + visual + input state
@@ -428,6 +437,7 @@ scene.add(roadsVis.group);
 let roadMask = createRoadMask(hm.width, hm.height);
 let roadsEnabled = false;
 let roadEndpoints: Array<{ x: number; z: number }> = [];
+let roadPaths: Array<Array<{ x: number; z: number }>> = [];
 let path2ds: Path2D[] = [];
 // ===== VEHICLE SYSTEMS ARCHITECTURE =====
 // This application uses a dual vehicle system design:
@@ -455,6 +465,7 @@ type ActiveFollower = {
   mesh: Mesh;
   type: VManagerVehicleType;
   fxState: VehicleFxState;
+  offroadTarget?: Vector3 | null;
 };
 
 let followers: ActiveFollower[] = [];
@@ -470,6 +481,8 @@ type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
 let pathIntersections: IntersectionInfo[][] = [];
 const intersectionManager = new IntersectionManager();
+
+const selection = createFollowerSelection(scene);
 
 function rebuildPath2Ds() {
   roadsVis.buildIntersections();
@@ -529,41 +542,52 @@ function rebuildPath2Ds() {
   intersectionManager.setPaths(path2ds.map((path, idx) => ({ path, intersections: pathIntersections[idx] || [] })));
 }
 
+function applyRoadPaths() {
+  roadsVis.clear();
+  clearRoadMask(roadMask);
+  for (const path of roadPaths) {
+    if (path.length < 2) continue;
+    roadsVis.addPath(path);
+    rasterizePolyline(roadMask, path, 0.9);
+  }
+  applyRoadMaskToFireGrid(fireGrid, roadMask);
+  updateHydrantPlacement(hydrantSystem);
+  hydrantVisual.update(hydrantSystem);
+  rebuildPath2Ds();
+}
+
+function seedProceduralRoads(count = 2) {
+  roadPaths = generateProceduralRoads(hm, {
+    count,
+    kinds: ['figure8'],
+    seed: Math.floor(Math.random() * 1e9)
+  });
+  applyRoadPaths();
+}
+
 function createFollowerMesh(vehicleType: VManagerVehicleType): Mesh {
   const scale = hm.scale;
+  const defaults = getDefaults(vehicleType);
   let geo: BufferGeometry;
-  let mat: MeshStandardMaterial;
   switch (vehicleType) {
     case VManagerVehicleType.FIRETRUCK:
       geo = new BoxGeometry(scale * 0.9, scale * 0.6, scale * 1.6);
-      mat = new MeshStandardMaterial({
-        color: new Color(0xcc0000),
-        roughness: 0.6,
-        metalness: 0.2,
-        emissive: new Color(0x220000),
-        emissiveIntensity: 0.3,
-      });
       break;
     case VManagerVehicleType.BULLDOZER:
       geo = new BoxGeometry(scale * 0.7, scale * 0.35, scale * 0.8);
-      mat = new MeshStandardMaterial({
-        color: new Color(0xffdd00),
-        roughness: 0.8,
-        metalness: 0.3,
-        emissive: new Color(0x332200),
-        emissiveIntensity: 0.2,
-      });
       break;
     case VManagerVehicleType.CAR:
     default:
       geo = new BoxGeometry(scale * 0.5, scale * 0.25, scale * 1.0);
-      mat = new MeshStandardMaterial({
-        color: new Color(0x1e90ff),
-        roughness: 0.7,
-        metalness: 0.1,
-      });
       break;
   }
+  const mat = new MeshStandardMaterial({
+    color: new Color(defaults.color),
+    roughness: defaults.roughness,
+    metalness: defaults.metalness,
+    emissive: new Color(defaults.emissive),
+    emissiveIntensity: defaults.emissiveIntensity,
+  });
   const mesh = new Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = false;
@@ -599,47 +623,14 @@ function spawnFollowersOnAllPaths(perPath = 3) {
         sprayingWater: false,
         siren: vehicleType === VManagerVehicleType.FIRETRUCK,
       };
-      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState });
+      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState, offroadTarget: null });
     }
   }
 }
-// Helper: rectangular road loop builder (grid cells around rectangle border)
-function buildRectLoop(x0: number, z0: number, x1: number, z1: number) {
-  const pts: Array<{ x: number; z: number }> = [];
-  for (let x = x0; x <= x1; x++) pts.push({ x, z: z0 });
-  for (let z = z0 + 1; z <= z1; z++) pts.push({ x: x1, z });
-  for (let x = x1 - 1; x >= x0; x--) pts.push({ x, z: z1 });
-  for (let z = z1 - 1; z > z0; z--) pts.push({ x: x0, z });
-  return pts;
-}
-// Seed a few random road loops and spawn vehicles on them
-function seedRandomLoopsAndVehicles(count = 2) {
-  const pad = Math.max(6, Math.floor(Math.min(hm.width, hm.height) * 0.05));
-  const loops: Array<Array<{ x: number; z: number }>> = [];
-  for (let n = 0; n < count; n++) {
-    const minW = Math.max(10, Math.floor(hm.width * 0.20));
-    const minH = Math.max(10, Math.floor(hm.height * 0.20));
-    const maxW = Math.max(minW + 6, Math.floor(hm.width * 0.55));
-    const maxH = Math.max(minH + 6, Math.floor(hm.height * 0.55));
-    const w = Math.min(maxW, minW + Math.floor(Math.random() * (maxW - minW + 1)));
-    const h = Math.min(maxH, minH + Math.floor(Math.random() * (maxH - minH + 1)));
-    const x0 = pad + Math.floor(Math.random() * Math.max(1, hm.width - w - 2 * pad));
-    const z0 = pad + Math.floor(Math.random() * Math.max(1, hm.height - h - 2 * pad));
-    const x1 = Math.min(hm.width - 1 - pad, x0 + w);
-    const z1 = Math.min(hm.height - 1 - pad, z0 + h);
-    const loop = buildRectLoop(x0, z0, x1, z1);
-    const closed = makeAngularPath(loop.concat([loop[0]]));
-    loops.push(closed);
-    roadsVis.addPath(closed);
-    rasterizePolyline(roadMask, closed, 0.9);
-  }
-  // Apply to fire grid for integration
-  applyRoadMaskToFireGrid(fireGrid, roadMask);
-  // Update hydrant placement for new roads
-  updateHydrantPlacement(hydrantSystem);
-  hydrantVisual.update(hydrantSystem);
-  rebuildPath2Ds();
-  // No longer spawn grid-mode vehicles - only Frenet vehicles are used
+function reseedRoadsAndVehicles(count = 2) {
+  seedProceduralRoads(count);
+  clearFollowers();
+  spawnFollowersOnAllPaths(1);
 }
 function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
@@ -648,6 +639,7 @@ function clearFollowers() {
   followerIdCounter = 0;
   vehicles.updateExternalFx(0, followerFxStates);
   intersectionManager.clearFollowers();
+  selection.clear();
 }
 /**
  * Spawn a PathFollower vehicle near the camera position
@@ -683,18 +675,9 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     sprayingWater: false,
     siren: type === VManagerVehicleType.FIRETRUCK,
   };
-  followers.push({ id, follower, object: obj, mesh, type, fxState });
+  followers.push({ id, follower, object: obj, mesh, type, fxState, offroadTarget: null });
 }
 
-// Helper function to map menubar vehicle types to VehicleManager enum values
-function mapMenubarToVehicleType(menubarType?: string): VManagerVehicleType | undefined {
-  switch (menubarType) {
-    case 'firetruck': return VManagerVehicleType.FIRETRUCK;
-    case 'bulldozer': return VManagerVehicleType.BULLDOZER;
-    case 'generic': return VManagerVehicleType.CAR;
-    default: return VManagerVehicleType.CAR; // Default fallback
-  }
-}
 
 // Vehicles — VehiclesManager provides abilities and particle systems
 // Note: Primary vehicle spawning uses PathFollower system above
@@ -714,10 +697,8 @@ let hydrantVisual = new HydrantVisual(hm);
 scene.add(hydrantVisual.group);
 hydrantVisual.setVisible(true); // Initially visible
 
-// Seed random road loops at startup and spawn moving vehicles
-seedRandomLoopsAndVehicles(2);
-rebuildPath2Ds();
-spawnFollowersOnAllPaths(3);
+// Seed procedural roads at startup and spawn moving vehicles
+reseedRoadsAndVehicles(2);
 
 // Click to ignite under cursor
 {
@@ -846,6 +827,7 @@ spawnFollowersOnAllPaths(3);
           const path = makeAngularPath(rawPath);
           if (path.length) {
             roadsVis.addPath(path);
+            roadPaths.push(path);
             rasterizePolyline(roadMask, path, 0.9);
             applyRoadMaskToFireGrid(fireGrid, roadMask);
             // Update hydrant placement for new roads
@@ -856,6 +838,24 @@ spawnFollowersOnAllPaths(3);
         }
       }
       return;
+    }
+    // Vehicle selection / move order
+    {
+      mouse.set(mouse.x, mouse.y);
+      ray.setFromCamera(mouse as any, rig.camera);
+      const hitFollower = findFollowerHit(ray, followers as FollowerEntry[]);
+      if (hitFollower) {
+        selection.select(hitFollower);
+        return;
+      }
+      const selected = selection.getSelected();
+      if (selected) {
+        const hits = ray.intersectObject(chunked.group, true);
+        if (hits.length) {
+          issueMoveOrder(selected, path2ds, hits[0].point);
+          return;
+        }
+      }
     }
     // Vehicle movement mode no longer supported since we removed grid-based vehicles
     // Ignite when toggle is on
@@ -888,7 +888,16 @@ spawnFollowersOnAllPaths(3);
     },
     roads: {
       toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
-      clear: () => { roadsVis.clear(); roadEndpoints = []; clearFollowers(); rebuildPath2Ds(); }
+      clear: () => {
+        roadsVis.clear();
+        clearRoadMask(roadMask);
+        roadPaths = [];
+        roadEndpoints = [];
+        clearFollowers();
+        rebuildPath2Ds();
+        updateHydrantPlacement(hydrantSystem);
+        hydrantVisual.update(hydrantSystem);
+      }
     },
     vehicles: {
       spawn: (type) => {
@@ -960,6 +969,7 @@ spawnFollowersOnAllPaths(3);
         clearFollowers();
         clearHydrants(hydrantSystem);
         roadEndpoints = [];
+        roadPaths = [];
 
         // Rebuild road-related systems for new terrain
         roadCost = buildTerrainCost(hm);
@@ -996,13 +1006,11 @@ spawnFollowersOnAllPaths(3);
         scene.add(vehicles.group);
         scene.add(vehicles.particleGroup);
         
-        // Regenerate test roads and spawn vehicles on new terrain
-        seedRandomLoopsAndVehicles(2);
-        rebuildPath2Ds();
-        spawnFollowersOnAllPaths(3);
+        // Regenerate procedural roads and spawn vehicles on new terrain
+        reseedRoadsAndVehicles(2);
         
         // Update menubar references
-        menubar.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid });
+        menubar.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid, followers });
       }
     }
   });

@@ -43,7 +43,7 @@ describe('Particle Visibility', () => {
     });
     
     // Particles should be in the particle group, not the main group
-    expect(particlesInParticleGroup).toBe(3); // smoke, dust, water
+    expect(particlesInParticleGroup).toBe(4); // smoke, dust, water, spray cone
     expect(particlesInMainGroup).toBe(0);
     
     // Hide the vehicles group (simulating frenet mode)

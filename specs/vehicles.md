@@ -7,6 +7,9 @@
 - `VehiclesManager` four-way-stop intersection queues, particle/light FX, and water spray integration (`updateExternalFx`)
 - Menubar and debug tooling to spawn/clear followers, toggle move modes, and sync spacing parameters
 - Per-type instanced meshes, vehicle counts, and ability hooks (spray water, landing zones)
+- Procedural road loops (figure-8 by default) seeded at boot/regenerate; follower vehicles auto-spawn on seeded paths
+- Click-select PathFollower vehicles and issue move orders along the road network (neon green selection box)
+- Bulldozers (yellow) can accept off-road move orders; firetrucks (red) remain road-only
 
 ### ⏳ Outstanding
 - Share intersection/spacing logic with `PathFollower` controllers and reconcile duplicate movement stacks
@@ -31,7 +34,7 @@
 ## Runtime Snapshot
 
 - Instanced vehicles with grid-follow fallback constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction)
-- Auto-seeded demo loops at startup plus menubar hooks to spawn/move/clear vehicles
+- Auto-seeded procedural road loops at startup/regenerate plus menubar hooks to spawn/clear vehicles; fewer default spawns (1 per road)
 - Four-way-stop intersection management to avoid collisions
 - Road visuals: leveled tile-centred ribbon with dashed center stripe, dusty shoulders that blend into terrain, polygon offset to avoid z-fighting
 - Road building: cost field includes aggressive slope/grade penalties with hard blocks for steep tiles; turn penalty biases A* to reduce sharp curves and favour straight, level alignments
@@ -112,6 +115,8 @@ Roads (Visual + Mask)
   - Vertices offset along terrain normal; polygon offset to avoid z-fighting.
 - Mask
   - Rasterized grid mask marks road tiles; used by vehicles A* and can integrate with fire grid (e.g., set urban fuel).
+- Procedural
+  - Boot/regenerate uses procedural loops to ensure roads exist on fresh terrain; loops are reprojected to the new heightmap before followers spawn.
 
 Path Planning (Road Building)
 

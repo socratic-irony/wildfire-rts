@@ -107,36 +107,37 @@ export class MidlineIndex {
     // one more ring to confirm — guarantees we don't miss a closer segment that
     // happens to live in a neighboring bucket.
     const seen = new Set<number>();
-    let best: { si: number; d2: number } | null = null;
+    let bestSi = -1;
+    let bestD2 = Infinity;
 
     const { col: c0, row: r0 } = this.cellCoord(x, z);
     const maxRing = Math.max(this.cols, this.rows);
 
     for (let ring = 0; ring <= maxRing; ring++) {
-      const before = best ? best.d2 : Infinity;
+      const before = bestD2;
       this.scanRing(c0, r0, ring, seen, x, z, (si, d2) => {
-        if (!best || d2 < best.d2) best = { si, d2 };
+        if (d2 < bestD2) { bestD2 = d2; bestSi = si; }
       });
       // If we already have a hit and this ring's worst-case distance to the
       // query exceeds our current best, we can stop.
-      if (best && ring > 0) {
+      if (bestSi >= 0 && ring > 0) {
         const ringMin = (ring - 1) * this.cellSize;
-        if (ringMin * ringMin > best.d2) break;
+        if (ringMin * ringMin > bestD2) break;
       }
       // Avoid infinite loop when grid is tiny
-      if (best && before === best.d2 && ring > 0 && (ring * this.cellSize) * (ring * this.cellSize) > best.d2) break;
+      if (bestSi >= 0 && before === bestD2 && ring > 0 && (ring * this.cellSize) * (ring * this.cellSize) > bestD2) break;
     }
 
-    if (!best) {
+    if (bestSi < 0) {
       // Fallback: brute-force (only hit if grid is empty for this query area)
       for (let si = 0; si < this.segs.length; si++) {
         const d2 = this.distance2ToSeg(this.segs[si], x, z);
-        if (!best || d2 < best.d2) best = { si, d2 };
+        if (d2 < bestD2) { bestD2 = d2; bestSi = si; }
       }
-      if (!best) return null;
+      if (bestSi < 0) return null;
     }
 
-    return this.buildResult(best.si, x, z, best.d2);
+    return this.buildResult(bestSi, x, z, bestD2);
   }
 
   private scanRing(

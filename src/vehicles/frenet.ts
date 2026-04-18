@@ -21,6 +21,8 @@ export class PathFollower {
   object: Object3D;
   s = 0;
   v = 0;
+  targetS: number | null = null;
+  stopAtTarget = true;
   // leader coupling (optional)
   private leaderS: number | undefined;
   private leaderV: number | undefined;
@@ -28,6 +30,7 @@ export class PathFollower {
   Lmin = 3; Lmax = 14; kLook = 0.7;
   accel = 8; brake = 12;
   aLatMax = 5; vMaxClamp = 10; arriveDist = 6;
+  minMovingSpeed = 0.6;
   laneOffset = 0;
   minGap = 2.0; timeHeadway = 1.0; // following gaps
   spacingMode: 'hybrid' | 'gap' | 'time' = 'hybrid';
@@ -40,6 +43,15 @@ export class PathFollower {
   constructor(path: Path2D, hm: Heightmap, object: Object3D, s0 = 0) {
     this.path = path; this.hm = hm; this.object = object; this.s = s0;
     this.snapToPath();
+  }
+
+  setTargetS(s: number, stop = true) {
+    this.targetS = s;
+    this.stopAtTarget = stop;
+  }
+
+  clearTarget() {
+    this.targetS = null;
   }
 
   setLeader(leaderS?: number, leaderV?: number) {
@@ -152,6 +164,26 @@ export class PathFollower {
       const followSpeed = Math.max(0, (gapS - desiredGap) / Math.max(0.1, denom));
       vTarget = Math.min(vTarget, followSpeed);
     }
+    // Target-based slow/stop when approaching an order destination
+    let targetDist = Infinity;
+    if (this.targetS != null) {
+      if (this.path.closed) {
+        targetDist = this.targetS - this.s;
+        if (targetDist < 0) targetDist += this.path.length;
+      } else {
+        targetDist = this.targetS - this.s;
+      }
+      if (targetDist <= this.arriveDist) {
+        vTarget = Math.min(vTarget, Math.max(0.1, targetDist * 0.6));
+      }
+    }
+
+    // Enforce a floor speed once we're moving (avoid crawling through tight bends)
+    if (this.v > 0.05 && vTarget > 0) {
+      const isArriving = (!this.path.closed && (this.path.length - this.s < this.arriveDist * 0.85)) || (this.targetS != null && targetDist < this.arriveDist * 0.85);
+      if (!isArriving) vTarget = Math.max(vTarget, this.minMovingSpeed);
+    }
+
     // accel/brake
     const dv = vTarget - this.v;
     const maxUp = this.accel * dt, maxDown = this.brake * dt;
@@ -160,6 +192,9 @@ export class PathFollower {
 
     // advance along path
     let ds = Math.max(0, this.v * Math.cos(headingErr)) * dt;
+    if (this.targetS != null && targetDist !== Infinity) {
+      ds = Math.min(ds, Math.max(0, targetDist));
+    }
     if (this.leaderS != null && this.leaderS > this.s) {
       const desiredGap = this.spacingMode === 'gap' ? this.minGap
         : this.spacingMode === 'time' ? Math.max(0, this.v * this.timeHeadway)
@@ -171,6 +206,17 @@ export class PathFollower {
       if (this.s >= this.path.length) this.s -= this.path.length;
     } else {
       this.s = Math.min(this.path.length, this.s);
+    }
+
+    // If we reached target, stop and clear
+    if (this.targetS != null && targetDist !== Infinity) {
+      if (targetDist <= 0.2 || ds <= 1e-4) {
+        if (this.stopAtTarget) {
+          this.v = 0;
+        }
+        this.s = this.path.closed ? (this.targetS % this.path.length + this.path.length) % this.path.length : this.targetS;
+        this.clearTarget();
+      }
     }
 
     // update pose at new s

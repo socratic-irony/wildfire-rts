@@ -1,5 +1,7 @@
 import { config } from '../config/features';
 import { computeFireStats, FireStats } from '../fire/stats';
+import { computeFleetStats } from '../vehicles/stats';
+import type { FollowerEntry } from '../vehicles/followerOrders';
 import { FireGrid } from '../fire/grid';
 
 // Simple icon system using Unicode/emoji and basic shapes
@@ -50,6 +52,7 @@ type MenubarHandle = {
     shrubs?: { inst: import('three').InstancedMesh };
     rocks?: { inst: import('three').InstancedMesh };
     fireGrid?: any;
+    followers?: ReadonlyArray<FollowerEntry>;
   }) => void;
   setRefs?: (opts: any) => void;
   getIgniteMode: () => boolean;
@@ -560,6 +563,14 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     fireStats.textContent = 'No fire activity';
     fireControls.appendChild(fireStats);
 
+    // Fleet statistics display (populated from opts.followers in update())
+    const fleetStats = document.createElement('div');
+    fleetStats.style.cssText =
+      'margin-top: 6px; font-size: 11px; color: #94a3b8; line-height: 1.3; font-family: ui-monospace, monospace; white-space: pre;';
+    fleetStats.className = 'fleet-stats';
+    fleetStats.textContent = 'No vehicles';
+    fireControls.appendChild(fleetStats);
+
     controlsPanel.appendChild(createSection('🔥 Fire System', fireControls));
 
     // Vehicle Controls Section
@@ -886,6 +897,29 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
             `Burned area: ${burnedAreaHa.toFixed(1)} ha`,
             `Perimeter: ${perimeterKm.toFixed(2)} km`
           ].join('\n');
+        }
+      }
+
+      // Update fleet statistics
+      if (opts.followers) {
+        const followers = opts.followers as ReadonlyArray<FollowerEntry>;
+        const fleetStatsDiv = controlsPanel.querySelector('.fleet-stats') as HTMLDivElement | null;
+        if (fleetStatsDiv) {
+          if (followers.length === 0) {
+            fleetStatsDiv.textContent = 'No vehicles';
+          } else {
+            const fs = computeFleetStats(followers);
+            const typeBreakdown = Object.entries(fs.byType)
+              .filter(([, n]) => n > 0)
+              .map(([t, n]) => `${t}:${n}`)
+              .join(' ');
+            fleetStatsDiv.textContent = [
+              `Fleet: ${fs.total} (${fs.moving} moving, ${fs.idle} idle)`,
+              `Types: ${typeBreakdown}`,
+              `Mean speed: ${fs.meanSpeed.toFixed(2)} m/s`,
+              `Water capacity: ${fs.totalWaterCapacity} L`,
+            ].join('\n');
+          }
         }
       }
 

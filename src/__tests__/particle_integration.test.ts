@@ -57,7 +57,7 @@ describe('Particle Effects Integration', () => {
         particleMeshes++;
       }
     });
-    expect(particleMeshes).toBe(3); // smoke, dust, water systems
+    expect(particleMeshes).toBe(4); // smoke, dust, water, spray cone
     
     // 4. Updates complete without errors
     expect(vehicles.count).toBe(3);

@@ -9,17 +9,11 @@ import type { FireGrid } from '../fire/grid';
 import { applyWaterAoE } from '../fire/grid';
 import { aStarPath } from '../roads/astar';
 import { makeAngularPath } from '../roads/path';
+import { spawnParticlesFromVehicles, updateExternalFx as updateExternalFxImpl, type ExternalFxContext, type ParticleAgent, type ParticleSpawnContext } from './vehicleFx';
+import { VehicleType, type VehicleFxState } from './types';
+import { getDefaults } from './typeDefaults';
 
 type GridPoint = { x: number; z: number };
-
-export enum VehicleType {
-  CAR = 'car',
-  FIRETRUCK = 'firetruck', 
-  BULLDOZER = 'bulldozer',
-  HELICOPTER = 'helicopter',
-  AIRPLANE = 'airplane',
-  FIREFIGHTER = 'firefighter'
-}
 
 type Agent = {
   vehicleType: VehicleType;
@@ -61,17 +55,8 @@ type Agent = {
   turnSignalRight?: number;
 };
 
-export type VehicleFxState = {
-  id: number;
-  pos: Vector3;
-  forward: Vector3;
-  up: Vector3;
-  right: Vector3;
-  speed: number;
-  type: VehicleType;
-  sprayingWater?: boolean;
-  siren?: boolean;
-};
+export { VehicleType } from './types';
+export type { VehicleFxState } from './types';
 
 export class VehiclesManager {
   public group = new Group();
@@ -107,6 +92,7 @@ export class VehiclesManager {
   private instHeadlight: InstancedMesh;
   private instSignal: InstancedMesh;
   private instFlasher: InstancedMesh;
+  private instSprayCone: InstancedMesh;
   private smokeParticles: InstancedParticleSystem;
   private dustParticles: InstancedParticleSystem;
   private waterParticles: InstancedParticleSystem;
@@ -118,6 +104,8 @@ export class VehiclesManager {
   private tmpVec = new Vector3();
   private tmpVec2 = new Vector3();
   private tmpVec3 = new Vector3();
+  private tmpVec4 = new Vector3();
+  private tmpVec5 = new Vector3();
 
   constructor(hm: Heightmap, terrain: TerrainCost, roadMask: RoadMask, maxAgents = 64, roadsVis?: RoadsVisual, fireGrid?: FireGrid) {
     this.hm = hm; this.terrain = terrain; this.roadMask = roadMask; this.maxAgents = maxAgents;
@@ -178,6 +166,16 @@ export class VehiclesManager {
     this.instFlasher.castShadow = false;
     this.instFlasher.receiveShadow = false;
     this.group.add(this.instFlasher);
+
+    // Debug spray cone for firetrucks
+    const coneGeo = new ConeGeometry(this.cellSize * 0.25, this.cellSize * 1.2, 6, 1, true);
+    const coneMat = new MeshBasicMaterial({ color: new Color(0x5fb3ff), transparent: true, opacity: 0.35, depthWrite: false });
+    this.instSprayCone = new InstancedMesh(coneGeo, coneMat, maxAgents);
+    this.instSprayCone.instanceMatrix.setUsage(35048);
+    this.instSprayCone.frustumCulled = false;
+    this.instSprayCone.castShadow = false;
+    this.instSprayCone.receiveShadow = false;
+    this.particleGroup.add(this.instSprayCone);
 
     // Particle systems for smoke trails, dust, and water spray
     const ico = new IcosahedronGeometry(this.cellSize * 0.1, 0);
@@ -463,20 +461,7 @@ export class VehiclesManager {
   }
 
   private getDefaultSpeed(t: VehicleType): number {
-    switch (t) {
-      case VehicleType.BULLDOZER:
-        return 1.5;
-      case VehicleType.FIRETRUCK:
-        return 2.5;
-      case VehicleType.HELICOPTER:
-        return 5;
-      case VehicleType.AIRPLANE:
-        return 7;
-      case VehicleType.FIREFIGHTER:
-        return 2.8;
-      default:
-        return 3.2;
-    }
+    return getDefaults(t).speedTilesPerSec;
   }
 
   addLandingZone(gx: number, gz: number) {
@@ -605,74 +590,13 @@ export class VehiclesManager {
   }
 
   private spawnParticlesFromVehicles(dt: number) {
-    // Spawn particles from all active vehicles for visual testing
-    // Rate limiting: spawn particles every ~100ms to avoid overwhelming the system
-    const spawnInterval = 0.1; // seconds
-    if (this.elapsed % spawnInterval < dt) {
-      for (let i = 0; i < this.agents.length; i++) {
-        const agent = this.agents[i];
-        
-        // Basic particle spawn position at vehicle location with slight randomization
-        const pos = {
-          x: agent.pos.x + (Math.random() - 0.5) * 0.3,
-          y: agent.pos.y + 0.15, // Slightly above vehicle
-          z: agent.pos.z + (Math.random() - 0.5) * 0.3
-        };
-        
-        // Enhanced random velocity for better particle spread
-        const vel = {
-          x: (Math.random() - 0.5) * 2.5,
-          y: Math.random() * 2.0 + 0.8,
-          z: (Math.random() - 0.5) * 2.5
-        };
-        
-        // Spawn different particles based on vehicle type with enhanced visibility
-        switch (agent.vehicleType) {
-          case VehicleType.FIRETRUCK:
-            // Enhanced water spray particles (blue/white)
-            this.waterParticles.spawnOne({
-              pos,
-              vel: { x: vel.x * 0.7, y: vel.y * 0.6, z: vel.z * 0.7 },
-              life: 2.5,
-              size0: this.cellSize * 0.08, // Larger initial size
-              size1: this.cellSize * 0.2,  // Larger final size
-              color0: [0.3, 0.6, 1.0], // Brighter blue
-              color1: [0.9, 0.95, 1.0] // Bright white
-            });
-            break;
-            
-          case VehicleType.HELICOPTER:
-          case VehicleType.AIRPLANE:
-            // Enhanced smoke/exhaust particles (dark gray)
-            this.smokeParticles.spawnOne({
-              pos: { x: pos.x, y: pos.y + 0.4, z: pos.z }, // Higher for aircraft
-              vel: { x: vel.x * 0.4, y: vel.y + 1.2, z: vel.z * 0.4 },
-              life: 3.5,
-              size0: this.cellSize * 0.06, // Larger initial size
-              size1: this.cellSize * 0.25, // Larger final size
-              color0: [0.2, 0.2, 0.2], // Darker initial
-              color1: [0.7, 0.7, 0.7]  // Lighter final
-            });
-            break;
-            
-          case VehicleType.CAR:
-          case VehicleType.BULLDOZER:
-          case VehicleType.FIREFIGHTER:
-          default:
-            // Enhanced dust particles (tan/brown)
-            this.dustParticles.spawnOne({
-              pos,
-              vel: { x: vel.x * 0.4, y: vel.y * 0.4, z: vel.z * 0.4 },
-              life: 2.0,
-              size0: this.cellSize * 0.05, // Larger initial size
-              size1: this.cellSize * 0.15, // Larger final size
-              color0: [0.9, 0.7, 0.5], // Brighter tan
-              color1: [0.6, 0.4, 0.2]  // Brown
-            });
-            break;
-        }
-      }
-    }
+    const ctx: ParticleSpawnContext = {
+      cellSize: this.cellSize,
+      waterParticles: this.waterParticles,
+      smokeParticles: this.smokeParticles,
+      dustParticles: this.dustParticles,
+    };
+    spawnParticlesFromVehicles(ctx, this.agents as unknown as ParticleAgent[], dt, this.elapsed);
   }
 
   update(dt: number) {
@@ -705,141 +629,44 @@ export class VehiclesManager {
     opts: { wind?: { wx: number; wz: number } } = {}
   ) {
     this.elapsed += dt;
-    const wind = opts.wind ?? { wx: 0, wz: 0 };
+    const ctx: ExternalFxContext = {
+      cellSize: this.cellSize,
+      instHeadlight: this.instHeadlight,
+      instSignal: this.instSignal,
+      instFlasher: this.instFlasher,
+      dustParticles: this.dustParticles,
+      waterParticles: this.waterParticles,
+      smokeParticles: this.smokeParticles,
+      tmpObj3: this.tmpObj3,
+      tmpVec: this.tmpVec,
+      tmpVec2: this.tmpVec2,
+      tmpVec3: this.tmpVec3,
+      externalEmitters: this.externalEmitters,
+    };
+    const { headlightCount, signalCount, flasherCount } = updateExternalFxImpl(ctx, dt, this.elapsed, states, opts);
+    this.headlightCount = headlightCount;
+    this.signalCount = signalCount;
+    this.flasherCount = flasherCount;
 
-    this.headlightCount = 0;
-    this.signalCount = 0;
-    this.flasherCount = 0;
-
-    for (const record of this.externalEmitters.values()) record.active = false;
-
-    const flasherMat = this.instFlasher.material as MeshStandardMaterial;
-    const cycle = Math.sin(this.elapsed * 6);
-    const red = Math.max(0, cycle);
-    const blue = Math.max(0, -cycle);
-    flasherMat.color.setRGB(0.25 + red * 0.75, 0.1, 0.25 + blue * 0.75);
-    flasherMat.emissive.setRGB(0.4 + red * 1.8, 0.1, 0.4 + blue * 1.8);
-    flasherMat.emissiveIntensity = 0.9 + Math.abs(cycle) * 1.6;
-
-    const headMat = this.instHeadlight.material as MeshStandardMaterial;
-    headMat.emissiveIntensity = 1.2 + 0.3 * Math.sin(this.elapsed * 2.5);
-
+    // Update debug spray cones (firetrucks only)
+    let sprayCount = 0;
     for (const state of states) {
-      let record = this.externalEmitters.get(state.id);
-      if (!record) {
-        record = { dustAcc: 0, waterAcc: 0, active: true };
-        this.externalEmitters.set(state.id, record);
-      } else {
-        record.active = true;
-      }
-
-      const isGround = state.type !== VehicleType.HELICOPTER && state.type !== VehicleType.AIRPLANE;
-      if (isGround) {
-        const front = this.cellSize * 0.5;
-        const side = this.cellSize * 0.28;
-        this.tmpVec
-          .copy(state.pos)
-          .addScaledVector(state.up, this.cellSize * 0.25)
-          .addScaledVector(state.forward, front);
-
-        this.tmpObj3.position.copy(this.tmpVec).addScaledVector(state.right, -side);
-        this.tmpObj3.quaternion.identity();
-        this.tmpObj3.updateMatrix();
-        this.instHeadlight.setMatrixAt(this.headlightCount++, this.tmpObj3.matrix as Matrix4);
-
-        this.tmpObj3.position.copy(this.tmpVec).addScaledVector(state.right, side);
-        this.tmpObj3.updateMatrix();
-        this.instHeadlight.setMatrixAt(this.headlightCount++, this.tmpObj3.matrix as Matrix4);
-
-        const dustRate = Math.max(0, state.speed) * 1.25;
-        record.dustAcc += dustRate * dt;
-        while (record.dustAcc >= 1) {
-          const jitterSide = (Math.random() - 0.5) * this.cellSize * 0.6;
-          const jitterForward = -(0.35 + Math.random() * 0.35) * this.cellSize;
-          this.tmpVec2
-            .copy(state.pos)
-            .addScaledVector(state.up, this.cellSize * 0.12 + Math.random() * this.cellSize * 0.05)
-            .addScaledVector(state.forward, jitterForward)
-            .addScaledVector(state.right, jitterSide);
-          const vel = {
-            x: state.forward.x * 0.4 + (Math.random() - 0.5) * 1.1,
-            y: 0.45 + Math.random() * 0.6,
-            z: state.forward.z * 0.4 + (Math.random() - 0.5) * 1.1,
-          };
-          this.dustParticles.spawnOne({
-            pos: { x: this.tmpVec2.x, y: this.tmpVec2.y, z: this.tmpVec2.z },
-            vel,
-            life: 1.4 + Math.random() * 0.6,
-            size0: this.cellSize * (0.045 + Math.random() * 0.035),
-            size1: this.cellSize * (0.12 + Math.random() * 0.08),
-            color0: [0.82, 0.7, 0.52],
-            color1: [0.55, 0.44, 0.32],
-          });
-          record.dustAcc -= 1;
-        }
-      } else {
-        record.dustAcc = 0;
-      }
-
-      if (state.type === VehicleType.FIRETRUCK) {
-        const sirenBase = this.tmpVec.copy(state.pos).addScaledVector(state.up, this.cellSize * 0.55);
-        const sirenOffset = this.cellSize * 0.24;
-        this.tmpObj3.position.copy(sirenBase).addScaledVector(state.right, -sirenOffset);
-        this.tmpObj3.quaternion.identity();
-        this.tmpObj3.updateMatrix();
-        this.instFlasher.setMatrixAt(this.flasherCount++, this.tmpObj3.matrix as Matrix4);
-        this.tmpObj3.position.copy(sirenBase).addScaledVector(state.right, sirenOffset);
-        this.tmpObj3.updateMatrix();
-        this.instFlasher.setMatrixAt(this.flasherCount++, this.tmpObj3.matrix as Matrix4);
-
-        if (state.sprayingWater) {
-          const waterRate = 14;
-          record.waterAcc += waterRate * dt;
-          while (record.waterAcc >= 1) {
-            const jitterSide = (Math.random() - 0.5) * this.cellSize * 0.25;
-            this.tmpVec3
-              .copy(state.pos)
-              .addScaledVector(state.up, this.cellSize * 0.3)
-              .addScaledVector(state.forward, this.cellSize * (0.9 + Math.random() * 0.25))
-              .addScaledVector(state.right, jitterSide);
-            const vel = {
-              x: state.forward.x * 3.2 + (Math.random() - 0.5) * 1.4,
-              y: 2.6 + Math.random() * 0.9,
-              z: state.forward.z * 3.2 + (Math.random() - 0.5) * 1.4,
-            };
-            this.waterParticles.spawnOne({
-              pos: { x: this.tmpVec3.x, y: this.tmpVec3.y, z: this.tmpVec3.z },
-              vel,
-              life: 1.1 + Math.random() * 0.5,
-              size0: this.cellSize * (0.05 + Math.random() * 0.03),
-              size1: this.cellSize * (0.08 + Math.random() * 0.05),
-              color0: [0.4, 0.62, 0.95],
-              color1: [0.85, 0.94, 1.0],
-            });
-            record.waterAcc -= 1;
-          }
-        } else {
-          record.waterAcc = 0;
-        }
-      } else {
-        record.waterAcc = 0;
-      }
+      if (state.type !== VehicleType.FIRETRUCK) continue;
+      const base = this.tmpVec.copy(state.pos).addScaledVector(state.up, this.cellSize * 0.35);
+      const sweepAngle = Math.sin(this.elapsed * 1.8) * (Math.PI / 4);
+      const sweepDir = this.tmpVec2.copy(state.forward).applyAxisAngle(state.up, sweepAngle).normalize();
+      const up = this.tmpVec3.copy(state.up).normalize();
+      const m = new Matrix4();
+      // Orient cone along sweepDir (Y-axis of cone points up, so rotate to forward)
+      const forward = this.tmpVec4.copy(sweepDir).normalize();
+      const coneRight = this.tmpVec5.copy(up).cross(forward).normalize();
+      const coneUp = this.tmpVec2.copy(forward).cross(coneRight).normalize();
+      m.makeBasis(coneRight, coneUp, forward);
+      m.setPosition(base);
+      this.instSprayCone.setMatrixAt(sprayCount++, m);
     }
-
-    for (const [fxId, record] of this.externalEmitters.entries()) {
-      if (!record.active) this.externalEmitters.delete(fxId);
-    }
-
-    this.instHeadlight.count = this.headlightCount as any;
-    this.instSignal.count = 0 as any;
-    this.instFlasher.count = this.flasherCount as any;
-    this.instHeadlight.instanceMatrix.needsUpdate = true;
-    this.instSignal.instanceMatrix.needsUpdate = true;
-    this.instFlasher.instanceMatrix.needsUpdate = true;
-
-    this.dustParticles.update(dt, wind, 0);
-    this.waterParticles.update(dt, wind, 0);
-    this.smokeParticles.update(dt, wind, 0);
+    this.instSprayCone.count = sprayCount as any;
+    this.instSprayCone.instanceMatrix.needsUpdate = true;
   }
 
   private syncInstance(i: number) {

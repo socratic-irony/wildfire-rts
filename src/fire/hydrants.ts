@@ -178,7 +178,7 @@ function getHydrantOffsetPosition(
   roadMask: RoadMask, 
   centerPos: { x: number; z: number }, 
   isLeftSide: boolean,
-  offsetDistance = 0.7
+  offsetDistance = 1.4
 ): { x: number; z: number } {
   const direction = findRoadDirection(roadMask, centerPos.x, centerPos.z);
   if (!direction) {

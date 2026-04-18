@@ -3,6 +3,8 @@ import {
   CircleGeometry,
   Float32BufferAttribute,
   Group,
+  Line,
+  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -38,6 +40,9 @@ export class RoadsVisual {
   private mat = new MeshStandardMaterial({ color: 0x222428, roughness: 0.95, metalness: 0.05, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: true, depthTest: false });
   private shoulderMat = new MeshBasicMaterial({ color: 0x7a6247, transparent: true, opacity: 0.38, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
   private stripeMat = new MeshBasicMaterial({ color: 0xf5f5f5, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, vertexColors: false });
+  private debugLineMat = new LineBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.75, depthWrite: false, depthTest: false });
+  private simpleMat = new MeshBasicMaterial({ color: 0x3b3f45, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false });
+  private debugRibbonMat = new MeshBasicMaterial({ color: 0x0b1a2b, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, wireframe: true });
   private yOffset: number;
   private hm: Heightmap;
   private paths: Vector2[][] = [];
@@ -111,6 +116,7 @@ export class RoadsVisual {
     const initialClosed = centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < scale * 0.4;
     centers = dedupeVec2(centers);
     const spacing = Math.max(scale * 0.6, width * 0.35);
+    centers = smoothChaikin(centers, 2, initialClosed);
     centers = smoothAndResample(centers, Math.max(spacing, 1e-3), initialClosed);
     // Re-evaluate closure after smoothing/resampling so we don't create long wrap segments
     let closed = initialClosed && centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < Math.max(scale * 0.6, 0.6);
@@ -126,7 +132,37 @@ export class RoadsVisual {
     this.paths.push(mid);
     this.closedFlags[pathIndex] = closed;
     const frames = computeRoadFrames(mid, width, this.hm, closed);
-    if (frames.length < 2) return;
+    if (frames.length < 2) {
+      // Fallback: draw a simple line if frames cannot be built
+      const linePoints = mid.map((p) => new Vector3(p.x, this.hm.sample(p.x, p.y) + this.yOffset, p.y));
+      if (closed && linePoints.length > 1) linePoints.push(linePoints[0].clone());
+      const lineGeo = new BufferGeometry().setFromPoints(linePoints);
+      const line = new Line(lineGeo, this.debugLineMat);
+      line.renderOrder = 9;
+      line.frustumCulled = false;
+      this.group.add(line);
+      return;
+    }
+    // Simple ribbon as a reliable baseline (in case shaded ribbon blends into terrain)
+    {
+      const simpleFrames = computeSimpleFrames(mid, this.hm, closed);
+      const simpleWidth = Math.max(width * 0.9, this.hm.scale * 1.2);
+      const { positions, colors, indices } = buildRibbonStrip(simpleFrames, simpleWidth, this.yOffset * 1.45, closed);
+      const geo = new BufferGeometry();
+      geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+      if (colors.length) geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
+      geo.setIndex(indices);
+      const mesh = new Mesh(geo, this.simpleMat);
+      mesh.renderOrder = 9;
+      mesh.frustumCulled = false;
+      this.group.add(mesh);
+
+      const debugGeo = geo.clone();
+      const debugMesh = new Mesh(debugGeo, this.debugRibbonMat);
+      debugMesh.renderOrder = 11;
+      debugMesh.frustumCulled = false;
+      this.group.add(debugMesh);
+    }
     this.frames[pathIndex] = frames;
     // Build cumulative s for this path
     const cum: number[] = []; let accS = 0;
@@ -180,6 +216,16 @@ export class RoadsVisual {
       const mesh = new Mesh(geo, this.stripeMat);
       mesh.renderOrder = 8;
       this.group.add(mesh);
+    }
+    // Debug visibility line along midline to ensure roads stay visible
+    {
+      const linePoints = frames.map(frame => frame.center.clone().addScaledVector(frame.up, this.yOffset * 1.25));
+      if (closed && linePoints.length > 1) linePoints.push(linePoints[0].clone());
+      const lineGeo = new BufferGeometry().setFromPoints(linePoints);
+      const line = new Line(lineGeo, this.debugLineMat);
+      line.renderOrder = 12;
+      line.frustumCulled = false;
+      this.group.add(line);
     }
   }
 
@@ -521,6 +567,29 @@ function smoothAndResample(points: Vector2[], spacing: number, closed: boolean) 
   return resampleUniform(dense, spacing, closed);
 }
 
+function smoothChaikin(points: Vector2[], iterations: number, closed: boolean) {
+  if (points.length < 3 || iterations <= 0) return points.map(p => p.clone());
+  let pts = points.map(p => p.clone());
+  for (let iter = 0; iter < iterations; iter++) {
+    const out: Vector2[] = [];
+    const N = pts.length;
+    const segCount = closed ? N : N - 1;
+    for (let i = 0; i < segCount; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % N];
+      const q = new Vector2(0.75 * a.x + 0.25 * b.x, 0.75 * a.y + 0.25 * b.y);
+      const r = new Vector2(0.25 * a.x + 0.75 * b.x, 0.25 * a.y + 0.75 * b.y);
+      out.push(q, r);
+    }
+    if (!closed) {
+      out.unshift(pts[0].clone());
+      out.push(pts[N - 1].clone());
+    }
+    pts = out;
+  }
+  return dedupeVec2(pts);
+}
+
 function buildRibbonStrip(frames: RoadFrame[], width: number, yOffset: number, closed = false) {
   const half = width * 0.5;
   const positions: number[] = [];
@@ -723,6 +792,35 @@ function computeRoadFrames(path: Vector2[], _width: number, hm: Heightmap, close
       tangent: tangent.clone(),
       terrainNormal,
       rawHeight: rawHeights[i],
+    });
+  }
+  return frames;
+}
+
+function computeSimpleFrames(path: Vector2[], hm: Heightmap, closed: boolean): RoadFrame[] {
+  const N = path.length;
+  if (N === 0) return [];
+  const centers = path.map((p) => new Vector3(p.x, hm.sample(p.x, p.y), p.y));
+  const frames: RoadFrame[] = [];
+  for (let i = 0; i < N; i++) {
+    const prevIdx = closed ? (i - 1 + N) % N : Math.max(0, i - 1);
+    const nextIdx = closed ? (i + 1) % N : Math.min(N - 1, i + 1);
+    const prev = centers[prevIdx];
+    const next = centers[nextIdx];
+    const tangent = next.clone().sub(prev);
+    if (tangent.lengthSq() < 1e-6) tangent.set(1, 0, 0);
+    tangent.normalize();
+    const up = WORLD_UP.clone();
+    let left = new Vector3().crossVectors(up, tangent);
+    if (left.lengthSq() < 1e-6) left.set(-tangent.z, 0, tangent.x);
+    left.normalize();
+    frames.push({
+      center: centers[i],
+      up,
+      left,
+      tangent: tangent.clone(),
+      terrainNormal: up.clone(),
+      rawHeight: centers[i].y,
     });
   }
   return frames;
