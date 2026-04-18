@@ -1,6 +1,6 @@
 # Wildfire-RTS Roadmap
 
-Living tracking document for major initiatives. Audit dated **2026-04-18**.
+Living tracking document for major initiatives. Audit dated **2026-04-18**. Test count: **129 passing**.
 
 The README's roadmap section is the high-level public view; this file is the working checklist with file-level pointers, scope estimates, and per-initiative subtasks.
 
@@ -53,10 +53,11 @@ Without this the game has no strategy layer. Fire detected → incident created 
 
 Makes choices matter. Vehicles must return to base when empty.
 
-- [ ] Extend `Agent` in `vehicles.ts` with `fuel`, `waterLoad`, `fuelBurnRate`
+- [x] Pure payload module `src/vehicles/payload.ts` — `createPayload`, `tickFuel`, `consumeWater`, `refuel`, `refill`, `status`, `needsReturnToBase`. 7 tests. Landed 2026-04-18.
+- [ ] Attach `PayloadState` to `Agent` in `vehicles.ts` and `PathFollower` entries
 - [ ] Update speed model for grade + load
-- [ ] Deplete water in `applyWaterAoE`; stop spraying when empty
-- [ ] "Return to base" autopilot when fuel/water below threshold
+- [ ] Call `consumeWater` from `applyWaterAoE`; stop spraying when empty
+- [ ] "Return to base" autopilot triggered by `needsReturnToBase`
 - [ ] HUD bars per vehicle (fuel + water)
 
 ### 4. Fire-aware pathing (L)
@@ -72,8 +73,8 @@ Vehicles route around active fires; re-plan when planned route becomes hot.
 
 Fixes drift and yaw glitches. `src/roads/visual.ts` already exposes `getMidlinesXZ()` (~line 97).
 
-- [ ] Build kd-tree or uniform-grid index over midline segments in `RoadsVisual`
-- [ ] `project(pos) → { segIdx, t, tangent, normal }` query
+- [x] `src/roads/midlineIndex.ts` — uniform-grid index, `nearest(x,z) → { pathIdx, segIdx, t, point, distance, tangent, normal }`. 6 tests including brute-force parity check. Landed 2026-04-18.
+- [ ] Wire `RoadsVisual` to build/refresh the index when paths change
 - [ ] Use projected tangent for yaw smoothing in `frenet.ts`
 - [ ] Bench: query latency vs current `findNearestPathIndex`
 
