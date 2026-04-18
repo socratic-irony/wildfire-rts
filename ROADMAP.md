@@ -33,11 +33,11 @@ Without this the game has no strategy layer. Fire detected → incident created 
 - [x] Scaffold `src/dispatch/stations.ts` — station registry with `nearest()` lookup. Landed 2026-04-18.
 - [x] Scaffold `src/dispatch/assignment.ts` — `assignNearestIdle()` greedy heuristic, suppression-type filter. Landed 2026-04-18.
 - [x] Tests in `src/dispatch/__tests__/` — 9 tests, lifecycle + heuristic. Landed 2026-04-18.
-- [ ] Wire fire-loop in `src/main.ts`: detect new burning tiles → spawn incidents (call `registry.detectFromFireGrid()` periodically, e.g. every 1s)
-- [ ] Wire follower-loop: when assignment lands, push goal into `PathFollower` and mark unit busy until `Incident.status === 'resolved'`
-- [ ] Add `src/ui/dispatchPanel.ts` — list incidents, available units, current assignments
-- [ ] Auto-dispatch toggle + manual override in menubar
-- [ ] Promote `Incident.status === 'engaged'` when assigned unit reaches the incident tile (distance check)
+- [x] Wire fire-loop in `src/main.ts`: detect new burning tiles → spawn incidents (call `registry.detectFromFireGrid()` periodically, e.g. every 1s) — **Done 2026-04-18 via `src/systems/dispatchLoop.ts`**
+- [x] Wire follower-loop: when assignment lands, push goal into `PathFollower` and mark unit busy until `Incident.status === 'resolved'` — **Done 2026-04-18**
+- [x] Add `src/ui/dispatchPanel.ts` — list incidents, available units, current assignments — **Done 2026-04-18**
+- [x] Auto-dispatch toggle + manual override in menubar — **Done 2026-04-18 (toggle in panel)**
+- [x] Promote `Incident.status === 'engaged'` when assigned unit reaches the incident tile (distance check) — **Done 2026-04-18**
 - [ ] Replace greedy heuristic with cost-based assignment (factor in unit type, water remaining, response distance)
 
 ### 2. Unify intersection control across both vehicle systems (M)
@@ -54,7 +54,7 @@ Without this the game has no strategy layer. Fire detected → incident created 
 Makes choices matter. Vehicles must return to base when empty.
 
 - [x] Pure payload module `src/vehicles/payload.ts` — `createPayload`, `tickFuel`, `consumeWater`, `refuel`, `refill`, `status`, `needsReturnToBase`. 7 tests. Landed 2026-04-18.
-- [ ] Attach `PayloadState` to `Agent` in `vehicles.ts` and `PathFollower` entries
+- [x] Attach `PayloadState` to `ActiveFollower` entries in `main.ts` — `createPayload()` per spawn, `tickFuel` during motion, `needsReturnToBase` releases busy flag. Done 2026-04-18.
 - [ ] Update speed model for grade + load
 - [ ] Call `consumeWater` from `applyWaterAoE`; stop spraying when empty
 - [ ] "Return to base" autopilot triggered by `needsReturnToBase`
@@ -74,7 +74,7 @@ Vehicles route around active fires; re-plan when planned route becomes hot.
 Fixes drift and yaw glitches. `src/roads/visual.ts` already exposes `getMidlinesXZ()` (~line 97).
 
 - [x] `src/roads/midlineIndex.ts` — uniform-grid index, `nearest(x,z) → { pathIdx, segIdx, t, point, distance, tangent, normal }`. 6 tests including brute-force parity check. Landed 2026-04-18.
-- [ ] Wire `RoadsVisual` to build/refresh the index when paths change
+- [x] Wire `RoadsVisual` to build/refresh the index when paths change — `addPath()` rebuilds `midlineIndex` after each path is added; `clear()` resets it. `roadsVis.midlineIndex` is now the canonical projection source. Done 2026-04-18.
 - [ ] Use projected tangent for yaw smoothing in `frenet.ts`
 - [ ] Bench: query latency vs current `findNearestPathIndex`
 
