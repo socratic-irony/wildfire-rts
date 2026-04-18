@@ -90,18 +90,12 @@ export function createDispatchLoop(
 
   function pushGoal(follower: PathFollower, incidentPos: Pos2D, path2ds: Path2D[]): void {
     if (!path2ds.length) return;
-    const target = { x: incidentPos.x, z: incidentPos.z };
-    let bestIdx = 0, bestDist = Infinity, bestS = 0;
-    for (let i = 0; i < path2ds.length; i++) {
-      const proj = path2ds[i].project(target);
-      if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
-    }
-    const curTmp: WorldPos = { x: 0, y: 0, z: 0 };
-    follower.object.getWorldPosition(curTmp as unknown as Parameters<typeof follower.object.getWorldPosition>[0]);
-    const curProj = path2ds[bestIdx].project({ x: curTmp.x, z: curTmp.z });
-    follower.path = path2ds[bestIdx];
-    follower.s = curProj.s;
-    follower.setTargetS(bestS, true);
+    // Stay on the follower's current path to avoid cross-path teleporting.
+    // If the follower is not on any known path, leave it where it is.
+    const currentIdx = path2ds.indexOf(follower.path as Path2D);
+    if (currentIdx < 0) return;
+    const proj = path2ds[currentIdx].project({ x: incidentPos.x, z: incidentPos.z });
+    follower.setTargetS(proj.s, true);
   }
 
   function isSuppression(type: VehicleType): boolean {

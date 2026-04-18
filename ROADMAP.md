@@ -1,6 +1,6 @@
 # Wildfire-RTS Roadmap
 
-Living tracking document for major initiatives. Audit dated **2026-04-18**. Test count: **129 passing**.
+Living tracking document for major initiatives. Audit dated **2026-04-18** (updated). Test count: **165 passing**.
 
 The README's roadmap section is the high-level public view; this file is the working checklist with file-level pointers, scope estimates, and per-initiative subtasks.
 
@@ -29,15 +29,16 @@ Scope: **S** ≤ half-day · **M** 1–3 days · **L** 1+ week
 
 Without this the game has no strategy layer. Fire detected → incident created → nearest idle vehicle dispatched → busy/idle state tracked → resolution.
 
-- [x] Scaffold `src/dispatch/incident.ts` — `Incident` type, registry, lifecycle (`detected → assigned → engaged → resolved`). Landed 2026-04-18.
+- [x] Scaffold `src/dispatch/incident.ts` — `Incident` type, registry, lifecycle (`detected → assigned → engaged → resolved`). Added `reopen()` for unit-leaves-to-refill flow. Landed 2026-04-18; extended with `reopen` same sprint.
 - [x] Scaffold `src/dispatch/stations.ts` — station registry with `nearest()` lookup. Landed 2026-04-18.
 - [x] Scaffold `src/dispatch/assignment.ts` — `assignNearestIdle()` greedy heuristic, suppression-type filter. Landed 2026-04-18.
 - [x] Tests in `src/dispatch/__tests__/` — 9 tests, lifecycle + heuristic. Landed 2026-04-18.
 - [x] Wire fire-loop in `src/main.ts`: detect new burning tiles → spawn incidents (call `registry.detectFromFireGrid()` periodically, e.g. every 1s) — **Done 2026-04-18 via `src/systems/dispatchLoop.ts`**
-- [x] Wire follower-loop: when assignment lands, push goal into `PathFollower` and mark unit busy until `Incident.status === 'resolved'` — **Done 2026-04-18**
+- [x] Wire follower-loop: when assignment lands, push goal into `PathFollower` and mark unit busy until `Incident.status === 'resolved'` — Done. Dispatch now uses same-path projection (no cross-path teleporting).
 - [x] Add `src/ui/dispatchPanel.ts` — list incidents, available units, current assignments — **Done 2026-04-18**
-- [x] Auto-dispatch toggle + manual override in menubar — **Done 2026-04-18 (toggle in panel)**
-- [x] Promote `Incident.status === 'engaged'` when assigned unit reaches the incident tile (distance check) — **Done 2026-04-18**
+- [x] Auto-dispatch toggle + manual override — panel shows per-incident "Assign selected" button; `DispatchPanelCallbacks` includes `getSelectedFollowerId` + `onManualDispatch`. Wired in `main.ts`.
+- [x] Promote `Incident.status === 'engaged'` when assigned unit reaches the incident tile (distance check) — Done.
+- [x] Real suppression: engaged followers call `consumeWater` + `applyWaterAoEWithHydrants` each frame. Empty-tank units reopen the incident and return to base. Refill/refuel at home restores payload.
 - [ ] Replace greedy heuristic with cost-based assignment (factor in unit type, water remaining, response distance)
 
 ### 2. Unify intersection control across both vehicle systems (M)
@@ -54,10 +55,10 @@ Without this the game has no strategy layer. Fire detected → incident created 
 Makes choices matter. Vehicles must return to base when empty.
 
 - [x] Pure payload module `src/vehicles/payload.ts` — `createPayload`, `tickFuel`, `consumeWater`, `refuel`, `refill`, `status`, `needsReturnToBase`. 7 tests. Landed 2026-04-18.
-- [x] Attach `PayloadState` to `ActiveFollower` entries in `main.ts` — `createPayload()` per spawn, `tickFuel` during motion, `needsReturnToBase` releases busy flag. Done 2026-04-18.
+- [x] Attach `PayloadState` to `ActiveFollower` entries in `main.ts` — `createPayload()` per spawn, `tickFuel` during motion, `consumeWater` per suppression frame, empty-tank units return home and refuel/refill on arrival. Done.
 - [ ] Update speed model for grade + load
-- [ ] Call `consumeWater` from `applyWaterAoE`; stop spraying when empty
-- [ ] "Return to base" autopilot triggered by `needsReturnToBase`
+- [~] Call `consumeWater` from suppression loop; stop spraying when empty — **done in `updateFollowerSuppression()`**
+- [~] "Return to base" autopilot triggered by `needsReturnToBase` — **done in `sendFollowerHome()` + `updateFollowerLogistics()`**
 - [ ] HUD bars per vehicle (fuel + water)
 
 ### 4. Fire-aware pathing (L)
@@ -74,9 +75,10 @@ Vehicles route around active fires; re-plan when planned route becomes hot.
 Fixes drift and yaw glitches. `src/roads/visual.ts` already exposes `getMidlinesXZ()` (~line 97).
 
 - [x] `src/roads/midlineIndex.ts` — uniform-grid index, `nearest(x,z) → { pathIdx, segIdx, t, point, distance, tangent, normal }`. 6 tests including brute-force parity check. Landed 2026-04-18.
-- [x] Wire `RoadsVisual` to build/refresh the index when paths change — `addPath()` rebuilds `midlineIndex` after each path is added; `clear()` resets it. `roadsVis.midlineIndex` is now the canonical projection source. Done 2026-04-18.
+- [x] Wire `RoadsVisual` to build/refresh the index when paths change — `addPath()` rebuilds `midlineIndex` after each path is added; `clear()` resets it.
+- [x] `projectToMidline()` and `findNearestPathIndex()` now use `midlineIndex.nearest()` — no more coarse scan. Done.
 - [ ] Use projected tangent for yaw smoothing in `frenet.ts`
-- [ ] Bench: query latency vs current `findNearestPathIndex`
+- [ ] Bench: query latency vs previous brute-force
 
 ### 6. OSM road import (L) — *defer until core loop is done*
 

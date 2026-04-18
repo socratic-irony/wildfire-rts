@@ -5,6 +5,7 @@ import { VehicleType } from './types';
 import type { PathFollower } from './frenet';
 
 export type FollowerEntry = {
+  id: number;
   follower: PathFollower;
   object: Object3D;
   mesh: Object3D;
@@ -59,30 +60,39 @@ export function issueMoveOrder(
   path2ds: Path2D[],
   worldPos: Vector3
 ) {
+  setTargetOnCurrentPath(selected, path2ds, { x: worldPos.x, z: worldPos.z });
+}
+
+const MAX_SERVICE_ROAD_DISTANCE = 12;
+
+/**
+ * Project `worldPos` onto the follower's current path and set that as its target.
+ * Keeps units on their current path without cross-path teleporting.
+ * Returns true if a reachable target was set, false if the position is too far
+ * from the current path (unit is left where it is).
+ * Bulldozers are always routed off-road regardless of road distance.
+ */
+export function setTargetOnCurrentPath(
+  selected: FollowerEntry,
+  path2ds: Path2D[],
+  worldPos: { x: number; z: number },
+  maxRoadDistance = MAX_SERVICE_ROAD_DISTANCE,
+): boolean {
   if (selected.type === VehicleType.BULLDOZER) {
-    selected.offroadTarget = worldPos.clone();
+    selected.offroadTarget = new Vector3(worldPos.x, 0, worldPos.z);
     selected.follower.clearTarget();
-    return;
+    return true;
   }
-  if (!path2ds.length) return;
-  const target = { x: worldPos.x, z: worldPos.z };
-  let bestIdx = 0;
-  let bestDist = Infinity;
-  let bestProj = path2ds[0].project(target);
-  for (let i = 0; i < path2ds.length; i++) {
-    const proj = path2ds[i].project(target);
-    if (proj.dist < bestDist) {
-      bestDist = proj.dist;
-      bestIdx = i;
-      bestProj = proj;
-    }
-  }
-  const curPos = selected.object.getWorldPosition(new Vector3());
-  const curProj = path2ds[bestIdx].project({ x: curPos.x, z: curPos.z });
-  selected.follower.path = path2ds[bestIdx];
-  selected.follower.s = curProj.s;
-  selected.follower.setTargetS(bestProj.s, true);
+
+  const currentIdx = path2ds.indexOf(selected.follower.path);
+  if (currentIdx < 0) return false;
+
+  const proj = path2ds[currentIdx].project(worldPos);
+  if (proj.dist > maxRoadDistance) return false;
+
+  selected.follower.setTargetS(proj.s, true);
   selected.offroadTarget = null;
+  return true;
 }
 
 export function updateOffroadFollowers(followers: FollowerEntry[], hm: Heightmap, dt: number) {
