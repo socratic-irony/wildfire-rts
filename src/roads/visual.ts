@@ -13,6 +13,7 @@ import {
 } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 import { makeAngularPath } from './path';
+import { MidlineIndex } from './midlineIndex';
 
 const WORLD_UP = new Vector3(0, 1, 0);
 
@@ -71,6 +72,10 @@ export class RoadsVisual {
     polygonOffsetFactor: -4,
     polygonOffsetUnits: -4
   });
+
+  /** Midline spatial index — rebuilt whenever paths change. */
+  public readonly midlineIndex = new MidlineIndex();
+
   constructor(hm: Heightmap) {
     this.hm = hm;
     this.yOffset = Math.max(0.3, hm.scale * 0.24);
@@ -91,6 +96,7 @@ export class RoadsVisual {
       this.intersectionGroup.remove(this.intersectionGroup.children[0]);
     }
     this.intersectionGeo = undefined;
+    this.midlineIndex.build([], this.hm.scale * 3);
   }
 
   // Expose smoothed midlines as world XZ arrays for controllers
@@ -227,6 +233,9 @@ export class RoadsVisual {
       line.frustumCulled = false;
       this.group.add(line);
     }
+    // Rebuild midline spatial index to include the newly added path
+    const allMidlines = this.paths.map(p => p.map(v => ({ x: v.x, z: v.y })));
+    this.midlineIndex.build(allMidlines, this.hm.scale * 3);
   }
 
   // Build or rebuild the spatial index and compute segment intersections

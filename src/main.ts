@@ -34,11 +34,15 @@ import { makeAngularPath } from './roads/path';
 import { generateProceduralRoads } from './roads/procedural';
 import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
 import { getDefaults } from './vehicles/typeDefaults';
+import { createPayload, tickFuel, needsReturnToBase, type PayloadState } from './vehicles/payload';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
 import { createFollowerSelection, findFollowerHit, issueMoveOrder, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
 import { mapMenubarToVehicleType } from './vehicles/menubarMapping';
+import { createIncidentRegistry } from './dispatch/incident';
+import { createDispatchLoop, type FollowerRef } from './systems/dispatchLoop';
+import { DispatchPanel } from './ui/dispatchPanel';
 // import { createFireTexture } from './fire/texture';
 
 // Config and console system
@@ -136,6 +140,33 @@ loop.add((dt) => {
   fireViz.update(fireGrid, dt);
   // Update water and retardant decals
   suppressionDecals.update(fireGrid);
+
+  // Tick payload fuel for all moving followers
+  for (const f of followers) {
+    if (f.follower.v > 0.05) {
+      tickFuel(f.payload, dt);
+    }
+    // Return-to-base trigger (stops spraying, releases busy flag)
+    if (f.busy && needsReturnToBase(f.payload)) {
+      f.busy = false;
+    }
+  }
+
+  // Dispatch loop — detect incidents, auto-assign, promote/resolve
+  {
+    const followerRefs: FollowerRef[] = followers.map(f => ({
+      id: f.id,
+      type: f.type,
+      follower: f.follower,
+      busy: f.busy,
+    }));
+    dispatchLoop.tick(dt, fireGrid.time, fireGrid, followerRefs, path2ds);
+    // Sync busy flag back from followerRefs (dispatch loop may have updated it)
+    for (const ref of followerRefs) {
+      const f = followers.find(x => x.id === ref.id);
+      if (f) f.busy = ref.busy;
+    }
+  }
   // Hover overlay update at ~10 Hz independent of mouse movement
   _hoverAcc += dt;
   if (_hoverAcc >= 0.1 && _hoverHasMouse) {
@@ -233,6 +264,8 @@ loop.add((dt) => {
   
   // Update unified menubar/debug interface
   menubar.update(dt, renderer, { chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid, followers });
+  // Update dispatch panel (refresh at 5 Hz to keep DOM updates cheap)
+  dispatchPanel.update(followers.length, followers.filter(f => f.busy).length);
   // (intersection manager already ran pre-update in Frenet mode)
 });
 
@@ -465,6 +498,8 @@ type ActiveFollower = {
   mesh: Mesh;
   type: VManagerVehicleType;
   fxState: VehicleFxState;
+  payload: PayloadState;
+  busy: boolean;
   offroadTarget?: Vector3 | null;
 };
 
@@ -623,7 +658,7 @@ function spawnFollowersOnAllPaths(perPath = 3) {
         sprayingWater: false,
         siren: vehicleType === VManagerVehicleType.FIRETRUCK,
       };
-      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState, offroadTarget: null });
+      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState, payload: createPayload(vehicleType), busy: false, offroadTarget: null });
     }
   }
 }
@@ -675,7 +710,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     sprayingWater: false,
     siren: type === VManagerVehicleType.FIRETRUCK,
   };
-  followers.push({ id, follower, object: obj, mesh, type, fxState, offroadTarget: null });
+  followers.push({ id, follower, object: obj, mesh, type, fxState, payload: createPayload(type), busy: false, offroadTarget: null });
 }
 
 
@@ -696,6 +731,11 @@ let hydrantSystem = createHydrantSystem(roadMask, hm.scale);
 let hydrantVisual = new HydrantVisual(hm);
 scene.add(hydrantVisual.group);
 hydrantVisual.setVisible(true); // Initially visible
+
+// Dispatch — incident registry + auto-assignment loop + UI panel
+const incidentRegistry = createIncidentRegistry(hm.scale);
+const dispatchLoop = createDispatchLoop(incidentRegistry, { detectInterval: 1.0, autoDispatch: true });
+const dispatchPanel = new DispatchPanel(app, dispatchLoop);
 
 // Seed procedural roads at startup and spawn moving vehicles
 reseedRoadsAndVehicles(2);
