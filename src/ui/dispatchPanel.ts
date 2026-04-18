@@ -202,15 +202,19 @@ export class DispatchPanel {
     if (inc.status === 'detected' && this.callbacks.onManualDispatch) {
       const btn = document.createElement('button');
       btn.textContent = 'Assign selected';
+      const hasSelection = !!(this.callbacks.getSelectedFollowerId?.());
+      btn.disabled = !hasSelection;
+      btn.title = hasSelection ? 'Assign the selected vehicle to this incident' : 'Select a vehicle first';
       Object.assign(btn.style, {
         marginTop: '4px',
         fontSize: '10px',
-        cursor: 'pointer',
+        cursor: hasSelection ? 'pointer' : 'default',
         background: 'rgba(255,255,255,0.08)',
-        color: '#e5e7eb',
+        color: hasSelection ? '#e5e7eb' : '#6b7280',
         border: '1px solid rgba(255,255,255,0.08)',
         borderRadius: '4px',
         padding: '2px 6px',
+        opacity: hasSelection ? '1' : '0.5',
       });
       btn.addEventListener('click', () => {
         const id = this.callbacks.getSelectedFollowerId?.();

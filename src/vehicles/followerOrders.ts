@@ -5,6 +5,7 @@ import { VehicleType } from './types';
 import type { PathFollower } from './frenet';
 
 export type FollowerEntry = {
+  /** Unique identifier for this follower, shared with the dispatch system. */
   id: number;
   follower: PathFollower;
   object: Object3D;

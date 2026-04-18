@@ -510,14 +510,17 @@ type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
 let pathIntersections: IntersectionInfo[][] = [];
 const intersectionManager = new IntersectionManager();
+
+/** Distance ahead of an intersection (meters) that must be clear before granting entry. */
+const INTERSECTION_CLEAR_ZONE = 8;
+
 intersectionManager.setCanEnterProbe((follower, info) => {
-  const CLEAR_ZONE = 8;
   return !followers.some(other => {
     if (other.follower === follower) return false;
     if (other.follower.path !== follower.path) return false;
     let ds = other.follower.s - info.s;
     if (follower.path.closed && ds < 0) ds += follower.path.length;
-    return ds > 0 && ds < CLEAR_ZONE;
+    return ds > 0 && ds < INTERSECTION_CLEAR_ZONE;
   });
 });
 
@@ -743,6 +746,12 @@ const dispatchLoop = createDispatchLoop(incidentRegistry, { detectInterval: 1.0,
 
 // ── Suppression & logistics helpers ──────────────────────────────────────────
 
+/** Maximum distance (meters) from an engaged incident at which a unit actively suppresses. */
+const SUPPRESSION_RANGE_METERS = 10;
+
+/** Distance (meters) from home position at which a returning unit is considered arrived. */
+const HOME_ARRIVAL_THRESHOLD = 6;
+
 function syncFollowerAssignments() {
   const assigned = new Map<number, number>();
   for (const inc of dispatchLoop.registry.list()) {
@@ -776,7 +785,7 @@ function updateFollowerSuppression(dt: number) {
 
     const pos = entry.object.getWorldPosition(tmpFollowerWorld);
     const d = Math.hypot(pos.x - inc.pos.x, pos.z - inc.pos.z);
-    if (d > 10) continue;
+    if (d > SUPPRESSION_RANGE_METERS) continue;
 
     const litersPerSec =
       entry.type === VManagerVehicleType.FIRETRUCK ? 220 :
@@ -824,7 +833,7 @@ function updateFollowerLogistics(dt: number) {
     if (entry.returningToBase) {
       const p = entry.object.getWorldPosition(tmpFollowerWorld);
       const homeDist = Math.hypot(p.x - entry.homePos.x, p.z - entry.homePos.z);
-      if (homeDist <= 6) {
+      if (homeDist <= HOME_ARRIVAL_THRESHOLD) {
         refuel(entry.payload);
         refill(entry.payload);
         entry.returningToBase = false;
