@@ -118,9 +118,13 @@ This project follows spec-first development:
 
 ## Roadmap
 
+See **[ROADMAP.md](ROADMAP.md)** for the live working checklist with file pointers, scope estimates, and per-initiative subtasks.
+
 ### Near-term (v0.2)
+- [ ] Incident dispatch system — see [ROADMAP.md](ROADMAP.md) (scaffolding + tests landed; wiring + UI pending)
+- [ ] Vehicle payload + fuel model — see [ROADMAP.md](ROADMAP.md)
+- [ ] Unify intersection control across PathFollower + VehiclesManager
 - [ ] Implement crown fire mode and edge-based fireline barriers
-- [ ] Share intersection/spacing logic with Frenet PathFollower vehicles
 - [ ] Tune hydrant coverage falloff, damage states, and overlay visualization
 - [ ] Expand menubar controls (wind tuning, suppression presets) and document workflows
 
