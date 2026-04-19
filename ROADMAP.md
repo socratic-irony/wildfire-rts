@@ -1,6 +1,6 @@
 # Wildfire-RTS Roadmap
 
-Living tracking document for major initiatives. Audit dated **2026-04-18** (updated). Test count: **165 passing**.
+Living tracking document for major initiatives. Audit dated **2026-04-18** (updated). Test count: **169 passing**.
 
 The README's roadmap section is the high-level public view; this file is the working checklist with file-level pointers, scope estimates, and per-initiative subtasks.
 
@@ -39,6 +39,7 @@ Without this the game has no strategy layer. Fire detected → incident created 
 - [x] Auto-dispatch toggle + manual override — panel shows per-incident "Assign selected" button; `DispatchPanelCallbacks` includes `getSelectedFollowerId` + `onManualDispatch`. Wired in `main.ts`.
 - [x] Promote `Incident.status === 'engaged'` when assigned unit reaches the incident tile (distance check) — Done.
 - [x] Real suppression: engaged followers call `consumeWater` + `applyWaterAoEWithHydrants` each frame. Empty-tank units reopen the incident and return to base. Refill/refuel at home restores payload.
+- [x] **Routeability guard** — `dispatchLoop.pushGoal()` now returns `boolean`; incidents are only marked `assigned` if at least one unit successfully projected onto its current road within 12 m. Manual dispatch in `main.ts` routes first, assigns second. 4 regression tests added (`dispatch_routeability.test.ts`).
 - [ ] Replace greedy heuristic with cost-based assignment (factor in unit type, water remaining, response distance)
 
 ### 2. Unify intersection control across both vehicle systems (M)
@@ -56,10 +57,10 @@ Makes choices matter. Vehicles must return to base when empty.
 
 - [x] Pure payload module `src/vehicles/payload.ts` — `createPayload`, `tickFuel`, `consumeWater`, `refuel`, `refill`, `status`, `needsReturnToBase`. 7 tests. Landed 2026-04-18.
 - [x] Attach `PayloadState` to `ActiveFollower` entries in `main.ts` — `createPayload()` per spawn, `tickFuel` during motion, `consumeWater` per suppression frame, empty-tank units return home and refuel/refill on arrival. Done.
-- [ ] Update speed model for grade + load
+- [x] Update speed model for grade + load
 - [~] Call `consumeWater` from suppression loop; stop spraying when empty — **done in `updateFollowerSuppression()`**
 - [~] "Return to base" autopilot triggered by `needsReturnToBase` — **done in `sendFollowerHome()` + `updateFollowerLogistics()`**
-- [ ] HUD bars per vehicle (fuel + water)
+- [x] HUD bars per vehicle (fuel + water) — `src/ui/vehicleHud.ts` shows selected-unit fuel %, water %, and assignment/RTB status overlay. Updated each frame in main loop.
 
 ### 4. Fire-aware pathing (L)
 

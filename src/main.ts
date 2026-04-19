@@ -43,6 +43,7 @@ import { mapMenubarToVehicleType } from './vehicles/menubarMapping';
 import { createIncidentRegistry } from './dispatch/incident';
 import { createDispatchLoop, type FollowerRef } from './systems/dispatchLoop';
 import { DispatchPanel } from './ui/dispatchPanel';
+import { createVehicleHud } from './ui/vehicleHud';
 
 // Config and console system
 import { config, isFeatureEnabled } from './config/features';
@@ -256,6 +257,21 @@ loop.add((dt) => {
   menubar.update(dt, renderer, { chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid, followers });
   // Update dispatch panel (refresh at 5 Hz to keep DOM updates cheap)
   dispatchPanel.update(followers.length, followers.filter(f => f.busy).length);
+  // Update selected-unit HUD (fuel, water, assignment status)
+  {
+    const sel = selection.getSelected() as (FollowerEntry & { id?: number }) | null;
+    const active = sel?.id != null ? followers.find(f => f.id === sel.id) ?? null : null;
+    if (!active) {
+      vehicleHud.render(null);
+    } else {
+      vehicleHud.render({
+        type: String(VManagerVehicleType[active.type] ?? active.type),
+        payload: active.payload,
+        returningToBase: active.returningToBase,
+        assignedIncidentId: active.assignedIncidentId,
+      });
+    }
+  }
   // (intersection manager already ran pre-update in Frenet mode)
 });
 
@@ -856,22 +872,33 @@ const dispatchPanel = new DispatchPanel(app, dispatchLoop, {
     const entry = followers.find(f => f.id === followerId);
     if (!inc || !entry) return;
 
-    const ok = dispatchLoop.manualDispatch(incidentId, followerId, fireGrid.time);
-    if (!ok) return;
-
-    entry.busy = true;
-    entry.assignedIncidentId = incidentId;
-    entry.returningToBase = false;
-
-    setTargetOnCurrentPath(
+    // Route first — only proceed with assignment if the unit can actually
+    // service this incident from its current road.
+    const routed = setTargetOnCurrentPath(
       entry as unknown as FollowerEntry,
       path2ds,
       { x: inc.pos.x, z: inc.pos.z },
     );
+    if (!routed) {
+      console.warn('Selected unit cannot service this incident from its current road.');
+      return;
+    }
+
+    const ok = dispatchLoop.manualDispatch(incidentId, followerId, fireGrid.time);
+    if (!ok) {
+      // Undo routing if registry rejected (e.g. already resolved)
+      entry.offroadTarget = null;
+      entry.follower.clearTarget?.();
+      return;
+    }
+
+    entry.busy = true;
+    entry.assignedIncidentId = incidentId;
+    entry.returningToBase = false;
   },
 });
 
-// Seed procedural roads at startup and spawn moving vehicles
+const vehicleHud = createVehicleHud(app);
 reseedRoadsAndVehicles(2);
 
 // Click to ignite under cursor

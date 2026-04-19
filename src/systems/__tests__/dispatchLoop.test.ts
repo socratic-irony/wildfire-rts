@@ -29,11 +29,11 @@ function mockFollowerRef(
   id: number,
   type: VehicleType,
   pos: { x: number; z: number },
-  busy = false
+  busy = false,
+  path: Path2D | null = null
 ): FollowerRef {
   const posVec: V3 = { x: pos.x, y: 0, z: pos.z };
   let targetS: number | null = null;
-  let currentPath: Path2D | null = null;
 
   const follower = {
     object: {
@@ -41,12 +41,12 @@ function mockFollowerRef(
       matrixAutoUpdate: false,
       matrix: { copy: vi.fn(), setPosition: vi.fn() },
     },
-    path: null as unknown as Path2D,
+    path: path as unknown as Path2D,
     s: 0,
     v: 0,
     targetS,
     stopAtTarget: true,
-    setTargetS(s: number) { targetS = s; void currentPath; },
+    setTargetS(s: number) { targetS = s; },
     clearTarget() { targetS = null; },
   } as unknown as PathFollower;
 
@@ -95,9 +95,10 @@ describe('dispatchLoop', () => {
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: true });
 
-    const ref = mockFollowerRef(1, VehicleType.FIRETRUCK, { x: 1, z: 1 });
-    const followers = [ref];
     const paths = [mockPath2d([{ x: 0, z: 0 }, { x: 10, z: 0 }])];
+    // Follower path must be in path2ds so pushGoal can route it
+    const ref = mockFollowerRef(1, VehicleType.FIRETRUCK, { x: 1, z: 1 }, false, paths[0]);
+    const followers = [ref];
 
     loop.tick(1.1, 1.1, grid, followers, paths);
 
@@ -131,9 +132,9 @@ describe('dispatchLoop', () => {
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: true });
 
-    // Place unit very close to the incident (< ENGAGE_RADIUS = 8)
-    const ref = mockFollowerRef(1, VehicleType.FIRETRUCK, { x: 0.5, z: 0.5 });
     const paths = [mockPath2d([{ x: 0, z: 0 }, { x: 10, z: 0 }])];
+    // Place unit very close to the incident (< ENGAGE_RADIUS = 8); path in path2ds
+    const ref = mockFollowerRef(1, VehicleType.FIRETRUCK, { x: 0.5, z: 0.5 }, false, paths[0]);
 
     // First tick: detect + assign
     loop.tick(1.1, 1.1, grid, [ref], paths);
