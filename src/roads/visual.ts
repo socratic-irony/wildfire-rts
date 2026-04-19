@@ -388,39 +388,23 @@ export class RoadsVisual {
   // Project a world XZ point to the nearest point on any road midline and return pos/normal/tangent
   projectToMidline(wx: number, wz: number) {
     if (this.paths.length === 0) return null as null;
-    let best: { pathIndex: number; hit: ClosestHit } | null = null;
-    for (let p = 0; p < this.paths.length; p++) {
-      const path = this.paths[p];
-      const closed = this.closedFlags[p];
-      const segCount = closed ? path.length : path.length - 1;
-      if (segCount <= 0) continue;
-      const hit = closestPointOnPath(path, closed, wx, wz, 0, segCount - 1);
-      if (!hit) continue;
-      if (!best || hit.d2 < best.hit.d2) {
-        best = { pathIndex: p, hit };
-      }
-    }
-    if (!best) return null as null;
-    const { pos, normal, tangent } = this.buildProjection(best.pathIndex, best.hit);
+    const q = this.midlineIndex.nearest(wx, wz);
+    if (!q) return null as null;
+    const { pos, normal, tangent } = this.buildProjection(q.pathIdx, {
+      segIndex: q.segIdx,
+      t: q.t,
+      px: q.point.x,
+      pz: q.point.z,
+      abx: q.tangent.x,
+      abz: q.tangent.z,
+      d2: q.distance * q.distance,
+    });
     return { pos, normal, tangent } as const;
   }
 
-  // Find nearest path index using a coarse scan
+  // Find nearest path index using the midline index
   findNearestPathIndex(wx: number, wz: number) {
-    if (this.paths.length === 0) return -1;
-    let bestIdx = -1, bestD2 = Infinity;
-    for (let p = 0; p < this.paths.length; p++) {
-      const path = this.paths[p];
-      // sample every Nth point for speed
-      const step = Math.max(1, Math.floor(path.length / 64));
-      for (let i = 0; i < path.length; i += step) {
-        const x = path[i].x, z = path[i].y;
-        const dx = wx - x, dz = wz - z;
-        const d2 = dx * dx + dz * dz;
-        if (d2 < bestD2) { bestD2 = d2; bestIdx = p; }
-      }
-    }
-    return bestIdx;
+    return this.midlineIndex.nearest(wx, wz)?.pathIdx ?? -1;
   }
 
   // Project to a specific path index (optionally with a segment hint to limit search)

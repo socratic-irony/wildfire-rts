@@ -22,6 +22,8 @@ export type IncidentRegistry = {
   markAssigned(id: number, followerIds: number[], simSeconds: number): void;
   markEngaged(id: number, simSeconds: number): void;
   markResolved(id: number, simSeconds: number): void;
+  /** Reopen a non-resolved incident (e.g. when its assigned unit leaves to refill). */
+  reopen(id: number): void;
   prune(grid: FireGrid, simSeconds: number): number; // returns count pruned
 };
 
@@ -91,6 +93,15 @@ export function createIncidentRegistry(cellSize: number): IncidentRegistry {
       if (!inc) return;
       inc.status = 'resolved';
       inc.resolvedAt = simSeconds;
+    },
+
+    reopen(id) {
+      const inc = incidents.find((i) => i.id === id);
+      if (!inc || inc.status === 'resolved') return;
+      inc.status = 'detected';
+      inc.assignedFollowerIds = [];
+      delete inc.assignedAt;
+      delete inc.engagedAt;
     },
 
     prune(grid, simSeconds) {

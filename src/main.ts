@@ -17,7 +17,7 @@ import { buildChunkedTerrain } from './terrain/chunks';
 import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { createMenubar } from './ui/menubar';
 import { createPaintSystem } from './ui/paint';
-import { buildFireGrid, ignite as igniteTiles, FireState } from './fire/grid';
+import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoEWithHydrants } from './fire/grid';
 import { FireSim } from './fire/sim';
 import type { Env as FireEnv } from './fire/sim';
 import { createFireViz } from './fire/viz';
@@ -34,16 +34,15 @@ import { makeAngularPath } from './roads/path';
 import { generateProceduralRoads } from './roads/procedural';
 import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
 import { getDefaults } from './vehicles/typeDefaults';
-import { createPayload, tickFuel, needsReturnToBase, type PayloadState } from './vehicles/payload';
+import { createPayload, tickFuel, needsReturnToBase, consumeWater, refuel, refill, type PayloadState } from './vehicles/payload';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
-import { createFollowerSelection, findFollowerHit, issueMoveOrder, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
+import { createFollowerSelection, findFollowerHit, issueMoveOrder, setTargetOnCurrentPath, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
 import { mapMenubarToVehicleType } from './vehicles/menubarMapping';
 import { createIncidentRegistry } from './dispatch/incident';
 import { createDispatchLoop, type FollowerRef } from './systems/dispatchLoop';
 import { DispatchPanel } from './ui/dispatchPanel';
-// import { createFireTexture } from './fire/texture';
 
 // Config and console system
 import { config, isFeatureEnabled } from './config/features';
@@ -141,17 +140,6 @@ loop.add((dt) => {
   // Update water and retardant decals
   suppressionDecals.update(fireGrid);
 
-  // Tick payload fuel for all moving followers
-  for (const f of followers) {
-    if (f.follower.v > 0.05) {
-      tickFuel(f.payload, dt);
-    }
-    // Return-to-base trigger (stops spraying, releases busy flag)
-    if (f.busy && needsReturnToBase(f.payload)) {
-      f.busy = false;
-    }
-  }
-
   // Dispatch loop — detect incidents, auto-assign, promote/resolve
   {
     const followerRefs: FollowerRef[] = followers.map(f => ({
@@ -166,6 +154,9 @@ loop.add((dt) => {
       const f = followers.find(x => x.id === ref.id);
       if (f) f.busy = ref.busy;
     }
+    syncFollowerAssignments();
+    updateFollowerSuppression(dt);
+    updateFollowerLogistics(dt);
   }
   // Hover overlay update at ~10 Hz independent of mouse movement
   _hoverAcc += dt;
@@ -199,8 +190,8 @@ loop.add((dt) => {
   }
   // Update perimeter ribbon
   fireRibbon.update(fireGrid as any, performance.now() / 1000);
-  // Update flipbook particles (wind placeholder; can wire simEnv later)
-  fireParticles.update(fireGrid as any, { windDirRad: 0, windSpeed: 0 }, dt, rig.camera);
+  // Update flipbook particles with real wind from simEnv
+  fireParticles.update(fireGrid as any, simEnv, dt, rig.camera);
   
   // Always update Frenet followers with intersection-aware speed control
   const groups = new Map<Path2D, number[]>();
@@ -243,8 +234,7 @@ loop.add((dt) => {
     fx.up.copy(tmpFollowerUp);
     fx.right.copy(tmpFollowerRight);
     fx.speed = entry.follower.v;
-    // Firetrucks always spray for now to test sweep pattern
-    fx.sprayingWater = entry.type === VManagerVehicleType.FIRETRUCK;
+    // sprayingWater is controlled by updateFollowerSuppression()
     fx.siren = entry.type === VManagerVehicleType.FIRETRUCK;
     followerFxStates.push(fx);
   }
@@ -500,6 +490,9 @@ type ActiveFollower = {
   fxState: VehicleFxState;
   payload: PayloadState;
   busy: boolean;
+  assignedIncidentId: number | null;
+  returningToBase: boolean;
+  homePos: { x: number; z: number };
   offroadTarget?: Vector3 | null;
 };
 
@@ -512,10 +505,24 @@ const tmpFollowerScale = new Vector3();
 const tmpFollowerForward = new Vector3();
 const tmpFollowerUp = new Vector3();
 const tmpFollowerRight = new Vector3();
+const tmpFollowerWorld = new Vector3();
 type SpacingMode = 'hybrid' | 'gap' | 'time';
 let spacingMode: SpacingMode = 'hybrid';
 let pathIntersections: IntersectionInfo[][] = [];
 const intersectionManager = new IntersectionManager();
+
+/** Distance ahead of an intersection (meters) that must be clear before granting entry. */
+const INTERSECTION_CLEAR_ZONE = 8;
+
+intersectionManager.setCanEnterProbe((follower, info) => {
+  return !followers.some(other => {
+    if (other.follower === follower) return false;
+    if (other.follower.path !== follower.path) return false;
+    let ds = other.follower.s - info.s;
+    if (follower.path.closed && ds < 0) ds += follower.path.length;
+    return ds > 0 && ds < INTERSECTION_CLEAR_ZONE;
+  });
+});
 
 const selection = createFollowerSelection(scene);
 
@@ -658,7 +665,8 @@ function spawnFollowersOnAllPaths(perPath = 3) {
         sprayingWater: false,
         siren: vehicleType === VManagerVehicleType.FIRETRUCK,
       };
-      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState, payload: createPayload(vehicleType), busy: false, offroadTarget: null });
+      const p0 = obj.getWorldPosition(new Vector3());
+      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState, payload: createPayload(vehicleType), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null });
     }
   }
 }
@@ -710,7 +718,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     sprayingWater: false,
     siren: type === VManagerVehicleType.FIRETRUCK,
   };
-  followers.push({ id, follower, object: obj, mesh, type, fxState, payload: createPayload(type), busy: false, offroadTarget: null });
+  followers.push({ id, follower, object: obj, mesh, type, fxState, payload: createPayload(type), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: camPos.x, z: camPos.z }, offroadTarget: null });
 }
 
 
@@ -735,7 +743,133 @@ hydrantVisual.setVisible(true); // Initially visible
 // Dispatch — incident registry + auto-assignment loop + UI panel
 const incidentRegistry = createIncidentRegistry(hm.scale);
 const dispatchLoop = createDispatchLoop(incidentRegistry, { detectInterval: 1.0, autoDispatch: true });
-const dispatchPanel = new DispatchPanel(app, dispatchLoop);
+
+// ── Suppression & logistics helpers ──────────────────────────────────────────
+
+/** Maximum distance (meters) from an engaged incident at which a unit actively suppresses. */
+const SUPPRESSION_RANGE_METERS = 10;
+
+/** Distance (meters) from home position at which a returning unit is considered arrived. */
+const HOME_ARRIVAL_THRESHOLD = 6;
+
+function syncFollowerAssignments() {
+  const assigned = new Map<number, number>();
+  for (const inc of dispatchLoop.registry.list()) {
+    if (inc.status === 'resolved') continue;
+    for (const uid of inc.assignedFollowerIds) assigned.set(uid, inc.id);
+  }
+  for (const entry of followers) {
+    entry.assignedIncidentId = assigned.get(entry.id) ?? null;
+  }
+}
+
+function sendFollowerHome(entry: ActiveFollower) {
+  if (!entry.returningToBase && entry.assignedIncidentId != null) {
+    dispatchLoop.registry.reopen(entry.assignedIncidentId);
+  }
+  entry.assignedIncidentId = null;
+  entry.returningToBase = true;
+  entry.fxState.sprayingWater = false;
+  issueMoveOrder(entry as unknown as FollowerEntry, path2ds, new Vector3(entry.homePos.x, 0, entry.homePos.z));
+}
+
+function updateFollowerSuppression(dt: number) {
+  for (const entry of followers) {
+    entry.fxState.sprayingWater = false;
+
+    const incId = entry.assignedIncidentId;
+    if (incId == null) continue;
+
+    const inc = dispatchLoop.registry.byId(incId);
+    if (!inc || inc.status !== 'engaged') continue;
+
+    const pos = entry.object.getWorldPosition(tmpFollowerWorld);
+    const d = Math.hypot(pos.x - inc.pos.x, pos.z - inc.pos.z);
+    if (d > SUPPRESSION_RANGE_METERS) continue;
+
+    const litersPerSec =
+      entry.type === VManagerVehicleType.FIRETRUCK ? 220 :
+      entry.type === VManagerVehicleType.HELICOPTER ? 150 :
+      entry.type === VManagerVehicleType.AIRPLANE ? 700 :
+      entry.type === VManagerVehicleType.FIREFIGHTER ? 12 :
+      0;
+
+    if (litersPerSec <= 0) continue;
+
+    const drawn = consumeWater(entry.payload, litersPerSec * dt);
+    if (drawn <= 0) {
+      sendFollowerHome(entry);
+      continue;
+    }
+
+    entry.fxState.sprayingWater = true;
+
+    applyWaterAoEWithHydrants(
+      fireGrid,
+      { x: inc.tile.x + 0.5, z: inc.tile.z + 0.5 },
+      entry.type === VManagerVehicleType.AIRPLANE ? 4.5 : 2.5,
+      Math.min(0.55, 0.15 + drawn / 900),
+      hydrantSystem as any,
+    );
+  }
+}
+
+function updateFollowerLogistics(dt: number) {
+  for (const entry of followers) {
+    const loadFactor =
+      entry.payload.waterCapacity > 0
+        ? 1 + 0.25 * (entry.payload.water / entry.payload.waterCapacity)
+        : 1;
+
+    if (entry.follower.v > 0.05) {
+      tickFuel(entry.payload, dt, loadFactor);
+    }
+
+    if (!entry.returningToBase && needsReturnToBase(entry.payload)) {
+      sendFollowerHome(entry);
+      continue;
+    }
+
+    if (entry.returningToBase) {
+      const p = entry.object.getWorldPosition(tmpFollowerWorld);
+      const homeDist = Math.hypot(p.x - entry.homePos.x, p.z - entry.homePos.z);
+      if (homeDist <= HOME_ARRIVAL_THRESHOLD) {
+        refuel(entry.payload);
+        refill(entry.payload);
+        entry.returningToBase = false;
+        entry.busy = false;
+        entry.assignedIncidentId = null;
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const dispatchPanel = new DispatchPanel(app, dispatchLoop, {
+  getSelectedFollowerId: () => {
+    const sel = selection.getSelected() as (FollowerEntry & { id?: number }) | null;
+    return sel?.id ?? null;
+  },
+  onManualDispatch: (incidentId, followerId) => {
+    const inc = dispatchLoop.registry.byId(incidentId);
+    const entry = followers.find(f => f.id === followerId);
+    if (!inc || !entry) return;
+
+    const ok = dispatchLoop.manualDispatch(incidentId, followerId, fireGrid.time);
+    if (!ok) return;
+
+    entry.busy = true;
+    entry.assignedIncidentId = incidentId;
+    entry.returningToBase = false;
+
+    setTargetOnCurrentPath(
+      entry as unknown as FollowerEntry,
+      path2ds,
+      { x: inc.pos.x, z: inc.pos.z },
+    );
+  },
+});
 
 // Seed procedural roads at startup and spawn moving vehicles
 reseedRoadsAndVehicles(2);

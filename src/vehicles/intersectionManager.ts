@@ -35,6 +35,7 @@ export class IntersectionManager {
   private intersectionStates = new Map<number, IntersectionState>();
   private followerStates: WeakMap<PathFollower, FollowerState> = new WeakMap();
   private arrivalCounter = 0;
+  private canEnterProbe?: (follower: PathFollower, info: IntersectionInfo) => boolean;
 
   // Tuning constants (meters / seconds)
   private approachDistance = 10;
@@ -45,6 +46,12 @@ export class IntersectionManager {
   private approachMaxSpeed = 6;
   private creepSpeed = 0.6;
   private crossingSpeed = 4;
+
+  /** Set a probe function called before granting intersection entry.
+   *  Return false to block entry (e.g. exit space occupied). */
+  setCanEnterProbe(fn?: (follower: PathFollower, info: IntersectionInfo) => boolean) {
+    this.canEnterProbe = fn;
+  }
 
   setPaths(entries: Array<{ path: Path2D; intersections: IntersectionInfo[] }>) {
     this.pathEntries.clear();
@@ -128,7 +135,8 @@ export class IntersectionManager {
         front &&
         front.follower === follower &&
         queueEntry.ready &&
-        followerState.waitElapsed >= this.minStopTime
+        followerState.waitElapsed >= this.minStopTime &&
+        (this.canEnterProbe?.(follower, info) ?? true)
       ) {
         this.removeFromQueue(state, follower);
         state.occupant = follower;
