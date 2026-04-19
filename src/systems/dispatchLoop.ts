@@ -28,6 +28,9 @@ type WorldPos = { x: number; y: number; z: number };
 const ENGAGE_RADIUS = 8;
 // Distance (world units) within which an idle unit can be auto-dispatched.
 const MAX_DISPATCH_RADIUS = 400;
+// Maximum perpendicular distance (world units) from the follower's current road
+// at which an incident is considered serviceable. Mirrors followerOrders.ts.
+const MAX_SERVICE_ROAD_DISTANCE = 12;
 
 export type FollowerRef = {
   id: number;
@@ -88,14 +91,23 @@ export function createDispatchLoop(
     return Math.hypot(a.x - b.x, a.z - b.z);
   }
 
-  function pushGoal(follower: PathFollower, incidentPos: Pos2D, path2ds: Path2D[]): void {
-    if (!path2ds.length) return;
+  /**
+   * Project incidentPos onto the follower's current path and set a movement target.
+   * Returns false (without routing) when:
+   *  - the follower is not on any known path, or
+   *  - the incident is farther than MAX_SERVICE_ROAD_DISTANCE from that path.
+   * This prevents creating "assigned but unreachable" incidents.
+   */
+  function pushGoal(follower: PathFollower, incidentPos: Pos2D, path2ds: Path2D[]): boolean {
+    if (!path2ds.length) return false;
     // Stay on the follower's current path to avoid cross-path teleporting.
     // If the follower is not on any known path, leave it where it is.
     const currentIdx = path2ds.indexOf(follower.path as Path2D);
-    if (currentIdx < 0) return;
+    if (currentIdx < 0) return false;
     const proj = path2ds[currentIdx].project({ x: incidentPos.x, z: incidentPos.z });
+    if (proj.dist > MAX_SERVICE_ROAD_DISTANCE) return false;
     follower.setTargetS(proj.s, true);
+    return true;
   }
 
   function isSuppression(type: VehicleType): boolean {
@@ -156,15 +168,22 @@ export function createDispatchLoop(
             if (!unit) continue;
             if (dist2d(unit.pos, inc.pos) > MAX_DISPATCH_RADIUS) continue;
 
-            registry.markAssigned(asn.incidentId, asn.unitIds, simSeconds);
+            // Route first: only units that can actually service this incident from
+            // their current road get marked busy. If none succeed, skip assignment.
+            const routedIds: number[] = [];
             for (const uid of asn.unitIds) {
-              unitToIncident.set(uid, asn.incidentId);
               const ref = followers.find(f => f.id === uid);
-              if (ref) {
-                ref.busy = true;
-                pushGoal(ref.follower, inc.pos, path2ds);
-              }
+              if (!ref) continue;
+              const routed = pushGoal(ref.follower, inc.pos, path2ds);
+              if (!routed) continue;
+              ref.busy = true;
+              routedIds.push(uid);
             }
+
+            if (!routedIds.length) continue;
+
+            registry.markAssigned(asn.incidentId, routedIds, simSeconds);
+            for (const uid of routedIds) unitToIncident.set(uid, asn.incidentId);
           }
         }
       }
