@@ -24,19 +24,31 @@ function flatGrid(size = 16) {
   return buildFireGrid(hm, biomes, { cellSize: 1 });
 }
 
+/** Assert the incident is in 'assigned' or 'engaged' state (it may promote within the same tick). */
+function expectAssignedOrEngaged(registry: ReturnType<typeof createIncidentRegistry>, incidentId: number) {
+  const status = registry.byId(incidentId)?.status;
+  expect(status === 'assigned' || status === 'engaged').toBe(true);
+}
+
 /**
  * Build a minimal Path2D mock whose `project` returns the perpendicular
  * distance from the given world point to the line segment (x0,z0)→(x1,z1).
+ * Pass `fixedDist` to force all projections to return a specific distance
+ * (useful in tests that only care about the dist threshold behaviour).
  */
 function makePath(
   x0: number, z0: number,
   x1: number, z1: number,
+  fixedDist?: number,
 ): Path2D {
   const len = Math.hypot(x1 - x0, z1 - z0) || 1;
   return {
     length: len,
     closed: false,
     project(p: { x: number; z: number }) {
+      if (fixedDist !== undefined) {
+        return { s: len / 2, dist: fixedDist, t: { x: (x1 - x0) / len, z: (z1 - z0) / len } };
+      }
       // Project p onto the segment and compute perpendicular dist.
       const dx = x1 - x0, dz = z1 - z0;
       const ab2 = dx * dx + dz * dz || 1e-9;
@@ -94,15 +106,11 @@ describe('dispatch_routeability', () => {
     expect(inc.status).toBe('detected');
 
     // Road runs along z=0 (far from fire at z≈2.5).
-    // The perpendicular distance from the incident to this road is ~2.5 units,
-    // but we force a very short road with huge offset to ensure dist > 12.
-    const farPath = makePath(0, 0, 100, 0); // road along z=0
+    // Force project to return dist=50 so the incident is well beyond the 12 m threshold.
+    const farPath = makePath(0, 0, 100, 0, 50); // fixedDist=50
 
     // Follower is on this road, near world origin (within MAX_DISPATCH_RADIUS)
     const ref = makeFollowerRef(1, farPath, 2.5, 0);
-
-    // Override project so dist > 12 (incident is far from road)
-    (farPath as any).project = (_p: any) => ({ s: 0, dist: 50, t: { x: 1, z: 0 } });
 
     const loop = createDispatchLoop(registry, { autoDispatch: true, detectInterval: 0 });
     loop.tick(1.0, 1.0, grid, [ref], [farPath]);
@@ -122,18 +130,15 @@ describe('dispatch_routeability', () => {
     registry.detectFromFireGrid(grid, 0);
     const inc = registry.list()[0];
 
-    // Road runs along z=0; incident at z≈0.5 → dist < 12
-    const nearPath = makePath(0, 0, 100, 0);
-
-    // dist returned is 1 (well within 12 m threshold)
-    (nearPath as any).project = (_p: any) => ({ s: 50, dist: 1, t: { x: 1, z: 0 } });
+    // Road runs along z=0; incident at z≈0.5 → dist < 12. Force dist=1.
+    const nearPath = makePath(0, 0, 100, 0, 1); // fixedDist=1
 
     const ref = makeFollowerRef(1, nearPath, 2.5, 0);
 
     const loop = createDispatchLoop(registry, { autoDispatch: true, detectInterval: 0 });
     loop.tick(1.0, 1.0, grid, [ref], [nearPath]);
 
-    expect(registry.byId(inc.id)?.status === 'assigned' || registry.byId(inc.id)?.status === 'engaged').toBe(true);
+    expectAssignedOrEngaged(registry, inc.id);
     expect(ref.busy).toBe(true);
   });
 
@@ -174,9 +179,8 @@ describe('dispatch_routeability', () => {
     registry.reopen(inc.id);
     expect(registry.byId(inc.id)?.status).toBe('detected');
 
-    // Second unit on a road very close to the incident
-    const nearPath = makePath(0, 0, 100, 0);
-    (nearPath as any).project = (_p: any) => ({ s: 5, dist: 0.5, t: { x: 1, z: 0 } });
+    // Second unit on a road very close to the incident. Force dist=0.5 (within 12 m).
+    const nearPath = makePath(0, 0, 100, 0, 0.5); // fixedDist=0.5
 
     const ref2 = makeFollowerRef(20, nearPath, 0.5, 0.5);
 
@@ -184,7 +188,7 @@ describe('dispatch_routeability', () => {
     loop.tick(1.0, 3.0, grid, [ref2], [nearPath]);
 
     expect(ref2.busy).toBe(true);
-    expect(registry.byId(inc.id)?.status === 'assigned' || registry.byId(inc.id)?.status === 'engaged').toBe(true);
+    expectAssignedOrEngaged(registry, inc.id);
     expect(registry.byId(inc.id)?.assignedFollowerIds).toContain(20);
   });
 });

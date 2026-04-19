@@ -63,7 +63,7 @@ export function createVehicleHud(container: HTMLElement): VehicleHud {
 
       const status =
         entry.returningToBase ? 'Returning to base' :
-        entry.assignedIncidentId != null ? `Incident #${entry.assignedIncidentId}` :
+        entry.assignedIncidentId !== null ? `Incident #${entry.assignedIncidentId}` :
         'Idle';
 
       el.innerHTML =
