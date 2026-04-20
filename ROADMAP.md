@@ -40,7 +40,7 @@ Each item adds a new scenario to [scripts/qa/playwright_audit.ts](scripts/qa/pla
 
 Currently there is no win/loss condition, so "MVP" has no objective gate.
 
-- [ ] **Scenarios + win/loss** (M) — add `src/scenarios/` with one seeded scenario ("contain fire within N tiles in M simulated minutes"). Expose `getScenarioResult()` on the test API. New audit scenario plays it to completion and asserts `result === 'win'`. This becomes the MVP acceptance test.
+- [x] **Scenarios + win/loss** (M) — add `src/scenarios/` with one seeded scenario ("contain fire within N tiles in M simulated minutes"). Expose `getScenarioResult()` on the test API. New audit scenario plays it to completion and asserts `result === 'win'`. This becomes the MVP acceptance test.
 - [ ] **Cost-based dispatch** (S, was ROADMAP §1 final item) — replace the greedy heuristic in [src/dispatch/assignment.ts](src/dispatch/assignment.ts) with one that factors unit type, water remaining, and response distance. Justified by A/B vs greedy on the same scenario seed.
 
 ## Phase 3 — Cleanup under audit protection

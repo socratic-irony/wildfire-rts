@@ -18,6 +18,8 @@ import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { createMenubar } from './ui/menubar';
 import { createPaintSystem } from './ui/paint';
 import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRetardantLine, applyWaterAoEWithHydrants, writeFirelineEdges } from './fire/grid';
+import { countFireFootprint, createScenarioRunner, type ScenarioDef, type ScenarioResult, type ScenarioRunner } from './scenarios/scenario';
+import { defaultContainmentScenario } from './scenarios/containment';
 import { FireSim } from './fire/sim';
 import type { Env as FireEnv } from './fire/sim';
 import { createFireViz } from './fire/viz';
@@ -82,6 +84,9 @@ declare global {
         lineStrength: number;
       } | null;
       exhaustFollowerWater: (id: number) => boolean;
+      loadScenario: (def?: ScenarioDef) => { id: string; containmentBudget: number; timeLimitSec: number };
+      getScenarioResult: () => { id: string; result: ScenarioResult; elapsedSec: number; footprint: number; budget: number; timeLimitSec: number } | null;
+      clearScenario: () => void;
     };
   }
 }
@@ -173,6 +178,9 @@ loop.add((dt) => {
   chunked.updateLOD(camPos.x, camPos.z);
   // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
+  if (activeScenario && activeScenario.result === 'pending') {
+    activeScenario.tick(dt, countFireFootprint(fireGrid));
+  }
   fireViz.update(fireGrid, dt);
   // Update water and retardant decals
   suppressionDecals.update(fireGrid);
@@ -879,6 +887,10 @@ vehicles.group.visible = true;
 
 // Fire Hydrants — automatic placement along roads
 let hydrantSystem = createHydrantSystem(roadMask, hm.scale);
+
+// Scenario runner (optional) — tracks fire-containment win/loss for a
+// loaded scenario. Null until `loadScenario` is called via the test API.
+let activeScenario: ScenarioRunner | null = null;
 let hydrantVisual = new HydrantVisual(hm);
 scene.add(hydrantVisual.group);
 hydrantVisual.setVisible(true); // Initially visible
@@ -1260,6 +1272,27 @@ window.__wildfireTestApi = {
     dispatchLoop.setAutoDispatch(on);
   },
   manualDispatch: (incidentId, followerId) => manualDispatchFollower(incidentId, followerId),
+  loadScenario: (def = defaultContainmentScenario) => {
+    activeScenario = createScenarioRunner(def);
+    for (const ign of def.ignitions) {
+      igniteTiles(fireGrid, [{ x: ign.x, z: ign.z }], ign.heat ?? 0.9);
+    }
+    return { id: def.id, containmentBudget: def.containmentBudget, timeLimitSec: def.timeLimitSec };
+  },
+  getScenarioResult: () => {
+    if (!activeScenario) return null;
+    return {
+      id: activeScenario.def.id,
+      result: activeScenario.result,
+      elapsedSec: Number(activeScenario.elapsedSec.toFixed(2)),
+      footprint: countFireFootprint(fireGrid),
+      budget: activeScenario.def.containmentBudget,
+      timeLimitSec: activeScenario.def.timeLimitSec,
+    };
+  },
+  clearScenario: () => {
+    activeScenario = null;
+  },
 };
 
 // Click to ignite under cursor

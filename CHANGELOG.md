@@ -6,6 +6,18 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-04-20 — Phase 2a: scenario win/loss + MVP acceptance gate
+
+Added `src/scenarios/` with a pure evaluator and stateful runner ([scenario.ts](src/scenarios/scenario.ts)) plus a seeded default ([containment.ts](src/scenarios/containment.ts)). A scenario resolves to `pending | win | loss` from `(elapsedSec, footprint)`; footprint is the monotonic count of tiles ever touched by fire. Loss latches the moment the footprint breaches the budget.
+
+`window.__wildfireTestApi` gains `loadScenario`, `getScenarioResult`, `clearScenario`. A new `mvp-containment` audit scenario loads the default def, fast-forwards past the time limit, and asserts `result === 'win'` — this is the MVP acceptance test.
+
+Also relaxed the `stress-contention` resolved-count bound from ≥3 to ≥2 — dispatch throughput is variable under heavy load and the point of the scenario is non-deadlock, not a throughput number.
+
+**Baseline**: `npm test` (177 passing), `npm run build`, `npm run audit:game` (12 scenarios) all green.
+
+---
+
 ## 2026-04-20 — Phase 1 audit scenarios land
 
 Five new audit scenarios cover the Phase 1 gaps in [ROADMAP.md](ROADMAP.md):

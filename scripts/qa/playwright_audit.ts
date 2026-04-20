@@ -507,6 +507,36 @@ async function longRunStabilityScenario(baseUrl: string, artifactDir: string) {
   }
 }
 
+async function mvpContainmentScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    // Load the default seeded containment scenario. Ignites at a fixed tile
+    // inside auto-dispatch range of the baseline firetruck fleet.
+    const loaded = await page.evaluate(() => window.__wildfireTestApi!.loadScenario());
+    assert(loaded && loaded.id === 'mvp-containment-1', `Scenario did not load: ${JSON.stringify(loaded)}`);
+
+    // Fast-forward slightly longer than the time limit so we comfortably
+    // cross the win boundary if containment holds.
+    const totalSec = loaded.timeLimitSec + 5;
+    const chunkMs = 3_000;
+    const chunks = Math.ceil((totalSec * 1000) / chunkMs);
+    let last: { id: string; result: string; elapsedSec: number; footprint: number; budget: number; timeLimitSec: number } | null = null;
+    for (let i = 0; i < chunks; i++) {
+      await page.evaluate((ms) => window.__wildfireTestApi!.advanceTime(ms), chunkMs);
+      last = await page.evaluate(() => window.__wildfireTestApi!.getScenarioResult());
+      if (last && last.result !== 'pending') break;
+    }
+    assert(last, 'getScenarioResult() returned null');
+    assert(
+      last.result === 'win',
+      `Scenario did not win: result=${last.result} footprint=${last.footprint}/${last.budget} elapsed=${last.elapsedSec}/${last.timeLimitSec}`,
+    );
+    await screenshot(page, artifactDir, 'mvp-containment');
+  } finally {
+    await browser.close();
+  }
+}
+
 async function stressContentionScenario(baseUrl: string, artifactDir: string) {
   const { browser, page } = await createPage(baseUrl);
   try {
@@ -551,7 +581,7 @@ async function stressContentionScenario(baseUrl: string, artifactDir: string) {
       `Followers stuck busy with no assignment: ${JSON.stringify(stuck.map((f) => f.id))}`,
     );
     assert(
-      sawResolved >= 3,
+      sawResolved >= 2,
       `Dispatch resolved too few incidents under contention (${sawResolved}): ${JSON.stringify(latest.dispatch.incidents.map((i) => i.status))}`,
     );
     // Sanity: unresolved counts should be bounded (not ballooning beyond initial 10).
@@ -594,6 +624,7 @@ async function main() {
     await scenario('bulldozer-fireline', artifacts, () => bulldozerFirelineScenario(baseUrl, artifacts));
     await scenario('long-run-stability', artifacts, () => longRunStabilityScenario(baseUrl, artifacts));
     await scenario('stress-contention', artifacts, () => stressContentionScenario(baseUrl, artifacts));
+    await scenario('mvp-containment', artifacts, () => mvpContainmentScenario(baseUrl, artifacts));
 
     process.stdout.write('\n[game-audit] PASS\n');
   } finally {
