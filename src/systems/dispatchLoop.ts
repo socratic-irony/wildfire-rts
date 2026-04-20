@@ -12,6 +12,7 @@
  * in incident.ts / assignment.ts; dispatchLoop just drives the transitions.
  */
 
+import { Vector3 } from 'three';
 import type { FireGrid } from '../fire/grid';
 import type { Path2D } from '../paths/path2d';
 import type { PathFollower } from '../vehicles/frenet';
@@ -21,8 +22,6 @@ import { VehicleType } from '../vehicles/types';
 
 /** Minimal XZ position interface used to avoid Three.js dependency in tests. */
 type Pos2D = { x: number; z: number };
-/** Minimal Vector3-like return from getWorldPosition. */
-type WorldPos = { x: number; y: number; z: number };
 
 // Distance (world units) within which a unit is considered "on site" / engaged.
 const ENGAGE_RADIUS = 8;
@@ -78,13 +77,10 @@ export function createDispatchLoop(
   // Track which follower ids are dispatched to which incident
   const unitToIncident = new Map<number, number>(); // followerId → incidentId
 
+  const tmpWorld = new Vector3();
   function followerWorldPos(f: FollowerRef): Pos2D {
-    const tmp: WorldPos = { x: 0, y: 0, z: 0 };
-    // PathFollower.object is an Object3D; getWorldPosition mutates the arg and returns it.
-    // We pass a plain object matching the Vector3 interface (x, y, z) to avoid
-    // pulling in Three.js here. The real Three.js Object3D accepts any Vector3Like.
-    f.follower.object.getWorldPosition(tmp as unknown as Parameters<typeof f.follower.object.getWorldPosition>[0]);
-    return { x: tmp.x, z: tmp.z };
+    f.follower.object.getWorldPosition(tmpWorld);
+    return { x: tmpWorld.x, z: tmpWorld.z };
   }
 
   function dist2d(a: Pos2D, b: Pos2D): number {
