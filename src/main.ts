@@ -17,7 +17,7 @@ import { buildChunkedTerrain } from './terrain/chunks';
 import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { createMenubar } from './ui/menubar';
 import { createPaintSystem } from './ui/paint';
-import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRetardantLine, applyWaterAoEWithHydrants } from './fire/grid';
+import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRetardantLine, applyWaterAoEWithHydrants, writeFirelineEdges } from './fire/grid';
 import { FireSim } from './fire/sim';
 import type { Env as FireEnv } from './fire/sim';
 import { createFireViz } from './fire/viz';
@@ -67,10 +67,21 @@ declare global {
       selectFollower: (id: number) => boolean;
       orderFollowerTo: (id: number, x: number, z: number) => boolean;
       applyWaterAt: (x: number, z: number, radius?: number, intensity?: number) => void;
+      applyWaterFromHydrantAt: (x: number, z: number, radius?: number, intensity?: number) => void;
       applyRetardantAt: (x: number, z: number, radius?: number, intensity?: number) => void;
       updateHydrants: () => void;
       setAutoDispatch: (on: boolean) => void;
       manualDispatch: (incidentId: number, followerId: number) => boolean;
+      getTileAt: (x: number, z: number) => {
+        x: number;
+        z: number;
+        state: string;
+        heat: number;
+        wetness: number;
+        retardant: number;
+        lineStrength: number;
+      } | null;
+      exhaustFollowerWater: (id: number) => boolean;
     };
   }
 }
@@ -222,8 +233,22 @@ loop.add((dt) => {
   // Always update Frenet followers with intersection-aware speed control
   const groups = new Map<Path2D, number[]>();
   updateOffroadFollowers(followers as FollowerEntry[], hm, dt);
+  // Bulldozers cut firebreaks as they traverse off-road — write lineStrength
+  // at the tile under each moving bulldozer.
+  for (const entry of followers) {
+    if (entry.type !== VManagerVehicleType.BULLDOZER) continue;
+    if (!entry.offroadTarget) continue;
+    const pos = entry.object.getWorldPosition(tmpFollowerWorld);
+    const gx = Math.floor(pos.x / hm.scale);
+    const gz = Math.floor(pos.z / hm.scale);
+    if (gx < 0 || gz < 0 || gx >= fireGrid.width || gz >= fireGrid.height) continue;
+    writeFirelineEdges(fireGrid, [{ x: gx, z: gz }], 1.0);
+  }
   for (let i = 0; i < followers.length; i++) {
-    if (followers[i].type === VManagerVehicleType.BULLDOZER && followers[i].offroadTarget) continue;
+    // Bulldozers are off-road units. Never drive them via the path follower —
+    // once an offroadTarget is cleared on arrival, a path update would snap
+    // the unit back onto its spawn path.
+    if (followers[i].type === VManagerVehicleType.BULLDOZER) continue;
     const p = followers[i].follower.path as Path2D;
     if (!groups.has(p)) groups.set(p, []);
     groups.get(p)!.push(i);
@@ -1199,6 +1224,30 @@ window.__wildfireTestApi = {
   },
   applyWaterAt: (x, z, radius = 2, intensity = 0.4) => {
     applyWaterAoE(fireGrid, { x, z }, radius, intensity);
+  },
+  applyWaterFromHydrantAt: (x, z, radius = 2, intensity = 0.4) => {
+    applyWaterAoEWithHydrants(fireGrid, { x, z }, radius, intensity, hydrantSystem as any);
+  },
+  exhaustFollowerWater: (id) => {
+    const entry = followers.find((f) => f.id === id);
+    if (!entry) return false;
+    entry.payload.water = 0;
+    return true;
+  },
+  getTileAt: (x, z) => {
+    const gx = Math.round(x);
+    const gz = Math.round(z);
+    if (gx < 0 || gz < 0 || gx >= fireGrid.width || gz >= fireGrid.height) return null;
+    const tile = fireGrid.tiles[gz * fireGrid.width + gx];
+    return {
+      x: gx,
+      z: gz,
+      state: ['unburned', 'igniting', 'burning', 'smoldering', 'burned', 'cleared'][tile.state] ?? String(tile.state),
+      heat: Number(tile.heat.toFixed(3)),
+      wetness: Number(tile.wetness.toFixed(3)),
+      retardant: Number(tile.retardant.toFixed(3)),
+      lineStrength: Number(tile.lineStrength.toFixed(3)),
+    };
   },
   applyRetardantAt: (x, z, radius = 1.5, intensity = 0.6) => {
     applyRetardantLine(fireGrid, [{ x, z }, { x: x + 0.01, z: z + 0.01 }], radius, intensity);

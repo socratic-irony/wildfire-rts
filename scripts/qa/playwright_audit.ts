@@ -7,7 +7,7 @@ import { chromium, type Page } from 'playwright';
 
 type GameState = {
   roads: { pathCount: number; networkCount: number; tileCount: number; pendingEndpoints: Array<{ x: number; z: number }> };
-  hydrants: { count: number };
+  hydrants: { count: number; positions: Array<{ id: number; x: number; z: number; coverageRadius: number; active: boolean }> };
   fire: {
     burningCount: number;
     smolderingCount: number;
@@ -24,8 +24,10 @@ type GameState = {
       z: number;
       speed: number;
       busy: boolean;
+      returningToBase: boolean;
       assignedIncidentId: number | null;
       water: number;
+      fuel: number;
       offroadTarget: { x: number; z: number } | null;
     }>;
   };
@@ -33,6 +35,16 @@ type GameState = {
     autoDispatch: boolean;
     incidents: Array<{ id: number; status: string; x: number; z: number; assignedFollowerIds: number[] }>;
   };
+};
+
+type TileInfo = {
+  x: number;
+  z: number;
+  state: string;
+  heat: number;
+  wetness: number;
+  retardant: number;
+  lineStrength: number;
 };
 
 class AuditError extends Error {
@@ -291,6 +303,268 @@ async function manualDispatchScenario(baseUrl: string, artifactDir: string) {
   }
 }
 
+async function payloadRoundTripScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    // Keep auto-dispatch off so no incident ever lands on our truck during this run.
+    await page.evaluate(() => window.__wildfireTestApi!.setAutoDispatch(false));
+    const start = await getState(page);
+    const firetruck = start.vehicles.followers.find((entry) => entry.type === 'firetruck');
+    assert(firetruck, 'No firetruck available for payload scenario');
+    assert(firetruck.water > 0, 'Firetruck started with an empty water tank');
+    const initialWater = firetruck.water;
+
+    // Drain tank directly — simulates mid-engagement exhaustion without the flake of
+    // the real suppression loop. The drain mechanic itself is covered by unit tests.
+    const drainOk = await page.evaluate((id) => window.__wildfireTestApi!.exhaustFollowerWater(id), firetruck.id);
+    assert(drainOk, 'exhaustFollowerWater returned false');
+
+    const drainedImmediately = (await getState(page)).vehicles.followers.find((f) => f.id === firetruck.id);
+    assert(drainedImmediately && drainedImmediately.water === 0, `Tank should be empty post-exhaust (${drainedImmediately?.water})`);
+
+    // Advance until the logistics loop completes the round trip: either RTB flips
+    // immediately (if already at home) or the truck drives home and refills.
+    // Cap at ~90s sim.
+    let refilled = drainedImmediately;
+    let sawRtbOrRefill = false;
+    for (let i = 0; i < 30; i++) {
+      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(3_000));
+      const next = await getState(page);
+      const truck = next.vehicles.followers.find((f) => f.id === firetruck.id);
+      if (!truck) break;
+      if (truck.returningToBase) sawRtbOrRefill = true;
+      if (truck.water >= initialWater * 0.99) sawRtbOrRefill = true;
+      refilled = truck;
+      if (!truck.returningToBase && truck.water >= initialWater * 0.99) break;
+    }
+    assert(sawRtbOrRefill, 'Neither returningToBase nor refill was observed — logistics loop inert');
+    assert(!refilled.returningToBase, `Firetruck stuck in returningToBase (water=${refilled.water}, busy=${refilled.busy})`);
+    assert(refilled.water >= initialWater * 0.99, `Water did not refill at home (${refilled.water} vs ${initialWater})`);
+    assert(refilled.fuel > 0, `Fuel not restored (${refilled.fuel})`);
+    assert(!refilled.busy, 'Firetruck left marked busy after refill');
+    assert(refilled.assignedIncidentId == null, `Follower retained assignment after refill (${refilled.assignedIncidentId})`);
+    await screenshot(page, artifactDir, 'payload-round-trip');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function hydrantSuppressionScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    // Deterministic setup: strip the world of roads+hydrants, then build one short road
+    // so exactly one hydrant network exists in a known location.
+    await page.evaluate(() => {
+      const api = window.__wildfireTestApi!;
+      api.clearVehicles();
+      api.clearRoads();
+      api.updateHydrants();
+      api.addRoad(20, 20, 35, 20);
+      api.updateHydrants();
+    });
+    const state = await getState(page);
+    const hydrant = state.hydrants.positions.find((h) => h.active);
+    assert(hydrant, `Expected at least one hydrant after road placement, saw ${state.hydrants.count}`);
+    const { x: hx, z: hz, coverageRadius } = hydrant;
+
+    // "far" tile: same world, far from any placed hydrant.
+    const farX = 90;
+    const farZ = 90;
+    for (const h of state.hydrants.positions) {
+      const dx = h.x - farX;
+      const dz = h.z - farZ;
+      assert(dx * dx + dz * dz > (coverageRadius + 2) * (coverageRadius + 2), `Far tile (${farX},${farZ}) is still near a hydrant`);
+    }
+
+    await page.evaluate(({ hx, hz, fx, fz }) => {
+      const api = window.__wildfireTestApi!;
+      api.igniteTile(hx, hz, 0.9);
+      api.igniteTile(fx, fz, 0.9);
+      api.advanceTime(500);
+    }, { hx, hz, fx: farX, fz: farZ });
+
+    const before = {
+      hydrant: await page.evaluate(({ x, z }) => window.__wildfireTestApi!.getTileAt(x, z), { x: hx, z: hz }) as TileInfo | null,
+      far: await page.evaluate(({ x, z }) => window.__wildfireTestApi!.getTileAt(x, z), { x: farX, z: farZ }) as TileInfo | null,
+    };
+    assert(before.hydrant && before.far, 'Tile snapshots unavailable');
+
+    // Apply the same hydrant-aware water call at both locations.
+    await page.evaluate(({ hx, hz, fx, fz }) => {
+      const api = window.__wildfireTestApi!;
+      api.applyWaterFromHydrantAt(hx, hz, 1.5, 0.25);
+      api.applyWaterFromHydrantAt(fx, fz, 1.5, 0.25);
+    }, { hx, hz, fx: farX, fz: farZ });
+
+    const after = {
+      hydrant: await page.evaluate(({ x, z }) => window.__wildfireTestApi!.getTileAt(x, z), { x: hx, z: hz }) as TileInfo | null,
+      far: await page.evaluate(({ x, z }) => window.__wildfireTestApi!.getTileAt(x, z), { x: farX, z: farZ }) as TileInfo | null,
+    };
+    assert(after.hydrant && after.far, 'Tile snapshots after water unavailable');
+
+    const dHydrantWet = after.hydrant.wetness - before.hydrant.wetness;
+    const dFarWet = after.far.wetness - before.far.wetness;
+    assert(dHydrantWet > 0, 'Water at hydrant location produced no wetness change');
+    assert(dFarWet > 0, 'Water at far location produced no wetness change');
+    assert(
+      dHydrantWet > dFarWet * 1.2,
+      `Hydrant boost not observed — covered ${dHydrantWet.toFixed(3)} vs bare ${dFarWet.toFixed(3)}`,
+    );
+    await screenshot(page, artifactDir, 'hydrant-suppression');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function bulldozerFirelineScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    const spawned = await page.evaluate(() => window.__wildfireTestApi!.spawnVehicle('bulldozer'));
+    assert(spawned, 'Failed to spawn bulldozer');
+    const state = await getState(page);
+    const dozer = state.vehicles.followers.find((entry) => entry.type === 'bulldozer');
+    assert(dozer, 'Bulldozer missing after spawn');
+
+    // Sample the fireline strength along the planned traversal before moving.
+    // Use floor to match the main-loop grid math (`pos.x / hm.scale`), so sample
+    // tiles match the tile the bulldozer actually writes to as it crosses.
+    const targetX = dozer.x + 8;
+    const targetZ = dozer.z;
+    const startTileZ = Math.floor(dozer.z);
+    const sampleTiles: Array<{ x: number; z: number }> = [];
+    for (let i = 1; i <= 6; i++) {
+      sampleTiles.push({ x: Math.floor(dozer.x + i), z: startTileZ });
+    }
+    const beforeSamples = await page.evaluate((tiles) => tiles.map(({ x, z }) => window.__wildfireTestApi!.getTileAt(x, z)), sampleTiles) as Array<TileInfo | null>;
+    for (const tile of beforeSamples) {
+      assert(tile && tile.lineStrength === 0, `Unexpected preexisting fireline at (${tile?.x}, ${tile?.z}) = ${tile?.lineStrength}`);
+    }
+
+    const orderOk = await page.evaluate(({ id, x, z }) => window.__wildfireTestApi!.orderFollowerTo(id, x, z), {
+      id: dozer.id,
+      x: targetX,
+      z: targetZ,
+    });
+    assert(orderOk, 'Failed to issue bulldozer off-road order');
+
+    // Traverse to target.
+    await page.evaluate(() => window.__wildfireTestApi!.advanceTime(6_000));
+    const postState = await getState(page);
+    const afterDozer = postState.vehicles.followers.find((f) => f.id === dozer.id);
+    const moved = afterDozer ? Math.hypot(afterDozer.x - dozer.x, afterDozer.z - dozer.z) : 0;
+    const afterSamples = await page.evaluate((tiles) => tiles.map(({ x, z }) => window.__wildfireTestApi!.getTileAt(x, z)), sampleTiles) as Array<TileInfo | null>;
+    const carved = afterSamples.filter((tile) => tile && tile.lineStrength > 0.5).length;
+    assert(
+      carved >= 3,
+      `Bulldozer did not carve a fireline — only ${carved}/${sampleTiles.length} tiles have lineStrength > 0.5; ` +
+      `dozer start=(${dozer.x.toFixed(1)},${dozer.z.toFixed(1)}) end=(${afterDozer?.x.toFixed(1) ?? '?'},${afterDozer?.z.toFixed(1) ?? '?'}) moved=${moved.toFixed(2)} ` +
+      `samples=${JSON.stringify(afterSamples.map((t) => ({ x: t?.x, z: t?.z, ls: t?.lineStrength })))}`,
+    );
+    await screenshot(page, artifactDir, 'bulldozer-fireline');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function longRunStabilityScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    const start = await getState(page);
+    // Seed multiple fires spaced around the map.
+    const seeds = [
+      { x: start.vehicles.followers[0]?.x ?? 30, z: start.vehicles.followers[0]?.z ?? 30 },
+      { x: 40, z: 40 },
+      { x: 60, z: 20 },
+      { x: 20, z: 60 },
+      { x: 70, z: 70 },
+    ];
+    await page.evaluate((seeds) => {
+      const api = window.__wildfireTestApi!;
+      for (const s of seeds) api.igniteTile(Math.round(s.x), Math.round(s.z), 0.85);
+    }, seeds);
+
+    // Fast-forward a total of 60s in 6 chunks, sampling state.
+    let sawResolved = false;
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(10_000));
+      const snap = await getState(page);
+      for (const f of snap.vehicles.followers) {
+        assert(Number.isFinite(f.x) && Number.isFinite(f.z), `NaN follower position at chunk ${i}: ${JSON.stringify(f)}`);
+        assert(f.water >= 0, `Follower ${f.id} water went negative: ${f.water}`);
+        assert(f.fuel >= 0, `Follower ${f.id} fuel went negative: ${f.fuel}`);
+        if (f.busy) {
+          const assigned = f.assignedIncidentId != null;
+          const rtb = f.returningToBase;
+          assert(assigned || rtb, `Follower ${f.id} marked busy with no incident and not returning (chunk ${i})`);
+        }
+      }
+      if (snap.dispatch.incidents.some((inc) => inc.status === 'resolved')) sawResolved = true;
+    }
+    assert(sawResolved, 'Dispatch resolved zero incidents over 60s — system appears stalled');
+    await screenshot(page, artifactDir, 'long-run-stability');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function stressContentionScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    // Spawn additional firetrucks so we have ≥4 total.
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => window.__wildfireTestApi!.spawnVehicle('firetruck'));
+    }
+    const ready = await getState(page);
+    const firetrucks = ready.vehicles.followers.filter((entry) => entry.type === 'firetruck');
+    assert(firetrucks.length >= 4, `Expected ≥4 firetrucks, got ${firetrucks.length}`);
+
+    // Ignite 10 tiles — clustered near the firetruck fleet so they have service range.
+    await page.evaluate((trucks) => {
+      const api = window.__wildfireTestApi!;
+      for (let i = 0; i < 10; i++) {
+        const t = trucks[i % trucks.length];
+        const offset = Math.floor(i / trucks.length);
+        api.igniteTile(Math.round(t.x) + offset * 2, Math.round(t.z) + offset * 2, 0.9);
+      }
+    }, firetrucks);
+
+    // Let auto-dispatch churn for up to 60s of sim time.
+    const deadline = Date.now() + 60_000;
+    let latest = ready;
+    let sawResolved = 0;
+    while (Date.now() < deadline) {
+      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(3_000));
+      latest = await getState(page);
+      sawResolved = latest.dispatch.incidents.filter((i) => i.status === 'resolved').length;
+      const pending = latest.dispatch.incidents.filter((i) => i.status !== 'resolved');
+      if (!pending.length) break;
+    }
+
+    // Non-deadlock check: every still-open incident is in an actively-progressing
+    // state (engaged/assigned/reopened), or is freshly detected awaiting pickup.
+    // What we really care about is: no follower stuck busy with no work, and
+    // dispatch is making progress (at least one resolution).
+    const unresolved = latest.dispatch.incidents.filter((inc) => inc.status !== 'resolved');
+    const stuck = latest.vehicles.followers.filter((f) => f.busy && f.assignedIncidentId == null && !f.returningToBase);
+    assert(
+      stuck.length === 0,
+      `Followers stuck busy with no assignment: ${JSON.stringify(stuck.map((f) => f.id))}`,
+    );
+    assert(
+      sawResolved >= 3,
+      `Dispatch resolved too few incidents under contention (${sawResolved}): ${JSON.stringify(latest.dispatch.incidents.map((i) => i.status))}`,
+    );
+    // Sanity: unresolved counts should be bounded (not ballooning beyond initial 10).
+    assert(
+      unresolved.length <= 15,
+      `Unresolved incidents ballooned (${unresolved.length}) — dispatch may be starving`,
+    );
+    await screenshot(page, artifactDir, 'stress-contention');
+  } finally {
+    await browser.close();
+  }
+}
+
 async function main() {
   const artifacts = process.env.GAME_AUDIT_ARTIFACTS
     ? path.resolve(process.env.GAME_AUDIT_ARTIFACTS)
@@ -315,6 +589,11 @@ async function main() {
     await scenario('suppression', artifacts, () => suppressionScenario(baseUrl, artifacts));
     await scenario('auto-dispatch', artifacts, () => autoDispatchScenario(baseUrl, artifacts));
     await scenario('manual-dispatch', artifacts, () => manualDispatchScenario(baseUrl, artifacts));
+    await scenario('payload-round-trip', artifacts, () => payloadRoundTripScenario(baseUrl, artifacts));
+    await scenario('hydrant-suppression', artifacts, () => hydrantSuppressionScenario(baseUrl, artifacts));
+    await scenario('bulldozer-fireline', artifacts, () => bulldozerFirelineScenario(baseUrl, artifacts));
+    await scenario('long-run-stability', artifacts, () => longRunStabilityScenario(baseUrl, artifacts));
+    await scenario('stress-contention', artifacts, () => stressContentionScenario(baseUrl, artifacts));
 
     process.stdout.write('\n[game-audit] PASS\n');
   } finally {
