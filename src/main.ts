@@ -1,4 +1,4 @@
-import { Mesh, Object3D, BufferAttribute, Vector3, Quaternion, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color, BufferGeometry, CylinderGeometry } from 'three';
+import { Mesh, Object3D, BufferAttribute, Vector3, Quaternion, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color, BufferGeometry, CylinderGeometry, RingGeometry, MeshBasicMaterial, DoubleSide } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -298,6 +298,9 @@ loop.add((dt) => {
     fx.speed = entry.follower.v;
     // sprayingWater is controlled by updateFollowerSuppression()
     fx.siren = entry.type === VManagerVehicleType.FIRETRUCK;
+    // Yield indicator — show when held at a low speed cap (intersection yield/stop).
+    const yieldInd = entry.mesh.userData?.yieldIndicator as Object3D | undefined;
+    if (yieldInd) yieldInd.visible = entry.follower.isYielding();
     followerFxStates.push(fx);
   }
   vehicles.updateExternalFx(dt, followerFxStates);
@@ -764,6 +767,23 @@ function seedProceduralRoads(count = 2) {
   applyRoadPaths();
 }
 
+function createYieldIndicator(scale: number): Mesh {
+  const geo = new RingGeometry(scale * 0.55, scale * 0.7, 24);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new MeshBasicMaterial({
+    color: new Color(0xf7c948),
+    transparent: true,
+    opacity: 0.8,
+    depthWrite: false,
+    side: DoubleSide,
+  });
+  const ind = new Mesh(geo, mat);
+  ind.position.y = -scale * 0.2;
+  ind.visible = false;
+  ind.renderOrder = 7;
+  return ind;
+}
+
 function createFollowerMesh(vehicleType: VManagerVehicleType): Mesh {
   const scale = hm.scale;
   const defaults = getDefaults(vehicleType);
@@ -790,6 +810,9 @@ function createFollowerMesh(vehicleType: VManagerVehicleType): Mesh {
   const mesh = new Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = false;
+  const yieldInd = createYieldIndicator(scale);
+  mesh.add(yieldInd);
+  mesh.userData.yieldIndicator = yieldInd;
   return mesh;
 }
 

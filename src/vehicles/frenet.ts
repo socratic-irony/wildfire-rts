@@ -241,4 +241,13 @@ export class PathFollower {
     this.extCap = Math.max(0, cap);
     this.extCapTimer = Math.max(this.extCapTimer, duration);
   }
+
+  /**
+   * True when this follower is currently being held to a low speed cap
+   * (typically by IntersectionManager). Default threshold 1.0 m/s
+   * captures both "stopped" (cap=0) and "creeping" (cap≈0.6) states.
+   */
+  isYielding(threshold = 1.0): boolean {
+    return this.extCapTimer > 0 && this.extCap <= threshold;
+  }
 }
