@@ -18,6 +18,7 @@ import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { createMenubar } from './ui/menubar';
 import { createPaintSystem } from './ui/paint';
 import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRetardantLine, applyWaterAoEWithHydrants, writeFirelineEdges } from './fire/grid';
+import { createFirelineOverlay } from './fire/firelineOverlay';
 import { countFireFootprint, createScenarioRunner, type ScenarioDef, type ScenarioResult, type ScenarioRunner } from './scenarios/scenario';
 import { defaultContainmentScenario } from './scenarios/containment';
 import { FireSim } from './fire/sim';
@@ -184,6 +185,7 @@ loop.add((dt) => {
   fireViz.update(fireGrid, dt);
   // Update water and retardant decals
   suppressionDecals.update(fireGrid);
+  firelineOverlay.update(fireGrid);
 
   // Dispatch loop — detect incidents, auto-assign, promote/resolve
   {
@@ -516,6 +518,9 @@ fireViz.setMode('vertex');
 // Water and retardant decal overlays
 let suppressionDecals = createSuppressionDecals(hm, { offsetY: 0.05, depthTest: false });
 suppressionDecals.addToScene(scene);
+// Fireline overlay — visualizes bulldozer-cut firebreaks
+let firelineOverlay = createFirelineOverlay(hm);
+scene.add(firelineOverlay.inst);
 // Flipbook billboard particles (flame/smoke)
 let fireParticles = createFlipbookParticles(hm);
 scene.add((fireParticles as any).group);
