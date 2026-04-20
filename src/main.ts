@@ -17,7 +17,7 @@ import { buildChunkedTerrain } from './terrain/chunks';
 import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { createMenubar } from './ui/menubar';
 import { createPaintSystem } from './ui/paint';
-import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoEWithHydrants } from './fire/grid';
+import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRetardantLine, applyWaterAoEWithHydrants } from './fire/grid';
 import { FireSim } from './fire/sim';
 import type { Env as FireEnv } from './fire/sim';
 import { createFireViz } from './fire/viz';
@@ -38,7 +38,7 @@ import { createPayload, tickFuel, needsReturnToBase, consumeWater, refuel, refil
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
-import { createFollowerSelection, findFollowerHit, issueMoveOrder, setTargetOnCurrentPath, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
+import { canSetTargetOnCurrentPath, createFollowerSelection, findFollowerHit, issueMoveOrder, setTargetOnCurrentPath, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
 import { mapMenubarToVehicleType } from './vehicles/menubarMapping';
 import { createIncidentRegistry } from './dispatch/incident';
 import { createDispatchLoop, type FollowerRef } from './systems/dispatchLoop';
@@ -49,6 +49,31 @@ import { createVehicleHud } from './ui/vehicleHud';
 import { config, isFeatureEnabled } from './config/features';
 import { DebugConsole } from './ui/console';
 import { getLogger } from '../tools/logging/index.js';
+
+declare global {
+  interface Window {
+    advanceTime?: (ms: number) => void;
+    render_game_to_text?: () => string;
+    __wildfireTestApi?: {
+      getState: () => ReturnType<typeof buildGameState>;
+      advanceTime: (ms: number) => void;
+      igniteCenter: () => boolean;
+      igniteTile: (x: number, z: number, intensity?: number) => boolean;
+      clearFire: () => void;
+      addRoad: (ax: number, az: number, bx: number, bz: number) => boolean;
+      clearRoads: () => void;
+      spawnVehicle: (type?: 'generic' | 'firetruck' | 'bulldozer') => boolean;
+      clearVehicles: () => void;
+      selectFollower: (id: number) => boolean;
+      orderFollowerTo: (id: number, x: number, z: number) => boolean;
+      applyWaterAt: (x: number, z: number, radius?: number, intensity?: number) => void;
+      applyRetardantAt: (x: number, z: number, radius?: number, intensity?: number) => void;
+      updateHydrants: () => void;
+      setAutoDispatch: (on: boolean) => void;
+      manualDispatch: (incidentId: number, followerId: number) => boolean;
+    };
+  }
+}
 
 // Initialize logging for application startup
 const logger = getLogger();
@@ -614,6 +639,80 @@ function applyRoadPaths() {
   rebuildPath2Ds();
 }
 
+function buildRoadBetween(a: { x: number; z: number }, b: { x: number; z: number }) {
+  const WE = 0.4, WS = 6.0, WV = 0.5;
+  const SLOPE_MAX_TAN = 0.7;
+  const CURV_W = 2.8;
+  const WG = 14.0;
+  const costField = {
+    width: roadCost.width,
+    height: roadCost.height,
+    costAt: (x: number, z: number, stepDir: { dx: number; dz: number }, prevDir?: { dx: number; dz: number }) => {
+      const i = z * roadCost.width + x;
+      const base = 1 + WE * roadCost.elev[i] + WS * roadCost.slope[i] - WV * roadCost.valley[i];
+      if (roadCost.slope[i] > SLOPE_MAX_TAN) return Infinity;
+
+      let grade = 0;
+      const prevX = x - stepDir.dx;
+      const prevZ = z - stepDir.dz;
+      if (prevX >= 0 && prevZ >= 0 && prevX < roadCost.width && prevZ < roadCost.height) {
+        const wxPrev = (prevX + 0.5) * hm.scale;
+        const wzPrev = (prevZ + 0.5) * hm.scale;
+        const wxCur = (x + 0.5) * hm.scale;
+        const wzCur = (z + 0.5) * hm.scale;
+        const hPrev = hm.sample(wxPrev, wzPrev);
+        const hCur = hm.sample(wxCur, wzCur);
+        const horiz = Math.hypot(stepDir.dx, stepDir.dz) * hm.scale;
+        if (horiz > 1e-4) {
+          const slope = Math.abs(hCur - hPrev) / horiz;
+          grade = WG * Math.pow(slope, 1.35);
+        }
+      }
+
+      let curv = 0;
+      if (prevDir && (prevDir.dx !== 0 || prevDir.dz !== 0)) {
+        const pvLen = Math.hypot(prevDir.dx, prevDir.dz) || 1;
+        const stLen = Math.hypot(stepDir.dx, stepDir.dz) || 1;
+        const pdx = prevDir.dx / pvLen, pdz = prevDir.dz / pvLen;
+        const sdx = stepDir.dx / stLen, sdz = stepDir.dz / stLen;
+        const dot = Math.max(-1, Math.min(1, pdx * sdx + pdz * sdz));
+        curv = CURV_W * (1 - Math.max(0, dot));
+      }
+      return Math.max(0.05, base + grade + curv);
+    }
+  };
+
+  const rawPath = aStarPath(costField as any, a, b, {
+    diag: false,
+    heuristic: 'euclid',
+    maxIter: roadCost.width * roadCost.height * 6
+  });
+  const path = makeAngularPath(rawPath);
+  if (!path.length) return false;
+
+  roadsVis.addPath(path);
+  roadPaths.push(path);
+  rasterizePolyline(roadMask, path, 0.9);
+  applyRoadMaskToFireGrid(fireGrid, roadMask);
+  updateHydrantPlacement(hydrantSystem);
+  hydrantVisual.update(hydrantSystem);
+  rebuildPath2Ds();
+  // Keep the latest endpoint for chained road placement instead of growing forever.
+  roadEndpoints = [b];
+  return true;
+}
+
+function clearRoadNetwork() {
+  roadsVis.clear();
+  clearRoadMask(roadMask);
+  roadPaths = [];
+  roadEndpoints = [];
+  clearFollowers();
+  rebuildPath2Ds();
+  updateHydrantPlacement(hydrantSystem);
+  hydrantVisual.update(hydrantSystem);
+}
+
 function seedProceduralRoads(count = 2) {
   roadPaths = generateProceduralRoads(hm, {
     count,
@@ -669,6 +768,7 @@ function spawnFollowersOnAllPaths(perPath = 3) {
       const startS = (p.length / total) * k;
       const follower = new PathFollower(p, hm, obj, startS);
       follower.setSpacingMode(spacingMode);
+      obj.updateMatrixWorld(true);
       const id = followerIdCounter++;
       const fxState: VehicleFxState = {
         id,
@@ -722,6 +822,8 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
   scene.add(obj);
   const follower = new PathFollower(path2ds[bestIdx], hm, obj, bestS);
   follower.setSpacingMode(spacingMode);
+  obj.updateMatrixWorld(true);
+  const spawnPos = obj.getWorldPosition(new Vector3());
   const id = followerIdCounter++;
   const fxState: VehicleFxState = {
     id,
@@ -734,7 +836,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     sprayingWater: false,
     siren: type === VManagerVehicleType.FIRETRUCK,
   };
-  followers.push({ id, follower, object: obj, mesh, type, fxState, payload: createPayload(type), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: camPos.x, z: camPos.z }, offroadTarget: null });
+  followers.push({ id, follower, object: obj, mesh, type, fxState, payload: createPayload(type), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: spawnPos.x, z: spawnPos.z }, offroadTarget: null });
 }
 
 
@@ -862,44 +964,254 @@ function updateFollowerLogistics(dt: number) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+function manualDispatchFollower(incidentId: number, followerId: number): boolean {
+  const inc = dispatchLoop.registry.byId(incidentId);
+  const entry = followers.find(f => f.id === followerId);
+  if (!inc || !entry) return false;
+
+  const routed = setTargetOnCurrentPath(
+    entry as unknown as FollowerEntry,
+    path2ds,
+    { x: inc.pos.x, z: inc.pos.z },
+  );
+  if (!routed) {
+    console.warn('Selected unit cannot service this incident from its current road.');
+    return false;
+  }
+
+  const ok = dispatchLoop.manualDispatch(incidentId, followerId, fireGrid.time);
+  if (!ok) {
+    entry.offroadTarget = null;
+    entry.follower.clearTarget?.();
+    return false;
+  }
+
+  entry.busy = true;
+  entry.assignedIncidentId = incidentId;
+  entry.returningToBase = false;
+  return true;
+}
+
+function canManualDispatchFollower(incidentId: number, followerId: number): boolean {
+  const inc = dispatchLoop.registry.byId(incidentId);
+  const entry = followers.find(f => f.id === followerId);
+  if (!inc || !entry) return false;
+  return canSetTargetOnCurrentPath(
+    entry as unknown as FollowerEntry,
+    path2ds,
+    { x: inc.pos.x, z: inc.pos.z },
+  );
+}
+
 const dispatchPanel = new DispatchPanel(app, dispatchLoop, {
   getSelectedFollowerId: () => {
     const sel = selection.getSelected() as (FollowerEntry & { id?: number }) | null;
     return sel?.id ?? null;
   },
+  canManualDispatch: (incidentId, followerId) => canManualDispatchFollower(incidentId, followerId),
   onManualDispatch: (incidentId, followerId) => {
-    const inc = dispatchLoop.registry.byId(incidentId);
-    const entry = followers.find(f => f.id === followerId);
-    if (!inc || !entry) return;
-
-    // Route first — only proceed with assignment if the unit can actually
-    // service this incident from its current road.
-    const routed = setTargetOnCurrentPath(
-      entry as unknown as FollowerEntry,
-      path2ds,
-      { x: inc.pos.x, z: inc.pos.z },
-    );
-    if (!routed) {
-      console.warn('Selected unit cannot service this incident from its current road.');
-      return;
-    }
-
-    const ok = dispatchLoop.manualDispatch(incidentId, followerId, fireGrid.time);
-    if (!ok) {
-      // Undo routing if registry rejected (e.g. already resolved)
-      entry.offroadTarget = null;
-      entry.follower.clearTarget?.();
-      return;
-    }
-
-    entry.busy = true;
-    entry.assignedIncidentId = incidentId;
-    entry.returningToBase = false;
+    manualDispatchFollower(incidentId, followerId);
   },
 });
 
 const vehicleHud = createVehicleHud(app);
 reseedRoadsAndVehicles(2);
+
+function buildGameState() {
+  const selected = selection.getSelected() as (FollowerEntry & { id?: number }) | null;
+  const roadTileCount = roadMask.mask.reduce((sum, cell) => sum + cell, 0);
+  const activeFireTiles: Array<{
+    x: number;
+    z: number;
+    state: string;
+    heat: number;
+    progress: number;
+    wetness: number;
+    retardant: number;
+  }> = [];
+  for (let z = 0; z < fireGrid.height; z++) {
+    for (let x = 0; x < fireGrid.width; x++) {
+      const tile = fireGrid.tiles[z * fireGrid.width + x];
+      if (tile.state === FireState.Unburned) continue;
+      activeFireTiles.push({
+        x,
+        z,
+        state: ['unburned', 'igniting', 'burning', 'smoldering', 'burned', 'cleared'][tile.state] ?? String(tile.state),
+        heat: Number(tile.heat.toFixed(3)),
+        progress: Number(tile.progress.toFixed(3)),
+        wetness: Number(tile.wetness.toFixed(3)),
+        retardant: Number(tile.retardant.toFixed(3)),
+      });
+      if (activeFireTiles.length >= 16) break;
+    }
+    if (activeFireTiles.length >= 16) break;
+  }
+
+  return {
+    coordinateSystem: {
+      origin: 'grid 0,0 at world x=0 z=0',
+      axes: 'x increases to the right/east, z increases downward/south on the terrain plane',
+      units: `grid tiles; 1 tile = ${hm.scale} world units`,
+    },
+    mode: {
+      tool: paintSystem?.getCurrentTool() ?? menubar.getCurrentTool(),
+      roadsEnabled,
+      igniteMode: menubar.getIgniteMode(),
+      vehiclesMoveEnabled,
+      paused: false,
+    },
+    world: {
+      elapsed: Number(loop.getElapsed().toFixed(3)),
+      fireTime: Number(fireGrid.time.toFixed(3)),
+      dimensions: { width: hm.width, height: hm.height, scale: hm.scale },
+      wind: {
+        dirRad: Number(simEnv.windDirRad.toFixed(3)),
+        speed: Number(simEnv.windSpeed.toFixed(3)),
+      },
+    },
+    roads: {
+      pathCount: roadPaths.length,
+      networkCount: path2ds.length,
+      tileCount: roadTileCount,
+      pendingEndpoints: roadEndpoints.map((p) => ({ x: p.x, z: p.z })),
+    },
+    hydrants: {
+      count: hydrantSystem.hydrants.length,
+      visible: hydrantVisual.group.visible,
+      positions: hydrantSystem.hydrants.slice(0, 16).map((hydrant) => ({
+        id: hydrant.id,
+        x: hydrant.gridPos.x,
+        z: hydrant.gridPos.z,
+        coverageRadius: hydrant.coverageRadius,
+        active: hydrant.active,
+      })),
+    },
+    fire: {
+      burningCount: fireGrid.bCount,
+      smolderingCount: fireGrid.sCount,
+      activeTiles: activeFireTiles,
+    },
+    vehicles: {
+      selectedId: selected?.id ?? null,
+      count: followers.length,
+      followers: followers.slice(0, 24).map((entry) => {
+        entry.object.updateMatrixWorld(true);
+        const pos = entry.object.getWorldPosition(new Vector3());
+        return {
+          id: entry.id,
+          type: String(VManagerVehicleType[entry.type] ?? entry.type).toLowerCase(),
+          x: Number(pos.x.toFixed(2)),
+          y: Number(pos.y.toFixed(2)),
+          z: Number(pos.z.toFixed(2)),
+          pathLength: Number(entry.follower.path.length.toFixed(2)),
+          s: Number(entry.follower.s.toFixed(2)),
+          speed: Number(entry.follower.v.toFixed(2)),
+          busy: entry.busy,
+          returningToBase: entry.returningToBase,
+          assignedIncidentId: entry.assignedIncidentId,
+          water: Number(entry.payload.water.toFixed(1)),
+          fuel: Number(entry.payload.fuel.toFixed(1)),
+          offroadTarget: entry.offroadTarget
+            ? {
+                x: Number(entry.offroadTarget.x.toFixed(2)),
+                z: Number(entry.offroadTarget.z.toFixed(2)),
+              }
+            : null,
+        };
+      }),
+    },
+    dispatch: {
+      autoDispatch: dispatchLoop.getAutoDispatch(),
+      incidents: dispatchLoop.registry.list().map((incident) => ({
+        id: incident.id,
+        status: incident.status,
+        x: incident.tile.x,
+        z: incident.tile.z,
+        assignedFollowerIds: [...incident.assignedFollowerIds],
+      })),
+    },
+  };
+}
+
+function buildGameTextState() {
+  return JSON.stringify(buildGameState());
+}
+
+window.render_game_to_text = () => buildGameTextState();
+window.advanceTime = (ms: number) => {
+  const clampedMs = Math.max(0, ms);
+  // Fast-forward in larger deterministic chunks for browser automation.
+  const steps = Math.max(1, Math.ceil(clampedMs / 50));
+  const stepMs = clampedMs / steps;
+  for (let i = 0; i < steps; i++) {
+    loop.step(stepMs);
+  }
+};
+window.__wildfireTestApi = {
+  getState: () => buildGameState(),
+  advanceTime: (ms) => window.advanceTime?.(ms),
+  igniteCenter: () => {
+    igniteTiles(fireGrid, [{ x: Math.floor(hm.width / 2), z: Math.floor(hm.height / 2) }], 0.8);
+    return true;
+  },
+  igniteTile: (x, z, intensity = 0.8) => {
+    const gx = Math.max(0, Math.min(hm.width - 1, Math.round(x)));
+    const gz = Math.max(0, Math.min(hm.height - 1, Math.round(z)));
+    igniteTiles(fireGrid, [{ x: gx, z: gz }], intensity);
+    return true;
+  },
+  clearFire: () => {
+    fireGrid.tiles.forEach((tile) => {
+      tile.state = FireState.Unburned;
+      tile.heat = 0;
+      tile.progress = 0;
+      tile.wetness = 0;
+      tile.retardant = 0;
+    });
+    fireGrid.burning = new Uint32Array(fireGrid.burning.length);
+    fireGrid.smoldering = new Uint32Array(fireGrid.smoldering.length);
+    fireGrid.bCount = 0;
+    fireGrid.sCount = 0;
+  },
+  addRoad: (ax, az, bx, bz) => buildRoadBetween({ x: ax, z: az }, { x: bx, z: bz }),
+  clearRoads: () => clearRoadNetwork(),
+  spawnVehicle: (type = 'generic') => {
+    rebuildPath2Ds();
+    if (!path2ds.length) return false;
+    spawnFollowerAtCamera(mapMenubarToVehicleType(type));
+    return true;
+  },
+  clearVehicles: () => {
+    vehicles.clear();
+    clearFollowers();
+  },
+  selectFollower: (id) => {
+    const entry = followers.find((f) => f.id === id);
+    if (!entry) return false;
+    selection.select(entry as unknown as FollowerEntry);
+    return true;
+  },
+  orderFollowerTo: (id, x, z) => {
+    const entry = followers.find((f) => f.id === id);
+    if (!entry) return false;
+    issueMoveOrder(entry as unknown as FollowerEntry, path2ds, new Vector3(x, 0, z));
+    return true;
+  },
+  applyWaterAt: (x, z, radius = 2, intensity = 0.4) => {
+    applyWaterAoE(fireGrid, { x, z }, radius, intensity);
+  },
+  applyRetardantAt: (x, z, radius = 1.5, intensity = 0.6) => {
+    applyRetardantLine(fireGrid, [{ x, z }, { x: x + 0.01, z: z + 0.01 }], radius, intensity);
+  },
+  updateHydrants: () => {
+    updateHydrantPlacement(hydrantSystem);
+    hydrantVisual.update(hydrantSystem);
+  },
+  setAutoDispatch: (on) => {
+    dispatchLoop.setAutoDispatch(on);
+  },
+  manualDispatch: (incidentId, followerId) => manualDispatchFollower(incidentId, followerId),
+};
 
 // Click to ignite under cursor
 {
@@ -978,64 +1290,7 @@ reseedRoadsAndVehicles(2);
         roadEndpoints.push({ x: gx, z: gz });
         if (roadEndpoints.length >= 2) {
           const [a, b] = [roadEndpoints[roadEndpoints.length - 2], roadEndpoints[roadEndpoints.length - 1]];
-          // Build cost function on the fly
-          const WE = 0.4, WS = 6.0, WV = 0.5; // weights for elevation, slope, valley bonus (more slope penalty)
-          const SLOPE_MAX_TAN = 0.7; // ~35 degrees; block steeper
-          const CURV_W = 2.8;       // curvature/turning penalty
-          const WG = 14.0;          // grade penalty weight for elevation change along segment
-          const costField = {
-            width: roadCost.width,
-            height: roadCost.height,
-            costAt: (x: number, z: number, stepDir: { dx: number; dz: number }, prevDir?: { dx: number; dz: number }) => {
-              const i = z * roadCost.width + x;
-              const base = 1 + WE * roadCost.elev[i] + WS * roadCost.slope[i] - WV * roadCost.valley[i];
-              // Hard block steep terrain
-              if (roadCost.slope[i] > SLOPE_MAX_TAN) return Infinity;
-              let grade = 0;
-              const prevX = x - stepDir.dx;
-              const prevZ = z - stepDir.dz;
-              if (
-                prevX >= 0 && prevZ >= 0 &&
-                prevX < roadCost.width && prevZ < roadCost.height
-              ) {
-                const wxPrev = (prevX + 0.5) * hm.scale;
-                const wzPrev = (prevZ + 0.5) * hm.scale;
-                const wxCur = (x + 0.5) * hm.scale;
-                const wzCur = (z + 0.5) * hm.scale;
-                const hPrev = hm.sample(wxPrev, wzPrev);
-                const hCur = hm.sample(wxCur, wzCur);
-                const horiz = Math.hypot(stepDir.dx, stepDir.dz) * hm.scale;
-                if (horiz > 1e-4) {
-                  const slope = Math.abs(hCur - hPrev) / horiz;
-                  grade = WG * Math.pow(slope, 1.35);
-                }
-              }
-              // Curvature penalty: prefer straighter continuation if prevDir is provided
-              let curv = 0;
-              if (prevDir && (prevDir.dx !== 0 || prevDir.dz !== 0)) {
-                const pvLen = Math.hypot(prevDir.dx, prevDir.dz) || 1;
-                const stLen = Math.hypot(stepDir.dx, stepDir.dz) || 1;
-                const pdx = prevDir.dx / pvLen, pdz = prevDir.dz / pvLen;
-                const sdx = stepDir.dx / stLen, sdz = stepDir.dz / stLen;
-                const dot = Math.max(-1, Math.min(1, pdx * sdx + pdz * sdz));
-                // Penalize turns; 0 for straight, up to CURV_W for 180°
-                curv = CURV_W * (1 - Math.max(0, dot));
-              }
-              return Math.max(0.05, base + grade + curv);
-            }
-          };
-          const rawPath = aStarPath(costField as any, a, b, { diag: false, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
-          const path = makeAngularPath(rawPath);
-          if (path.length) {
-            roadsVis.addPath(path);
-            roadPaths.push(path);
-            rasterizePolyline(roadMask, path, 0.9);
-            applyRoadMaskToFireGrid(fireGrid, roadMask);
-            // Update hydrant placement for new roads
-            updateHydrantPlacement(hydrantSystem);
-            hydrantVisual.update(hydrantSystem);
-            rebuildPath2Ds();
-          }
+          buildRoadBetween(a, b);
         }
       }
       return;
@@ -1089,16 +1344,7 @@ reseedRoadsAndVehicles(2);
     },
     roads: {
       toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
-      clear: () => {
-        roadsVis.clear();
-        clearRoadMask(roadMask);
-        roadPaths = [];
-        roadEndpoints = [];
-        clearFollowers();
-        rebuildPath2Ds();
-        updateHydrantPlacement(hydrantSystem);
-        hydrantVisual.update(hydrantSystem);
-      }
+      clear: () => clearRoadNetwork(),
     },
     vehicles: {
       spawn: (type) => {

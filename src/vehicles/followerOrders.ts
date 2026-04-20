@@ -79,6 +79,8 @@ export function setTargetOnCurrentPath(
   worldPos: { x: number; z: number },
   maxRoadDistance = MAX_SERVICE_ROAD_DISTANCE,
 ): boolean {
+  if (!canSetTargetOnCurrentPath(selected, path2ds, worldPos, maxRoadDistance)) return false;
+
   if (selected.type === VehicleType.BULLDOZER) {
     selected.offroadTarget = new Vector3(worldPos.x, 0, worldPos.z);
     selected.follower.clearTarget();
@@ -87,13 +89,26 @@ export function setTargetOnCurrentPath(
 
   const currentIdx = path2ds.indexOf(selected.follower.path);
   if (currentIdx < 0) return false;
-
   const proj = path2ds[currentIdx].project(worldPos);
-  if (proj.dist > maxRoadDistance) return false;
 
   selected.follower.setTargetS(proj.s, true);
   selected.offroadTarget = null;
   return true;
+}
+
+export function canSetTargetOnCurrentPath(
+  selected: FollowerEntry,
+  path2ds: Path2D[],
+  worldPos: { x: number; z: number },
+  maxRoadDistance = MAX_SERVICE_ROAD_DISTANCE,
+): boolean {
+  if (selected.type === VehicleType.BULLDOZER) return true;
+
+  const currentIdx = path2ds.indexOf(selected.follower.path);
+  if (currentIdx < 0) return false;
+
+  const proj = path2ds[currentIdx].project(worldPos);
+  return proj.dist <= maxRoadDistance;
 }
 
 export function updateOffroadFollowers(followers: FollowerEntry[], hm: Heightmap, dt: number) {

@@ -21,6 +21,8 @@ const STATUS_COLORS: Record<string, string> = {
 export type DispatchPanelCallbacks = {
   /** Return the currently selected follower id, or null if none selected. */
   getSelectedFollowerId?: () => number | null;
+  /** Return whether the selected follower can service the incident. */
+  canManualDispatch?: (incidentId: number, followerId: number) => boolean;
   /** Called when the user requests manual dispatch of `followerId` to `incidentId`. */
   onManualDispatch?: (incidentId: number, followerId: number) => void;
 };
@@ -55,6 +57,7 @@ export class DispatchPanel {
       userSelect: 'none',
       boxSizing: 'border-box',
     });
+    this.container.dataset.testid = 'dispatch-panel';
 
     // Header row
     const header = document.createElement('div');
@@ -98,6 +101,7 @@ export class DispatchPanel {
     this.autoToggle = document.createElement('input');
     this.autoToggle.type = 'checkbox';
     this.autoToggle.checked = loop.getAutoDispatch();
+    this.autoToggle.dataset.testid = 'dispatch-auto-toggle';
     this.autoToggle.addEventListener('change', () => {
       loop.setAutoDispatch(this.autoToggle.checked);
     });
@@ -170,6 +174,7 @@ export class DispatchPanel {
       padding: '4px 0',
       borderBottom: '1px solid rgba(255,255,255,0.06)',
     });
+    row.dataset.testid = `dispatch-incident-${inc.id}`;
 
     const top = document.createElement('div');
     Object.assign(top.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
@@ -202,19 +207,27 @@ export class DispatchPanel {
     if (inc.status === 'detected' && this.callbacks.onManualDispatch) {
       const btn = document.createElement('button');
       btn.textContent = 'Assign selected';
-      const hasSelection = !!(this.callbacks.getSelectedFollowerId?.());
-      btn.disabled = !hasSelection;
-      btn.title = hasSelection ? 'Assign the selected vehicle to this incident' : 'Select a vehicle first';
+      btn.dataset.testid = `dispatch-assign-${inc.id}`;
+      const selectedId = this.callbacks.getSelectedFollowerId?.() ?? null;
+      const canDispatch = selectedId != null
+        ? (this.callbacks.canManualDispatch?.(inc.id, selectedId) ?? true)
+        : false;
+      btn.disabled = !canDispatch;
+      btn.title = selectedId == null
+        ? 'Select a vehicle first'
+        : canDispatch
+          ? 'Assign the selected vehicle to this incident'
+          : 'Selected vehicle cannot service this incident from its current road';
       Object.assign(btn.style, {
         marginTop: '4px',
         fontSize: '10px',
-        cursor: hasSelection ? 'pointer' : 'default',
+        cursor: canDispatch ? 'pointer' : 'default',
         background: 'rgba(255,255,255,0.08)',
-        color: hasSelection ? '#e5e7eb' : '#6b7280',
+        color: canDispatch ? '#e5e7eb' : '#6b7280',
         border: '1px solid rgba(255,255,255,0.08)',
         borderRadius: '4px',
         padding: '2px 6px',
-        opacity: hasSelection ? '1' : '0.5',
+        opacity: canDispatch ? '1' : '0.5',
       });
       btn.addEventListener('click', () => {
         const id = this.callbacks.getSelectedFollowerId?.();

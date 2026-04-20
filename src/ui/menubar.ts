@@ -118,23 +118,28 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   const toolbar = document.createElement('div');
   toolbar.style.cssText = `
     position: absolute;
-    top: 12px;
+    top: 10px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(4px);
-    border-radius: 8px;
-    padding: 8px 12px;
+    background: rgba(8, 12, 18, 0.76);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(71, 85, 105, 0.42);
+    border-radius: 10px;
+    box-shadow: 0 16px 30px rgba(2, 6, 23, 0.28);
+    padding: 6px 10px;
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
     font-family: system-ui, sans-serif;
-    font-size: 14px;
+    font-size: 13px;
     color: #e5e7eb;
     pointer-events: auto;
     z-index: 1000;
-    max-width: 95vw;
-    gap: 8px;
+    max-width: min(94vw, 1080px);
+    gap: 6px;
   `;
+  toolbar.dataset.testid = 'toolbar';
 
   container.appendChild(toolbar);
 
@@ -146,13 +151,13 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   // Stats display section
   const statsSection = document.createElement('div');
   statsSection.style.cssText = `
-    margin-left: 12px;
-    padding-left: 12px;
+    margin-left: 8px;
+    padding-left: 8px;
     border-left: 1px solid rgba(75, 85, 99, 0.6);
-    font-size: 11px;
+    font-size: 10.5px;
     color: #94a3b8;
     line-height: 1.3;
-    min-width: 200px;
+    min-width: 160px;
   `;
   toolbar.appendChild(statsSection);
 
@@ -162,14 +167,15 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     background: rgba(55, 65, 81, 0.8);
     border: 1px solid rgba(75, 85, 99, 0.8);
     border-radius: 6px;
-    padding: 6px 8px;
+    padding: 5px 7px;
     color: #e5e7eb;
     cursor: pointer;
-    font-size: 12px;
-    margin-left: 8px;
+    font-size: 11px;
+    margin-left: 6px;
   `;
   controlsToggle.innerHTML = `<span style="font-size: 14px;">${ICONS.settings}</span>`;
   controlsToggle.title = 'Toggle detailed controls';
+  controlsToggle.dataset.testid = 'toolbar-settings';
   toolbar.appendChild(controlsToggle);
 
   // Expandable controls panel
@@ -200,6 +206,11 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     controlsToggle.style.background = controlsExpanded ? 'rgba(59, 130, 246, 0.3)' : 'rgba(55, 65, 81, 0.8)';
   });
 
+  const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const setTestId = (el: HTMLElement, value: string) => {
+    el.dataset.testid = value;
+  };
+
   // Helper to create tool buttons
   const createToolButton = (icon: string, label: string, tool: ToolMode) => {
     const btn = document.createElement('button');
@@ -207,18 +218,19 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
       background: rgba(55, 65, 81, 0.8);
       border: 1px solid rgba(75, 85, 99, 0.8);
       border-radius: 6px;
-      padding: 6px 10px;
+      padding: 5px 8px;
       color: #e5e7eb;
       cursor: pointer;
       display: flex;
       align-items: center;
       gap: 4px;
-      font-size: 12px;
+      font-size: 11px;
       transition: all 0.2s ease;
     `;
     
     btn.innerHTML = `<span style="font-size: 14px;">${icon}</span><span>${label}</span>`;
     btn.title = label;
+    setTestId(btn, `tool-${tool}`);
     
     btn.addEventListener('mouseenter', () => {
       btn.style.background = 'rgba(75, 85, 99, 0.9)';
@@ -252,24 +264,25 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   };
 
   // Helper to create action buttons
-  const createActionButton = (icon: string, label: string, action: () => void) => {
+  const createActionButton = (icon: string, label: string, action: () => void, testId?: string) => {
     const btn = document.createElement('button');
     btn.style.cssText = `
       background: rgba(55, 65, 81, 0.8);
       border: 1px solid rgba(75, 85, 99, 0.8);
       border-radius: 6px;
-      padding: 6px 10px;
+      padding: 5px 8px;
       color: #e5e7eb;
       cursor: pointer;
       display: flex;
       align-items: center;
       gap: 4px;
-      font-size: 12px;
+      font-size: 11px;
       transition: all 0.2s ease;
     `;
     
     btn.innerHTML = `<span style="font-size: 14px;">${icon}</span><span>${label}</span>`;
     btn.title = label;
+    setTestId(btn, testId ?? `action-${slugify(label)}`);
     
     btn.addEventListener('mouseenter', () => {
       btn.style.background = 'rgba(75, 85, 99, 0.9)';
@@ -301,21 +314,23 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   const createVehicleDropdown = () => {
     const container = document.createElement('div');
     container.style.cssText = 'position: relative; display: inline-block;';
+    setTestId(container, 'vehicle-controls');
     
     const mainBtn = document.createElement('button');
     mainBtn.style.cssText = `
       background: rgba(55, 65, 81, 0.8);
       border: 1px solid rgba(75, 85, 99, 0.8);
       border-radius: 6px 0 0 6px;
-      padding: 6px 8px;
+      padding: 5px 8px;
       color: #e5e7eb;
       cursor: pointer;
       display: flex;
       align-items: center;
       gap: 4px;
-      font-size: 12px;
+      font-size: 11px;
       transition: all 0.2s ease;
     `;
+    setTestId(mainBtn, 'vehicle-spawn-main');
     
     const updateMainButton = () => {
       const vehicleData = VEHICLE_TYPES[selectedVehicleType];
@@ -331,7 +346,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
       border: 1px solid rgba(75, 85, 99, 0.8);
       border-left: none;
       border-radius: 0 6px 6px 0;
-      padding: 6px 4px;
+      padding: 5px 4px;
       color: #e5e7eb;
       cursor: pointer;
       display: flex;
@@ -341,6 +356,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     `;
     dropdownBtn.innerHTML = ICONS.dropdown;
     dropdownBtn.title = 'Select vehicle type';
+    setTestId(dropdownBtn, 'vehicle-spawn-menu');
     
     const dropdown = document.createElement('div');
     dropdown.style.cssText = `
@@ -375,6 +391,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
       `;
       option.innerHTML = `<span>${data.icon}</span><span>${data.name}</span>`;
       option.title = data.description;
+      setTestId(option, `vehicle-option-${type}`);
       
       option.addEventListener('mouseenter', () => {
         option.style.background = 'rgba(59, 130, 246, 0.2)';
@@ -441,10 +458,10 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   const roadsBtn = createToolButton(ICONS.road, 'Roads', 'roads');
 
   // Create action buttons
-  const igniteCenterBtn = createActionButton(ICONS.fire, 'Center', () => actions.fire?.igniteCenter?.());
-  const clearRoadsBtn = createActionButton(ICONS.clear, 'Clear', () => actions.roads?.clear?.());
+  const igniteCenterBtn = createActionButton(ICONS.fire, 'Center', () => actions.fire?.igniteCenter?.(), 'action-ignite-center');
+  const clearRoadsBtn = createActionButton(ICONS.clear, 'Clear', () => actions.roads?.clear?.(), 'action-clear-roads');
   const spawnVehicleDropdown = createVehicleDropdown();
-  const clearVehiclesBtn = createActionButton(ICONS.clear, 'Clear', () => actions.vehicles?.clear?.());
+  const clearVehiclesBtn = createActionButton(ICONS.clear, 'Clear', () => actions.vehicles?.clear?.(), 'action-clear-vehicles');
 
   // Build main toolbar layout
   toolsSection.appendChild(igniteBtn);

@@ -48,6 +48,8 @@ Repository Topology
   - `src/vehicles/menubarMapping.ts`: UI type mapping for spawn commands.
 - **Fire Hydrants (HIGH PRIORITY)**: `src/fire/hydrants.ts`: automatic placement along roads (50m spacing, 100+ tiles min), coverage areas (~10m), integration with suppression system to enable firefighter deployment from road tiles within coverage.
 - UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
+- Browser automation: `src/main.ts` exposes `window.render_game_to_text()`, `window.advanceTime(ms)`, and `window.__wildfireTestApi` so Playwright/browser audits can inspect live game state, fast-forward the loop, and exercise fire/road/vehicle flows deterministically without brittle pixel-only input.
+- Repo automation: `scripts/qa/playwright_audit.ts` powers `npm run audit:game`, which launches the local Vite app and verifies the current MVP loop (bootstrap, roads, vehicles, suppression, auto-dispatch, manual dispatch) against the live browser build.
 - Specs: `specs/` contains domain specs (terrain, fire_behavior, vehicles, architecture).
 - Root docs: `AGENTS.md` (guidelines, commit hygiene).
 
@@ -97,6 +99,8 @@ Event Flow & Input
   - Roads On: raycast to terrain → grid cell → A* builds road path → visualize + rasterize mask.
   - Vehicles Move On: raycast → grid → set shared destination on road network.
   - Otherwise: ignite tile for fire demo if ignite mode is active.
+- Dispatch lifecycle: `dispatchLoop` promotes incidents from `detected` → `assigned` → `engaged`, and the registry resolves incidents once the source tile is no longer burning/igniting and any remaining smolder heat has fallen below the extinguish threshold.
+- Manual dispatch UX: the dispatch panel only enables "Assign selected" when the currently selected follower can actually service the incident from its current road/path, using the same routeability rule as the dispatch logic.
 
 Performance Principles
 
@@ -125,6 +129,8 @@ Testing Strategy (planned)
   - Heightmap sampling, normal estimation.
   - FireSim tick transitions and ignition probabilities (deterministic seeds).
   - A* path validity and slope/turn costs.
+- Browser audits use `render_game_to_text`, `advanceTime`, and `__wildfireTestApi` to verify live feature claims such as road placement, hydrant regeneration, vehicle spawning/dispatch, and suppression outcomes against the rendered scene.
+- `npm run audit:game` is the current end-to-end browser verification entry point and should be rerun after changes that touch movement, UI actions, dispatch, or fire suppression flows.
 - Headless update tests to validate determinism (e.g., same perimeter length after N ticks).
 
 Contribution & Spec Hygiene

@@ -53,6 +53,21 @@ describe('incident registry', () => {
     expect(reg.byId(inc.id)?.resolvedAt).toBe(5);
   });
 
+  it('auto-resolves cooled smoldering incidents', () => {
+    const grid = flatGrid();
+    grid.tiles[1 * grid.width + 1].state = FireState.Burning;
+    grid.tiles[1 * grid.width + 1].heat = 0.6;
+    const reg = createIncidentRegistry(grid.params.cellSize);
+    const [inc] = reg.detectFromFireGrid(grid, 0);
+
+    grid.tiles[1 * grid.width + 1].state = FireState.Smoldering;
+    grid.tiles[1 * grid.width + 1].heat = 0;
+    const pruned = reg.prune(grid, 5);
+
+    expect(pruned).toBe(1);
+    expect(reg.byId(inc.id)?.status).toBe('resolved');
+  });
+
   it('tracks lifecycle transitions', () => {
     const grid = flatGrid();
     grid.tiles[0].state = FireState.Burning;
