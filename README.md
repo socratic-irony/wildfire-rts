@@ -118,29 +118,7 @@ This project follows spec-first development:
 
 ## Roadmap
 
-See **[ROADMAP.md](ROADMAP.md)** for the live working checklist with file pointers, scope estimates, and per-initiative subtasks.
-
-### Near-term (v0.2)
-- [ ] Incident dispatch system — see [ROADMAP.md](ROADMAP.md) (scaffolding + tests landed; wiring + UI pending)
-- [ ] Vehicle payload + fuel model — see [ROADMAP.md](ROADMAP.md)
-- [ ] Unify intersection control across PathFollower + VehiclesManager
-- [ ] Implement crown fire mode and edge-based fireline barriers
-- [ ] Tune hydrant coverage falloff, damage states, and overlay visualization
-- [ ] Expand menubar controls (wind tuning, suppression presets) and document workflows
-
-### Medium-term (v0.3)
-- [ ] Replace placeholder particle assets with proper flame/smoke textures
-- [ ] Add soft particles with depth-fade for terrain intersections
-- [ ] Implement telemetry system with per-subsystem timing
-
-### Future
-- [ ] Advanced postprocessing effects
-- [ ] Hero plume particles for dramatic fire events
-- [ ] Mission/scenario scripting system
-
-### Long-term (v2.0+)
-- [ ] Scenario persistence (save/load)
-- [ ] Multiplayer support
+Live plan with phases, file pointers, and scope estimates: **[ROADMAP.md](ROADMAP.md)**. Recent changes are tracked in **[CHANGELOG.md](CHANGELOG.md)**. Agent-specific workflow notes: **[CLAUDE.md](CLAUDE.md)**.
 
 ## Contributing
 

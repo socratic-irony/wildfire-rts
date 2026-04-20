@@ -1,109 +1,73 @@
 # Wildfire-RTS Roadmap
 
-Living tracking document for major initiatives. Audit dated **2026-04-18** (updated). Test count: **169 passing**.
-
-The README's roadmap section is the high-level public view; this file is the working checklist with file-level pointers, scope estimates, and per-initiative subtasks.
+Single forward-looking plan. For shipped history see [CHANGELOG.md](CHANGELOG.md). For contribution rules see [AGENTS.md](AGENTS.md). For agent entry-point see [CLAUDE.md](CLAUDE.md). Per-system domain state lives in each spec's `Status` / `⏳ Outstanding` section under [specs/](specs/).
 
 ---
 
 ## Status legend
 
-- `[ ]` not started
-- `[~]` in progress
-- `[x]` done
-- `[-]` deferred / superseded
-
-Scope: **S** ≤ half-day · **M** 1–3 days · **L** 1+ week
+- `[ ]` not started · `[~]` in progress · `[x]` done · `[-]` deferred
+- Scope: **S** ≤ half-day · **M** 1–3 days · **L** 1+ week
 
 ---
 
-## Quick wins (sprint 1)
+## MVP definition
 
-- [x] **Extract `src/vehicles/typeDefaults.ts`** (S) — landed 2026-04-18. Centralizes speed, color, material props, behavior flags, and placeholder fuel/water capacities. `vehicles.ts:getDefaultSpeed()` and `main.ts:createFollowerMesh()` now read from it.
-- [-] **Remove deprecated grid-mode blocks** — investigated 2026-04-18: the DEPRECATED markers in `vehicles.ts` and `src/ui/debug.ts` document _secondary_ code paths still consumed by `src/vehicles_test.ts` (demo entry) and ability tests. Not safe to remove without first migrating those consumers.
-- [x] **Fleet stats in menubar** (S) — landed 2026-04-18. New `src/vehicles/stats.ts:computeFleetStats()`; menubar shows total/moving/idle counts, type breakdown, mean speed, total water capacity. Wired via `opts.followers` in `main.ts:1012`.
+A playthrough satisfies the MVP when, from a seeded boot, the audit can:
 
-## Top initiatives (ordered by leverage × readiness)
+1. Bootstrap terrain + roads + hydrants + vehicles.
+2. Ignite fires and resolve them via auto-dispatch **and** manual dispatch.
+3. Exhaust and refill vehicle payloads without the loop stalling.
+4. Run a multi-minute scenario to a deterministic win/loss outcome.
 
-### 1. Incident Dispatch System (L) — *unlocks RTS core loop*
+Acceptance gate: `npm test`, `npm run build`, and `npm run audit:game` all green.
 
-Without this the game has no strategy layer. Fire detected → incident created → nearest idle vehicle dispatched → busy/idle state tracked → resolution.
-
-- [x] Scaffold `src/dispatch/incident.ts` — `Incident` type, registry, lifecycle (`detected → assigned → engaged → resolved`). Added `reopen()` for unit-leaves-to-refill flow. Landed 2026-04-18; extended with `reopen` same sprint.
-- [x] Scaffold `src/dispatch/stations.ts` — station registry with `nearest()` lookup. Landed 2026-04-18.
-- [x] Scaffold `src/dispatch/assignment.ts` — `assignNearestIdle()` greedy heuristic, suppression-type filter. Landed 2026-04-18.
-- [x] Tests in `src/dispatch/__tests__/` — 9 tests, lifecycle + heuristic. Landed 2026-04-18.
-- [x] Wire fire-loop in `src/main.ts`: detect new burning tiles → spawn incidents (call `registry.detectFromFireGrid()` periodically, e.g. every 1s) — **Done 2026-04-18 via `src/systems/dispatchLoop.ts`**
-- [x] Wire follower-loop: when assignment lands, push goal into `PathFollower` and mark unit busy until `Incident.status === 'resolved'` — Done. Dispatch now uses same-path projection (no cross-path teleporting).
-- [x] Add `src/ui/dispatchPanel.ts` — list incidents, available units, current assignments — **Done 2026-04-18**
-- [x] Auto-dispatch toggle + manual override — panel shows per-incident "Assign selected" button; `DispatchPanelCallbacks` includes `getSelectedFollowerId` + `onManualDispatch`. Wired in `main.ts`.
-- [x] Promote `Incident.status === 'engaged'` when assigned unit reaches the incident tile (distance check) — Done.
-- [x] Real suppression: engaged followers call `consumeWater` + `applyWaterAoEWithHydrants` each frame. Empty-tank units reopen the incident and return to base. Refill/refuel at home restores payload.
-- [x] **Routeability guard** — `dispatchLoop.pushGoal()` now returns `boolean`; incidents are only marked `assigned` if at least one unit successfully projected onto its current road within 12 m. Manual dispatch in `main.ts` routes first, assigns second. 4 regression tests added (`dispatch_routeability.test.ts`).
-- [ ] Replace greedy heuristic with cost-based assignment (factor in unit type, water remaining, response distance)
-
-### 2. Unify intersection control across both vehicle systems (M)
-
-`src/vehicles/intersectionManager.ts` (just landed) only serves PathFollower. Share queue/token state with `VehiclesManager` grid agents so the two fleets co-exist without colliding.
-
-- [ ] Extract queue/token state from `intersectionManager.ts` into shared module
-- [ ] Wire grid agents in `vehicles.ts` to consult the same queue lookup
-- [ ] Add spatial collision query usable by both systems
-- [ ] Test: mixed PathFollower + grid agents at the same four-way stop
-
-### 3. Vehicle payload + fuel model (M)
-
-Makes choices matter. Vehicles must return to base when empty.
-
-- [x] Pure payload module `src/vehicles/payload.ts` — `createPayload`, `tickFuel`, `consumeWater`, `refuel`, `refill`, `status`, `needsReturnToBase`. 7 tests. Landed 2026-04-18.
-- [x] Attach `PayloadState` to `ActiveFollower` entries in `main.ts` — `createPayload()` per spawn, `tickFuel` during motion, `consumeWater` per suppression frame, empty-tank units return home and refuel/refill on arrival. Done.
-- [x] Update speed model for grade + load
-- [~] Call `consumeWater` from suppression loop; stop spraying when empty — **done in `updateFollowerSuppression()`**
-- [~] "Return to base" autopilot triggered by `needsReturnToBase` — **done in `sendFollowerHome()` + `updateFollowerLogistics()`**
-- [x] HUD bars per vehicle (fuel + water) — `src/ui/vehicleHud.ts` shows selected-unit fuel %, water %, and assignment/RTB status overlay. Updated each frame in main loop.
-
-### 4. Fire-aware pathing (L)
-
-Vehicles route around active fires; re-plan when planned route becomes hot.
-
-- [ ] Add fire-heat cost layer in `src/roads/cost.ts`
-- [ ] Merge cost sources (terrain + fire + vehicle density) in `src/roads/astar.ts`
-- [ ] Re-path trigger in PathFollower / VehiclesManager when path cost spikes
-- [ ] Tunable: avoidance weight, re-path threshold
-
-### 5. Road midline spatial index (M)
-
-Fixes drift and yaw glitches. `src/roads/visual.ts` already exposes `getMidlinesXZ()` (~line 97).
-
-- [x] `src/roads/midlineIndex.ts` — uniform-grid index, `nearest(x,z) → { pathIdx, segIdx, t, point, distance, tangent, normal }`. 6 tests including brute-force parity check. Landed 2026-04-18.
-- [x] Wire `RoadsVisual` to build/refresh the index when paths change — `addPath()` rebuilds `midlineIndex` after each path is added; `clear()` resets it.
-- [x] `projectToMidline()` and `findNearestPathIndex()` now use `midlineIndex.nearest()` — no more coarse scan. Done.
-- [ ] Use projected tangent for yaw smoothing in `frenet.ts`
-- [ ] Bench: query latency vs previous brute-force
-
-### 6. OSM road import (L) — *defer until core loop is done*
-
-Highest complexity, lowest dependency. Don't ship realistic geography with nothing happening on it.
-
-- [ ] `src/osm/loader.ts` — GeoJSON parsing
-- [ ] `src/osm/projection.ts` — Web Mercator / UTM lat-lon → grid
-- [ ] `src/osm/roadgraph.ts` — polylines → road grid with speed limits + types
-- [ ] File picker / URL loader in menubar
-- [ ] Sample data: one small town `.geojson` checked into `examples/`
+As of 2026-04-19 items 1–2 are covered by `audit:game`. Items 3–4 are the focus of Phase 1–2 below.
 
 ---
 
-## Suggested sequencing
+## Phase 1 — Harden the audit loop (now)
 
-- **Sprint 1**: quick wins + dispatch scaffolding (incident registry only)
-- **Sprint 2**: finish dispatch + auto-assignment; fuel/payload model
-- **Sprint 3**: unify intersections + midline projection
-- **Sprint 4+**: fire-aware pathing, then OSM
+Each item adds a new scenario to [scripts/qa/playwright_audit.ts](scripts/qa/playwright_audit.ts) *before* any fix, so the loop earns trust as coverage grows.
+
+- [ ] **Payload exhaustion round-trip** (S) — ignite multiple fires; watch a firetruck drain → `needsReturnToBase` → RTB → refill → redeploy. Exercises [src/vehicles/payload.ts](src/vehicles/payload.ts), `sendFollowerHome`, `updateFollowerLogistics` in [src/main.ts](src/main.ts). Likely surfaces orphaned `busy=true` states.
+- [ ] **Hydrant-fed suppression** (S) — park a unit inside hydrant coverage, ignite, verify suppression continues past the truck's tank capacity. Covers the currently-unasserted HIGH-PRIORITY hydrant integration in [src/fire/hydrants.ts](src/fire/hydrants.ts).
+- [ ] **Bulldozer fireline** (S) — issue an off-road order across a burning path, fast-forward, assert `lineStrength` written to the expected tiles and that ROS into them drops. Covers off-road path in [src/vehicles/followerOrders.ts](src/vehicles/followerOrders.ts).
+- [ ] **Long-run stability** (S) — `advanceTime(60_000)` with 5 fires + 3 units. Assert no NaN positions, no orphaned assignments, bounded incident count. Proves the `advanceTime` fast-forward is stable for scenario-length runs.
+- [ ] **Stress + contention** (S) — 10 simultaneous ignitions, 4 firetrucks. Assert greedy dispatch does not deadlock; every incident reaches `resolved` or `reopened`. Stresses [src/dispatch/assignment.ts](src/dispatch/assignment.ts).
+
+## Phase 2 — Give the MVP a shape
+
+Currently there is no win/loss condition, so "MVP" has no objective gate.
+
+- [ ] **Scenarios + win/loss** (M) — add `src/scenarios/` with one seeded scenario ("contain fire within N tiles in M simulated minutes"). Expose `getScenarioResult()` on the test API. New audit scenario plays it to completion and asserts `result === 'win'`. This becomes the MVP acceptance test.
+- [ ] **Cost-based dispatch** (S, was ROADMAP §1 final item) — replace the greedy heuristic in [src/dispatch/assignment.ts](src/dispatch/assignment.ts) with one that factors unit type, water remaining, and response distance. Justified by A/B vs greedy on the same scenario seed.
+
+## Phase 3 — Cleanup under audit protection
+
+Lower-risk once Phase 1 lands.
+
+- [ ] **Decompose `src/main.ts`** (M, 1027 LOC) — extract `src/input/handlers.ts` and `src/systems/fireLoop.ts`.
+- [ ] **Decompose `src/vehicles/vehicles.ts`** (M, 1010 LOC).
+- [ ] **Decompose `src/ui/menubar.ts`** (M, 901 LOC) — split per-section.
+- [ ] **Unify intersection control** (M) — share queue/token state from [src/vehicles/intersectionManager.ts](src/vehicles/intersectionManager.ts) with `VehiclesManager` grid agents. Needs a curvature/collision assertion added to the audit first.
+- [ ] **Midline tangent yaw smoothing** (S) — use projected tangent from the `midlineIndex` for yaw in [src/vehicles/frenet.ts](src/vehicles/frenet.ts). Bench query latency vs previous brute-force.
+
+## Deferred
+
+Explicitly not in the MVP; revisit after Phase 2 ships.
+
+- [-] **Fire-aware pathing** (L) — fire-heat cost layer in [src/roads/cost.ts](src/roads/cost.ts), merged cost field, re-path trigger.
+- [-] **OSM road import** (L) — `src/osm/loader.ts`, projection, roadgraph, menubar picker, sample `.geojson`.
+- [-] **Crown fire + edge-based firelines** — see [specs/fire_behavior.md](specs/fire_behavior.md) `⏳ Outstanding`.
+- [-] **Hydrant damage states + manual placement UI** — see [specs/fire_hydrants.md](specs/fire_hydrants.md) `⏳ Outstanding`.
+- [-] **Scenario persistence / multiplayer** — out of scope for v1.
 
 ---
 
-## Cross-cutting cleanup (opportunistic)
+## Workflow — how to add to this roadmap
 
-- [ ] Decompose `src/main.ts` (1027 LOC) — extract `src/input/handlers.ts` and `src/systems/fireLoop.ts`
-- [ ] Decompose `src/vehicles/vehicles.ts` (1010 LOC) once typeDefaults extraction lands
-- [ ] Audit `src/ui/menubar.ts` (901 LOC) — split per-section
+1. New gameplay claim? Write the audit scenario in [scripts/qa/playwright_audit.ts](scripts/qa/playwright_audit.ts) *before* the implementation. Watch it fail.
+2. Implement the minimum to make it pass. Keep commits focused per [AGENTS.md](AGENTS.md).
+3. Update the relevant [specs/](specs/) `Status` section and tick the checkbox here.
+4. Append a one-line entry to [CHANGELOG.md](CHANGELOG.md) with the date and `audit:game` state.
