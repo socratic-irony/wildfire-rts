@@ -29,6 +29,7 @@ import { createFlipbookParticles } from './particles/flipbook';
 import { createSuppressionDecals } from './fire/decals';
 import { createHydrantSystem, updateHydrantPlacement, clearHydrants } from './fire/hydrants';
 import { HydrantVisual } from './fire/hydrantVisual';
+import { createHydrantCoverageRings } from './fire/hydrantCoverage';
 import { buildTerrainCost } from './roads/cost';
 import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
@@ -674,6 +675,7 @@ function applyRoadPaths() {
   applyRoadMaskToFireGrid(fireGrid, roadMask);
   updateHydrantPlacement(hydrantSystem);
   hydrantVisual.update(hydrantSystem);
+  hydrantCoverageRings.update(hydrantSystem);
   rebuildPath2Ds();
 }
 
@@ -734,6 +736,7 @@ function buildRoadBetween(a: { x: number; z: number }, b: { x: number; z: number
   applyRoadMaskToFireGrid(fireGrid, roadMask);
   updateHydrantPlacement(hydrantSystem);
   hydrantVisual.update(hydrantSystem);
+  hydrantCoverageRings.update(hydrantSystem);
   rebuildPath2Ds();
   // Keep the latest endpoint for chained road placement instead of growing forever.
   roadEndpoints = [b];
@@ -749,6 +752,7 @@ function clearRoadNetwork() {
   rebuildPath2Ds();
   updateHydrantPlacement(hydrantSystem);
   hydrantVisual.update(hydrantSystem);
+  hydrantCoverageRings.update(hydrantSystem);
 }
 
 function seedProceduralRoads(count = 2) {
@@ -899,6 +903,8 @@ let activeScenario: ScenarioRunner | null = null;
 let hydrantVisual = new HydrantVisual(hm);
 scene.add(hydrantVisual.group);
 hydrantVisual.setVisible(true); // Initially visible
+let hydrantCoverageRings = createHydrantCoverageRings(hm);
+scene.add(hydrantCoverageRings.inst);
 
 // Dispatch — incident registry + auto-assignment loop + UI panel
 const incidentRegistry = createIncidentRegistry(hm.scale);
@@ -1272,6 +1278,7 @@ window.__wildfireTestApi = {
   updateHydrants: () => {
     updateHydrantPlacement(hydrantSystem);
     hydrantVisual.update(hydrantSystem);
+  hydrantCoverageRings.update(hydrantSystem);
   },
   setAutoDispatch: (on) => {
     dispatchLoop.setAutoDispatch(on);
@@ -1456,11 +1463,13 @@ window.__wildfireTestApi = {
       toggle: (on) => { hydrantVisual.setVisible(on); },
       update: () => { 
         updateHydrantPlacement(hydrantSystem); 
-        hydrantVisual.update(hydrantSystem); 
+        hydrantVisual.update(hydrantSystem);
+  hydrantCoverageRings.update(hydrantSystem); 
       },
       clear: () => { 
         clearHydrants(hydrantSystem); 
-        hydrantVisual.update(hydrantSystem); 
+        hydrantVisual.update(hydrantSystem);
+  hydrantCoverageRings.update(hydrantSystem); 
       }
     },
     config: {
@@ -1521,6 +1530,9 @@ window.__wildfireTestApi = {
         hydrantVisual = new HydrantVisual(hm);
         hydrantVisual.setVisible(hydrantsVisible);
         scene.add(hydrantVisual.group);
+        scene.remove(hydrantCoverageRings.inst);
+        hydrantCoverageRings = createHydrantCoverageRings(hm);
+        scene.add(hydrantCoverageRings.inst);
         
         // Rebuild fire grid and related systems
         fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
