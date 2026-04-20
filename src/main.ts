@@ -1,4 +1,4 @@
-import { Mesh, Object3D, BufferAttribute, Vector3, Quaternion, Raycaster, Vector2, BoxGeometry, MeshStandardMaterial, Color, BufferGeometry, CylinderGeometry, RingGeometry, MeshBasicMaterial, DoubleSide } from 'three';
+import { Object3D, Vector3, Quaternion, Raycaster, Vector2 } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -37,7 +37,7 @@ import { applyRoadMaskToFireGrid, clearRoadMask, createRoadMask, rasterizePolyli
 import { makeAngularPath } from './roads/path';
 import { generateProceduralRoads } from './roads/procedural';
 import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
-import { getDefaults } from './vehicles/typeDefaults';
+import { createVehicleMesh } from './vehicles/meshes';
 import { createPayload, tickFuel, needsReturnToBase, consumeWater, refuel, refill, type PayloadState } from './vehicles/payload';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
@@ -568,7 +568,7 @@ type ActiveFollower = {
   id: number;
   follower: PathFollower;
   object: Object3D;
-  mesh: Mesh;
+  mesh: Object3D;
   type: VManagerVehicleType;
   fxState: VehicleFxState;
   payload: PayloadState;
@@ -767,53 +767,8 @@ function seedProceduralRoads(count = 2) {
   applyRoadPaths();
 }
 
-function createYieldIndicator(scale: number): Mesh {
-  const geo = new RingGeometry(scale * 0.55, scale * 0.7, 24);
-  geo.rotateX(-Math.PI / 2);
-  const mat = new MeshBasicMaterial({
-    color: new Color(0xf7c948),
-    transparent: true,
-    opacity: 0.8,
-    depthWrite: false,
-    side: DoubleSide,
-  });
-  const ind = new Mesh(geo, mat);
-  ind.position.y = -scale * 0.2;
-  ind.visible = false;
-  ind.renderOrder = 7;
-  return ind;
-}
-
-function createFollowerMesh(vehicleType: VManagerVehicleType): Mesh {
-  const scale = hm.scale;
-  const defaults = getDefaults(vehicleType);
-  let geo: BufferGeometry;
-  switch (vehicleType) {
-    case VManagerVehicleType.FIRETRUCK:
-      geo = new BoxGeometry(scale * 0.9, scale * 0.6, scale * 1.6);
-      break;
-    case VManagerVehicleType.BULLDOZER:
-      geo = new BoxGeometry(scale * 0.7, scale * 0.35, scale * 0.8);
-      break;
-    case VManagerVehicleType.CAR:
-    default:
-      geo = new BoxGeometry(scale * 0.5, scale * 0.25, scale * 1.0);
-      break;
-  }
-  const mat = new MeshStandardMaterial({
-    color: new Color(defaults.color),
-    roughness: defaults.roughness,
-    metalness: defaults.metalness,
-    emissive: new Color(defaults.emissive),
-    emissiveIntensity: defaults.emissiveIntensity,
-  });
-  const mesh = new Mesh(geo, mat);
-  mesh.castShadow = true;
-  mesh.receiveShadow = false;
-  const yieldInd = createYieldIndicator(scale);
-  mesh.add(yieldInd);
-  mesh.userData.yieldIndicator = yieldInd;
-  return mesh;
+function createFollowerMesh(vehicleType: VManagerVehicleType): Object3D {
+  return createVehicleMesh(vehicleType, hm.scale);
 }
 
 function spawnFollowersOnAllPaths(perPath = 3) {
