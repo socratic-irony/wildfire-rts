@@ -17,7 +17,7 @@ import type { FireGrid } from '../fire/grid';
 import type { Path2D } from '../paths/path2d';
 import type { PathFollower } from '../vehicles/frenet';
 import type { IncidentRegistry } from '../dispatch/incident';
-import { assignNearestIdle, type DispatchableUnit } from '../dispatch/assignment';
+import { assignByCost, type CostDispatchableUnit } from '../dispatch/cost';
 import { VehicleType } from '../vehicles/types';
 
 /** Minimal XZ position interface used to avoid Three.js dependency in tests. */
@@ -37,6 +37,8 @@ export type FollowerRef = {
   follower: PathFollower;
   /** Whether this unit is currently assigned to an incident. */
   busy: boolean;
+  /** Liters of water remaining. 0 for non-water units. Used by cost dispatch. */
+  waterRemaining?: number;
 };
 
 export type DispatchLoopOptions = {
@@ -148,14 +150,20 @@ export function createDispatchLoop(
       if (autoDispatch) {
         const unassigned = registry.list().filter(i => i.status === 'detected');
         if (unassigned.length > 0) {
-          const units: DispatchableUnit[] = followers
+          const units: CostDispatchableUnit[] = followers
             .filter(f => !f.busy && isSuppression(f.type))
             .map(f => {
               const p = followerWorldPos(f);
-              return { id: f.id, type: f.type, pos: p, busy: f.busy };
+              return {
+                id: f.id,
+                type: f.type,
+                pos: p,
+                busy: f.busy,
+                waterRemaining: f.waterRemaining ?? 0,
+              };
             });
 
-          const assignments = assignNearestIdle(unassigned, units);
+          const assignments = assignByCost(unassigned, units);
           for (const asn of assignments) {
             const inc = registry.byId(asn.incidentId);
             if (!inc) continue;

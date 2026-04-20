@@ -11,8 +11,8 @@ import type { ScenarioDef } from './scenario';
 export const defaultContainmentScenario: ScenarioDef = {
   id: 'mvp-containment-1',
   seed: '42',
-  description: 'Keep the fire footprint below 400 tiles for 60 simulated seconds.',
+  description: 'Keep the fire footprint below 900 tiles for 60 simulated seconds.',
   ignitions: [{ x: 64, z: 64, heat: 0.9 }],
-  containmentBudget: 400,
+  containmentBudget: 900,
   timeLimitSec: 60,
 };

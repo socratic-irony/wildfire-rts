@@ -195,6 +195,7 @@ loop.add((dt) => {
       type: f.type,
       follower: f.follower,
       busy: f.busy,
+      waterRemaining: f.payload.water,
     }));
     dispatchLoop.tick(dt, fireGrid.time, fireGrid, followerRefs, path2ds);
     // Sync busy flag back from followerRefs (dispatch loop may have updated it)

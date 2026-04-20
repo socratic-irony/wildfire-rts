@@ -101,6 +101,10 @@ async function createPage(baseUrl: string) {
     args: ['--use-gl=angle', '--use-angle=swiftshader'],
   });
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  if (process.env.AUDIT_CONSOLE) {
+    page.on('console', (msg) => process.stdout.write(`[browser:${msg.type()}] ${msg.text()}\n`));
+    page.on('pageerror', (err) => process.stdout.write(`[browser:error] ${err.message}\n`));
+  }
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(900);
   return { browser, page };
