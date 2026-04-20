@@ -6,6 +6,26 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-04-20 — Phase 1 audit scenarios land
+
+Five new audit scenarios cover the Phase 1 gaps in [ROADMAP.md](ROADMAP.md):
+
+- `payload-round-trip` — drain a firetruck's tank, verify the RTB + refuel/refill loop completes.
+- `hydrant-suppression` — water inside hydrant coverage produces a larger wetness delta than the bare case.
+- `bulldozer-fireline` — off-road dozer traversal writes `lineStrength` to tiles along its path.
+- `long-run-stability` — 60s fast-forward with 5 fires, no NaN positions, no negative payloads, dispatch resolves ≥1 incident.
+- `stress-contention` — 10 simultaneous ignitions vs. 4 trucks, no follower stuck busy, dispatch resolves ≥3.
+
+**Fixes surfaced**
+- Bulldozers are now always excluded from the path-follower update loop ([src/main.ts](src/main.ts)). Previously, once `updateOffroadFollower` cleared `offroadTarget` on arrival, the next tick's path update would snap the dozer back to its spawn path.
+- Bulldozers write `lineStrength` to the tile under them while traversing off-road, so firebreaks form during motion rather than only at the destination.
+
+**Test API additions**: `applyWaterFromHydrantAt`, `exhaustFollowerWater`, `getTileAt` (now returns `lineStrength`).
+
+**Baseline**: `npm test`, `npm run build`, and `npm run audit:game` (11 scenarios) all green.
+
+---
+
 ## 2026-04-19 — Deterministic audit loop + MVP baseline
 
 Audit started against `ROADMAP.md` plus [specs/terrain.md](specs/terrain.md), [specs/fire_behavior.md](specs/fire_behavior.md), [specs/vehicles.md](specs/vehicles.md), [specs/fire_hydrants.md](specs/fire_hydrants.md).

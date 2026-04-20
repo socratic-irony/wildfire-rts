@@ -30,11 +30,11 @@ As of 2026-04-19 items 1–2 are covered by `audit:game`. Items 3–4 are the fo
 
 Each item adds a new scenario to [scripts/qa/playwright_audit.ts](scripts/qa/playwright_audit.ts) *before* any fix, so the loop earns trust as coverage grows.
 
-- [ ] **Payload exhaustion round-trip** (S) — ignite multiple fires; watch a firetruck drain → `needsReturnToBase` → RTB → refill → redeploy. Exercises [src/vehicles/payload.ts](src/vehicles/payload.ts), `sendFollowerHome`, `updateFollowerLogistics` in [src/main.ts](src/main.ts). Likely surfaces orphaned `busy=true` states.
-- [ ] **Hydrant-fed suppression** (S) — park a unit inside hydrant coverage, ignite, verify suppression continues past the truck's tank capacity. Covers the currently-unasserted HIGH-PRIORITY hydrant integration in [src/fire/hydrants.ts](src/fire/hydrants.ts).
-- [ ] **Bulldozer fireline** (S) — issue an off-road order across a burning path, fast-forward, assert `lineStrength` written to the expected tiles and that ROS into them drops. Covers off-road path in [src/vehicles/followerOrders.ts](src/vehicles/followerOrders.ts).
-- [ ] **Long-run stability** (S) — `advanceTime(60_000)` with 5 fires + 3 units. Assert no NaN positions, no orphaned assignments, bounded incident count. Proves the `advanceTime` fast-forward is stable for scenario-length runs.
-- [ ] **Stress + contention** (S) — 10 simultaneous ignitions, 4 firetrucks. Assert greedy dispatch does not deadlock; every incident reaches `resolved` or `reopened`. Stresses [src/dispatch/assignment.ts](src/dispatch/assignment.ts).
+- [x] **Payload exhaustion round-trip** (S) — ignite multiple fires; watch a firetruck drain → `needsReturnToBase` → RTB → refill → redeploy. Exercises [src/vehicles/payload.ts](src/vehicles/payload.ts), `sendFollowerHome`, `updateFollowerLogistics` in [src/main.ts](src/main.ts). Likely surfaces orphaned `busy=true` states.
+- [x] **Hydrant-fed suppression** (S) — park a unit inside hydrant coverage, ignite, verify suppression continues past the truck's tank capacity. Covers the currently-unasserted HIGH-PRIORITY hydrant integration in [src/fire/hydrants.ts](src/fire/hydrants.ts).
+- [x] **Bulldozer fireline** (S) — issue an off-road order across a burning path, fast-forward, assert `lineStrength` written to the expected tiles and that ROS into them drops. Covers off-road path in [src/vehicles/followerOrders.ts](src/vehicles/followerOrders.ts).
+- [x] **Long-run stability** (S) — `advanceTime(60_000)` with 5 fires + 3 units. Assert no NaN positions, no orphaned assignments, bounded incident count. Proves the `advanceTime` fast-forward is stable for scenario-length runs.
+- [x] **Stress + contention** (S) — 10 simultaneous ignitions, 4 firetrucks. Assert greedy dispatch does not deadlock; every incident reaches `resolved` or `reopened`. Stresses [src/dispatch/assignment.ts](src/dispatch/assignment.ts).
 
 ## Phase 2 — Give the MVP a shape
 
