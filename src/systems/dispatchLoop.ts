@@ -39,6 +39,14 @@ export type FollowerRef = {
   busy: boolean;
   /** Liters of water remaining. 0 for non-water units. Used by cost dispatch. */
   waterRemaining?: number;
+  /**
+   * Route the unit toward a world position; returns false if unreachable.
+   * Supplied by the host (handles off-road/airborne types); when absent the
+   * loop falls back to projecting onto the unit's current path.
+   */
+  route?: (pos: { x: number; z: number }) => boolean;
+  /** Reachability probe matching `route` without issuing the order. */
+  canRoute?: (pos: { x: number; z: number }) => boolean;
 };
 
 export type DispatchLoopOptions = {
@@ -108,6 +116,14 @@ export function createDispatchLoop(
     return true;
   }
 
+  /** Reachability probe matching pushGoal without mutating the follower. */
+  function canReachViaPath(follower: PathFollower, pos: Pos2D, path2ds: Path2D[]): boolean {
+    if (!path2ds.length) return false;
+    const currentIdx = path2ds.indexOf(follower.path as Path2D);
+    if (currentIdx < 0) return false;
+    return path2ds[currentIdx].project({ x: pos.x, z: pos.z }).dist <= MAX_SERVICE_ROAD_DISTANCE;
+  }
+
   function isSuppression(type: VehicleType): boolean {
     return (
       type === VehicleType.FIRETRUCK ||
@@ -160,6 +176,8 @@ export function createDispatchLoop(
                 pos: p,
                 busy: f.busy,
                 waterRemaining: f.waterRemaining ?? 0,
+                canService: (pos: Pos2D) =>
+                  f.canRoute ? f.canRoute(pos) : canReachViaPath(f.follower, pos, path2ds),
               };
             });
 
@@ -178,7 +196,9 @@ export function createDispatchLoop(
             for (const uid of asn.unitIds) {
               const ref = followers.find(f => f.id === uid);
               if (!ref) continue;
-              const routed = pushGoal(ref.follower, inc.pos, path2ds);
+              const routed = ref.route
+                ? ref.route(inc.pos)
+                : pushGoal(ref.follower, inc.pos, path2ds);
               if (!routed) continue;
               ref.busy = true;
               routedIds.push(uid);

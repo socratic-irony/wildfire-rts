@@ -6,6 +6,20 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-06-09 — Aircraft roles + hydrant refill
+
+Helicopters, airplanes, and firefighters are now functional units. Aircraft fly directly to any target at cruise altitude (helicopter 10 m, airplane 16 m) via a new airborne branch in [src/vehicles/followerOrders.ts](src/vehicles/followerOrders.ts); firefighters walk off-road at type speed. Helicopters drop water; airplanes lay a retardant line along their flight direction plus a cooling water component. All three are spawnable from the menubar dropdown and `spawnVehicle`, with distinct placeholder meshes (rotor/skids, wings/tail, helmet).
+
+Dispatch assignment is routeability-aware: `assignByCost` skips units that cannot service an incident position (`canService`), so an off-road fire dispatches the helicopter instead of starving behind an unroutable closest truck. `FollowerRef` gained host-supplied `route`/`canRoute` callbacks.
+
+Water-empty firetrucks with adequate fuel now reroute to the nearest hydrant reachable from their current road and refill at 400 L/s within a 6 m draw radius, instead of driving home; low fuel still forces a home RTB.
+
+New audit scenarios `aircraft-drops` (flight altitude, payload spend, retardant footprint, incident resolution) and `hydrant-refill` (refill occurs at a hydrant, tank returns to capacity). Test API: `spawnVehicle` accepts all unit types; `findOffroadBurnableTiles` finds deterministic off-road ignition targets.
+
+**Baseline**: `npm test` (202), `npm run build`, `npm run audit:game` (15 scenarios) all green.
+
+---
+
 ## 2026-06-09 — Random events: lightning + wind shifts
 
 New seeded event system ([src/events/events.ts](src/events/events.ts)): lightning strikes ignite random ignitable tiles (never rock/water/road) with exponential inter-arrival times, and periodic wind shifts ease the live sim wind toward new direction/speed targets. Off by default; enabled via a menubar fire-section checkbox or `__wildfireTestApi.setRandomEvents(on, seed)`. `getEventLog()` exposes the event history.

@@ -38,11 +38,11 @@ import { generateProceduralRoads } from './roads/procedural';
 import { buildPlannedRoadPath } from './roads/planner';
 import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
 import { createVehicleMesh } from './vehicles/meshes';
-import { createPayload, tickFuel, needsReturnToBase, consumeWater, refuel, refill, type PayloadState } from './vehicles/payload';
+import { createPayload, tickFuel, needsReturnToBase, consumeWater, refuel, refill, LOW_FUEL_FRACTION, type PayloadState } from './vehicles/payload';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
-import { canSetTargetOnCurrentPath, createFollowerSelection, findFollowerHit, issueMoveOrder, setTargetOnCurrentPath, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
+import { canSetTargetOnCurrentPath, createFollowerSelection, findFollowerHit, isOffroadOrderType, issueMoveOrder, setTargetOnCurrentPath, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
 import { mapMenubarToVehicleType } from './vehicles/menubarMapping';
 import { createIncidentRegistry } from './dispatch/incident';
 import { createDispatchLoop, type FollowerRef } from './systems/dispatchLoop';
@@ -66,7 +66,8 @@ declare global {
       clearFire: () => void;
       addRoad: (ax: number, az: number, bx: number, bz: number) => boolean;
       clearRoads: () => void;
-      spawnVehicle: (type?: 'generic' | 'firetruck' | 'bulldozer') => boolean;
+      spawnVehicle: (type?: 'generic' | 'firetruck' | 'bulldozer' | 'helicopter' | 'airplane' | 'firefighter') => boolean;
+      findOffroadBurnableTiles: (minDistFromRoad: number, count: number) => Array<{ x: number; z: number }>;
       clearVehicles: () => void;
       selectFollower: (id: number) => boolean;
       orderFollowerTo: (id: number, x: number, z: number) => boolean;
@@ -201,6 +202,8 @@ loop.add((dt) => {
       follower: f.follower,
       busy: f.busy,
       waterRemaining: f.payload.water,
+      route: (pos) => setTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
+      canRoute: (pos) => canSetTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
     }));
     dispatchLoop.tick(dt, fireGrid.time, fireGrid, followerRefs, path2ds);
     // Sync busy flag back from followerRefs (dispatch loop may have updated it)
@@ -262,10 +265,10 @@ loop.add((dt) => {
     writeFirelineEdges(fireGrid, [{ x: gx, z: gz }], 1.0);
   }
   for (let i = 0; i < followers.length; i++) {
-    // Bulldozers are off-road units. Never drive them via the path follower —
-    // once an offroadTarget is cleared on arrival, a path update would snap
-    // the unit back onto its spawn path.
-    if (followers[i].type === VManagerVehicleType.BULLDOZER) continue;
+    // Off-road order types (bulldozer, firefighter, aircraft) are never driven
+    // via the path follower — once an offroadTarget is cleared on arrival, a
+    // path update would snap the unit back onto its spawn path.
+    if (isOffroadOrderType(followers[i].type)) continue;
     const p = followers[i].follower.path as Path2D;
     if (!groups.has(p)) groups.set(p, []);
     groups.get(p)!.push(i);
@@ -587,6 +590,8 @@ type ActiveFollower = {
   returningToBase: boolean;
   homePos: { x: number; z: number };
   offroadTarget?: Vector3 | null;
+  /** Set while the unit is driving to / refilling at a hydrant. */
+  refillTarget: { x: number; z: number } | null;
 };
 
 let followers: ActiveFollower[] = [];
@@ -767,7 +772,7 @@ function spawnFollowersOnAllPaths(perPath = 3) {
         siren: vehicleType === VManagerVehicleType.FIRETRUCK,
       };
       const p0 = obj.getWorldPosition(new Vector3());
-      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState, payload: createPayload(vehicleType), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null });
+      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState, payload: createPayload(vehicleType), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null, refillTarget: null });
     }
   }
 }
@@ -821,7 +826,7 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     sprayingWater: false,
     siren: type === VManagerVehicleType.FIRETRUCK,
   };
-  followers.push({ id, follower, object: obj, mesh, type, fxState, payload: createPayload(type), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: spawnPos.x, z: spawnPos.z }, offroadTarget: null });
+  followers.push({ id, follower, object: obj, mesh, type, fxState, payload: createPayload(type), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: spawnPos.x, z: spawnPos.z }, offroadTarget: null, refillTarget: null });
 }
 
 
@@ -861,6 +866,12 @@ const SUPPRESSION_RANGE_METERS = 10;
 /** Distance (meters) from home position at which a returning unit is considered arrived. */
 const HOME_ARRIVAL_THRESHOLD = 6;
 
+/** Distance (meters) from a hydrant within which a firetruck can draw water. */
+const HYDRANT_REFILL_RADIUS = 6;
+
+/** Hydrant water transfer rate, liters/sec. A 4000 L tank fills in ~10 s. */
+const HYDRANT_REFILL_RATE = 400;
+
 function syncFollowerAssignments() {
   const assigned = new Map<number, number>();
   for (const inc of dispatchLoop.registry.list()) {
@@ -878,8 +889,36 @@ function sendFollowerHome(entry: ActiveFollower) {
   }
   entry.assignedIncidentId = null;
   entry.returningToBase = true;
+  entry.refillTarget = null;
   entry.fxState.sprayingWater = false;
   issueMoveOrder(entry as unknown as FollowerEntry, path2ds, new Vector3(entry.homePos.x, 0, entry.homePos.z));
+}
+
+/**
+ * Route a water-empty firetruck to the nearest hydrant reachable from its
+ * current road. Returns false (caller falls back to home RTB) when no
+ * hydrant is serviceable.
+ */
+function sendFollowerToHydrant(entry: ActiveFollower): boolean {
+  const p = entry.object.getWorldPosition(tmpFollowerWorld);
+  let best: { x: number; z: number } | null = null;
+  let bestD = Infinity;
+  for (const h of hydrantSystem.hydrants) {
+    if (!h.active) continue;
+    const pos = { x: h.worldPos.x, z: h.worldPos.z };
+    if (!canSetTargetOnCurrentPath(entry as unknown as FollowerEntry, path2ds, pos)) continue;
+    const d = Math.hypot(pos.x - p.x, pos.z - p.z);
+    if (d < bestD) { bestD = d; best = pos; }
+  }
+  if (!best) return false;
+  if (!setTargetOnCurrentPath(entry as unknown as FollowerEntry, path2ds, best)) return false;
+  if (entry.assignedIncidentId != null) {
+    dispatchLoop.registry.reopen(entry.assignedIncidentId);
+  }
+  entry.assignedIncidentId = null;
+  entry.fxState.sprayingWater = false;
+  entry.refillTarget = best;
+  return true;
 }
 
 function updateFollowerSuppression(dt: number) {
@@ -913,13 +952,37 @@ function updateFollowerSuppression(dt: number) {
 
     entry.fxState.sprayingWater = true;
 
-    applyWaterAoEWithHydrants(
-      fireGrid,
-      { x: inc.tile.x + 0.5, z: inc.tile.z + 0.5 },
-      entry.type === VManagerVehicleType.AIRPLANE ? 4.5 : 2.5,
-      Math.min(0.55, 0.15 + drawn / 900),
-      hydrantSystem as any,
-    );
+    if (entry.type === VManagerVehicleType.AIRPLANE) {
+      // Air tanker pass: a retardant line along the flight direction plus a
+      // cooling water component so the incident itself can be knocked down.
+      const fwd = entry.fxState.forward;
+      const fx = Math.abs(fwd.x) + Math.abs(fwd.z) > 1e-3 ? fwd : tmpFollowerForward.set(1, 0, 0);
+      const cx = inc.tile.x + 0.5;
+      const cz = inc.tile.z + 0.5;
+      applyRetardantLine(
+        fireGrid,
+        [
+          { x: cx - fx.x * 2.5, z: cz - fx.z * 2.5 },
+          { x: cx + fx.x * 2.5, z: cz + fx.z * 2.5 },
+        ],
+        3,
+        Math.min(0.8, 0.2 + drawn / 2200),
+      );
+      applyWaterAoE(
+        fireGrid,
+        { x: cx, z: cz },
+        4.5,
+        Math.min(0.5, 0.12 + drawn / 1600),
+      );
+    } else {
+      applyWaterAoEWithHydrants(
+        fireGrid,
+        { x: inc.tile.x + 0.5, z: inc.tile.z + 0.5 },
+        2.5,
+        Math.min(0.55, 0.15 + drawn / 900),
+        hydrantSystem as any,
+      );
+    }
   }
 }
 
@@ -934,8 +997,35 @@ function updateFollowerLogistics(dt: number) {
       tickFuel(entry.payload, dt, loadFactor);
     }
 
-    if (!entry.returningToBase && needsReturnToBase(entry.payload)) {
-      sendFollowerHome(entry);
+    if (!entry.returningToBase && !entry.refillTarget && needsReturnToBase(entry.payload)) {
+      const waterEmpty = entry.payload.waterCapacity > 0 && entry.payload.water <= 0;
+      const fuelLow =
+        entry.payload.fuelCapacity > 0 &&
+        entry.payload.fuel / entry.payload.fuelCapacity <= LOW_FUEL_FRACTION;
+      // Firetrucks that only need water top up at the nearest hydrant instead
+      // of driving all the way home; anything else (or low fuel) goes home.
+      const usedHydrant =
+        entry.type === VManagerVehicleType.FIRETRUCK && waterEmpty && !fuelLow
+          ? sendFollowerToHydrant(entry)
+          : false;
+      if (!usedHydrant) sendFollowerHome(entry);
+      continue;
+    }
+
+    if (entry.refillTarget) {
+      const p = entry.object.getWorldPosition(tmpFollowerWorld);
+      const d = Math.hypot(p.x - entry.refillTarget.x, p.z - entry.refillTarget.z);
+      if (d <= HYDRANT_REFILL_RADIUS) {
+        entry.payload.water = Math.min(
+          entry.payload.waterCapacity,
+          entry.payload.water + HYDRANT_REFILL_RATE * dt,
+        );
+        if (entry.payload.water >= entry.payload.waterCapacity) {
+          entry.refillTarget = null;
+          entry.busy = false;
+          entry.assignedIncidentId = null;
+        }
+      }
       continue;
     }
 
@@ -1175,6 +1265,30 @@ window.__wildfireTestApi = {
     if (!path2ds.length) return false;
     spawnFollowerAtCamera(mapMenubarToVehicleType(type));
     return true;
+  },
+  findOffroadBurnableTiles: (minDistFromRoad, count) => {
+    // Collect road tiles once; then scan for burnable tiles at least
+    // minDistFromRoad away from every road tile and 20+ tiles apart.
+    const roadTiles: Array<{ x: number; z: number }> = [];
+    for (let z = 0; z < roadMask.height; z++) {
+      for (let x = 0; x < roadMask.width; x++) {
+        if (roadMask.mask[z * roadMask.width + x] === 1) roadTiles.push({ x, z });
+      }
+    }
+    const minD2 = minDistFromRoad * minDistFromRoad;
+    const found: Array<{ x: number; z: number }> = [];
+    const margin = 6;
+    for (let z = margin; z < fireGrid.height - margin && found.length < count; z += 2) {
+      for (let x = margin; x < fireGrid.width - margin && found.length < count; x += 2) {
+        const tile = fireGrid.tiles[z * fireGrid.width + x];
+        if (tile.state !== FireState.Unburned) continue;
+        if (tile.fuel === 'rock' || tile.fuel === 'water' || tile.fuel === 'urban') continue;
+        if (roadTiles.some((r) => (r.x - x) * (r.x - x) + (r.z - z) * (r.z - z) < minD2)) continue;
+        if (found.some((f) => Math.hypot(f.x - x, f.z - z) < 20)) continue;
+        found.push({ x, z });
+      }
+    }
+    return found;
   },
   clearVehicles: () => {
     vehicles.clear();

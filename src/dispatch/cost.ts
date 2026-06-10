@@ -5,6 +5,13 @@ import type { Assignment, DispatchableUnit } from './assignment';
 export type CostDispatchableUnit = DispatchableUnit & {
   /** Current liters of water the unit carries. 0 for non-water units. */
   waterRemaining: number;
+  /**
+   * Whether this unit can actually reach/service the given position
+   * (road-bound units can't service incidents far from their path; aircraft
+   * can go anywhere). Units that can't service an incident are skipped so a
+   * close-but-unroutable truck doesn't starve it.
+   */
+  canService?: (pos: { x: number; z: number }) => boolean;
 };
 
 const SUPPRESSION_TYPES: ReadonlyArray<VehicleType> = [
@@ -74,6 +81,7 @@ export function assignByCost(
     for (const u of units) {
       if (u.busy || claimed.has(u.id)) continue;
       if (!isSuppressionUnit(u.type)) continue;
+      if (u.canService && !u.canService(inc.pos)) continue;
       const dx = u.pos.x - inc.pos.x;
       const dz = u.pos.z - inc.pos.z;
       const dist = Math.hypot(dx, dz);

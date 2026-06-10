@@ -9,6 +9,7 @@
 - Suppression integration that boosts water application by **1.5× intensity** for tiles under active hydrant coverage
 - Visual instancing via `HydrantVisual` that mirrors the data in `HydrantSystem`
 - Query helpers (`canSuppressAt`, `findNearestHydrant`, `getHydrantCoverage`) covered by unit tests alongside placement/removal flows
+- **Truck refill (2026-06-09)**: a water-empty firetruck with adequate fuel reroutes to the nearest hydrant reachable from its current road and refills at 400 L/s within a 6 m draw radius (`sendFollowerToHydrant` + refill branch in `updateFollowerLogistics`, [src/main.ts](../src/main.ts)); covered by the `hydrant-refill` audit scenario. Low fuel still forces a home RTB.
 
 ### ⏳ Outstanding
 - Gameplay tuning for coverage falloff, hydrant damage/disable states, and roadside clearance rules

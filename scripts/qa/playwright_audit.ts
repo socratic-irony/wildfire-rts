@@ -542,6 +542,119 @@ async function mvpContainmentScenario(baseUrl: string, artifactDir: string) {
   }
 }
 
+async function aircraftDropsScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    await page.evaluate(() => window.__wildfireTestApi!.spawnVehicle('helicopter'));
+    await page.evaluate(() => window.__wildfireTestApi!.spawnVehicle('airplane'));
+    const ready = await getState(page);
+    const heli = ready.vehicles.followers.find((f) => f.type === 'helicopter');
+    const plane = ready.vehicles.followers.find((f) => f.type === 'airplane');
+    assert(heli, 'Helicopter failed to spawn');
+    assert(plane, 'Airplane failed to spawn');
+    const heliCapacity = heli.water;
+    const planeCapacity = plane.water;
+    assert(heliCapacity > 0 && planeCapacity > 0, 'Aircraft spawned without water/retardant payload');
+
+    // Two burnable tiles far from any road — road-bound trucks cannot service
+    // these, so dispatch must send the aircraft.
+    const tiles = await page.evaluate(() => window.__wildfireTestApi!.findOffroadBurnableTiles(15, 2));
+    assert(tiles && tiles.length === 2, `Expected 2 off-road burnable tiles, got ${JSON.stringify(tiles)}`);
+    await page.evaluate((ts) => {
+      for (const t of ts) window.__wildfireTestApi!.igniteTile(t.x, t.z, 0.9);
+    }, tiles);
+
+    let sawHeliFlying = false;
+    let sawPlaneFlying = false;
+    let sawHeliSpend = false;
+    let sawPlaneSpend = false;
+    let sawRetardant = false;
+    let resolvedCount = 0;
+    for (let i = 0; i < 30; i++) {
+      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(3_000));
+      const s = await getState(page);
+      const h = s.vehicles.followers.find((f) => f.id === heli.id);
+      const p = s.vehicles.followers.find((f) => f.id === plane.id);
+      if (h && h.y > 5) sawHeliFlying = true;
+      if (p && p.y > 5) sawPlaneFlying = true;
+      if (h && h.water < heliCapacity - 1) sawHeliSpend = true;
+      if (p && p.water < planeCapacity - 1) sawPlaneSpend = true;
+      if (!sawRetardant) {
+        sawRetardant = await page.evaluate((ts) => {
+          const api = window.__wildfireTestApi!;
+          for (const t of ts) {
+            for (let dz = -3; dz <= 3; dz++) {
+              for (let dx = -3; dx <= 3; dx++) {
+                const info = api.getTileAt(t.x + dx, t.z + dz);
+                if (info && info.retardant > 0.05) return true;
+              }
+            }
+          }
+          return false;
+        }, tiles);
+      }
+      resolvedCount = s.dispatch.incidents.filter((inc) => inc.status === 'resolved').length;
+      if (sawHeliSpend && sawPlaneSpend && sawRetardant && resolvedCount >= 1) break;
+    }
+
+    assert(sawHeliFlying, 'Helicopter never gained altitude (y > 5)');
+    assert(sawPlaneFlying, 'Airplane never gained altitude (y > 5)');
+    assert(sawHeliSpend, 'Helicopter never spent payload on suppression');
+    assert(sawPlaneSpend, 'Airplane never spent payload on suppression');
+    assert(sawRetardant, 'No retardant appeared near either fire (airplane drop missing)');
+    assert(resolvedCount >= 1, 'Aircraft attacks never resolved an incident');
+    await screenshot(page, artifactDir, 'aircraft-drops');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function hydrantRefillScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    await page.evaluate(() => window.__wildfireTestApi!.setAutoDispatch(false));
+    const start = await getState(page);
+    const truck = start.vehicles.followers.find((f) => f.type === 'firetruck');
+    assert(truck, 'No firetruck available for hydrant refill scenario');
+    assert(start.hydrants.count > 0, 'No hydrants on the seeded road network');
+    const capacity = truck.water;
+    assert(capacity > 0, 'Firetruck started empty');
+
+    await page.evaluate((id) => window.__wildfireTestApi!.exhaustFollowerWater(id), truck.id);
+
+    // Drive + refill loop. Capture where the tank starts rising — it must be
+    // at a hydrant, not at the truck's home/spawn position.
+    let refillSpot: { x: number; z: number } | null = null;
+    let lastWater = 0;
+    let final = truck;
+    for (let i = 0; i < 30; i++) {
+      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(2_000));
+      const s = await getState(page);
+      const t = s.vehicles.followers.find((f) => f.id === truck.id);
+      if (!t) break;
+      if (refillSpot == null && t.water > lastWater + 1 && t.water < capacity * 0.95) {
+        refillSpot = { x: t.x, z: t.z };
+      }
+      lastWater = t.water;
+      final = t;
+      if (t.water >= capacity * 0.99 && !t.returningToBase) break;
+    }
+
+    assert(final.water >= capacity * 0.99, `Tank never refilled (${final.water}/${capacity})`);
+    assert(refillSpot, 'Never observed the tank refilling in transit samples');
+    const nearHydrant = start.hydrants.positions.some(
+      (h) => h.active && Math.hypot(h.x - refillSpot!.x, h.z - refillSpot!.z) <= 12,
+    );
+    assert(
+      nearHydrant,
+      `Refill happened at (${refillSpot.x.toFixed(1)}, ${refillSpot.z.toFixed(1)}) — not within 12 of any hydrant`,
+    );
+    await screenshot(page, artifactDir, 'hydrant-refill');
+  } finally {
+    await browser.close();
+  }
+}
+
 async function randomEventsScenario(baseUrl: string, artifactDir: string) {
   const { browser, page } = await createPage(baseUrl);
   try {
@@ -682,6 +795,8 @@ async function main() {
     await scenario('stress-contention', artifacts, () => stressContentionScenario(baseUrl, artifacts));
     await scenario('mvp-containment', artifacts, () => mvpContainmentScenario(baseUrl, artifacts));
     await scenario('random-events', artifacts, () => randomEventsScenario(baseUrl, artifacts));
+    await scenario('aircraft-drops', artifacts, () => aircraftDropsScenario(baseUrl, artifacts));
+    await scenario('hydrant-refill', artifacts, () => hydrantRefillScenario(baseUrl, artifacts));
 
     process.stdout.write('\n[game-audit] PASS\n');
   } finally {

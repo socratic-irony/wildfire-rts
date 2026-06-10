@@ -31,6 +31,9 @@ type VehicleType = 'firetruck' | 'bulldozer' | 'generic';
 const VEHICLE_TYPES = {
   firetruck: { name: 'Fire Truck', icon: ICONS.firetruck, description: 'Fast response vehicle for water delivery' },
   bulldozer: { name: 'Bulldozer', icon: ICONS.bulldozer, description: 'Heavy vehicle for creating firebreaks' },
+  helicopter: { name: 'Helicopter', icon: '🚁', description: 'Flies anywhere; drops water on fires' },
+  airplane: { name: 'Air Tanker', icon: '✈️', description: 'Flies anywhere; drops retardant lines' },
+  firefighter: { name: 'Firefighter', icon: '🧑‍🚒', description: 'Ground crew; goes off-road on foot' },
   generic: { name: 'Generic Vehicle', icon: ICONS.vehicle, description: 'Standard utility vehicle' },
 } as const;
 

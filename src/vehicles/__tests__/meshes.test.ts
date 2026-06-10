@@ -29,4 +29,24 @@ describe('createVehicleMesh', () => {
     const g = createVehicleMesh(VehicleType.BULLDOZER, 1);
     expect(g.getObjectByName('blade')).toBeTruthy();
   });
+
+  it('helicopter has rotor + skids and no wheels', () => {
+    const g = createVehicleMesh(VehicleType.HELICOPTER, 1);
+    expect(g.getObjectByName('rotor')).toBeTruthy();
+    expect(g.getObjectByName('skid')).toBeTruthy();
+    expect(g.getObjectByName('wheel')).toBeFalsy();
+  });
+
+  it('airplane has wings + tail fin and no wheels', () => {
+    const g = createVehicleMesh(VehicleType.AIRPLANE, 1);
+    expect(g.getObjectByName('wings')).toBeTruthy();
+    expect(g.getObjectByName('tailFin')).toBeTruthy();
+    expect(g.getObjectByName('wheel')).toBeFalsy();
+  });
+
+  it('firefighter has a helmet and no wheels', () => {
+    const g = createVehicleMesh(VehicleType.FIREFIGHTER, 1);
+    expect(g.getObjectByName('helmet')).toBeTruthy();
+    expect(g.getObjectByName('wheel')).toBeFalsy();
+  });
 });

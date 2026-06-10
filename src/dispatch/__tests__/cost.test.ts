@@ -87,4 +87,15 @@ describe('assignByCost', () => {
     expect(result).toHaveLength(1);
     expect(result[0].incidentId).toBe(2);
   });
+
+  it('skips units that cannot service the incident position', () => {
+    const incidents = [inc(1, 0, 0)];
+    // The closer truck cannot route (e.g. incident is far from its road);
+    // the helicopter can fly anywhere and must win despite being farther.
+    const truck = { ...unit(10, 5, 0, VehicleType.FIRETRUCK, 4000), canService: () => false };
+    const heli = { ...unit(11, 50, 0, VehicleType.HELICOPTER, 1000), canService: () => true };
+    const result = assignByCost(incidents, [truck, heli]);
+    expect(result).toHaveLength(1);
+    expect(result[0].unitIds).toEqual([11]);
+  });
 });
