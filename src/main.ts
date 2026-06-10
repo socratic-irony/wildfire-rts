@@ -21,6 +21,8 @@ import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRe
 import { createFirelineOverlay } from './fire/firelineOverlay';
 import { countFireFootprint, createScenarioRunner, type ScenarioDef, type ScenarioResult, type ScenarioRunner } from './scenarios/scenario';
 import { createEventSystem, createRng, type EventSystem, type GameEvent } from './events/events';
+import { generateBuildings, updateBuildingStates, reportStructures, computeStructureScore, type Building, type StructureReport } from './buildings/buildings';
+import { BuildingsVisual } from './buildings/visual';
 import { defaultContainmentScenario } from './scenarios/containment';
 import { FireSim } from './fire/sim';
 import type { Env as FireEnv } from './fire/sim';
@@ -88,10 +90,13 @@ declare global {
       } | null;
       exhaustFollowerWater: (id: number) => boolean;
       loadScenario: (def?: ScenarioDef) => { id: string; containmentBudget: number; timeLimitSec: number };
-      getScenarioResult: () => { id: string; result: ScenarioResult; elapsedSec: number; footprint: number; budget: number; timeLimitSec: number } | null;
+      getScenarioResult: () => { id: string; result: ScenarioResult; elapsedSec: number; footprint: number; budget: number; timeLimitSec: number; structures: StructureReport; score: number } | null;
       clearScenario: () => void;
       setRandomEvents: (on: boolean, seed?: string) => void;
       getEventLog: () => GameEvent[];
+      getBuildings: () => StructureReport & {
+        buildings: Array<{ id: number; kind: string; state: string; x: number; z: number }>;
+      };
     };
   }
 }
@@ -193,6 +198,13 @@ loop.add((dt) => {
   // Update water and retardant decals
   suppressionDecals.update(fireGrid);
   firelineOverlay.update(fireGrid);
+  // Building fire states + tint at 2 Hz — cheap, and state changes are slow.
+  buildingStateAcc += dt;
+  if (buildingStateAcc >= 0.5) {
+    buildingStateAcc = 0;
+    updateBuildingStates(buildings, fireGrid);
+    buildingsVisual.update(buildings);
+  }
 
   // Dispatch loop — detect incidents, auto-assign, promote/resolve
   {
@@ -521,6 +533,11 @@ let simEnv: FireEnv = { windDirRad: 0, windSpeed: 0 };
 let fireSim = new FireSim(fireGrid, simEnv);
 // Random events — disabled by default; opt-in via menubar or test API.
 let eventSystem: EventSystem = createEventSystem('default');
+// Procedural structures — generated after roads seed; victims of the fire sim.
+let buildings: Building[] = [];
+let buildingsVisual = new BuildingsVisual(hm);
+scene.add(buildingsVisual.group);
+let buildingStateAcc = 0;
 
 // Initialize paint system now that fire grid is available
 paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, hm, fireGrid);
@@ -780,6 +797,8 @@ function reseedRoadsAndVehicles(count = 2) {
   seedProceduralRoads(count);
   clearFollowers();
   spawnFollowersOnAllPaths(1);
+  buildings = generateBuildings(hm, fireGrid, roadMask, String(worldCfg.noise.seed));
+  buildingsVisual.update(buildings);
 }
 function clearFollowers() {
   for (const f of followers) scene.remove(f.object);
@@ -1354,6 +1373,7 @@ window.__wildfireTestApi = {
   },
   getScenarioResult: () => {
     if (!activeScenario) return null;
+    const structures = reportStructures(buildings);
     return {
       id: activeScenario.def.id,
       result: activeScenario.result,
@@ -1361,6 +1381,8 @@ window.__wildfireTestApi = {
       footprint: countFireFootprint(fireGrid),
       budget: activeScenario.def.containmentBudget,
       timeLimitSec: activeScenario.def.timeLimitSec,
+      structures,
+      score: computeStructureScore(structures),
     };
   },
   clearScenario: () => {
@@ -1371,6 +1393,16 @@ window.__wildfireTestApi = {
     eventSystem.setEnabled(on);
   },
   getEventLog: () => [...eventSystem.getLog()],
+  getBuildings: () => ({
+    ...reportStructures(buildings),
+    buildings: buildings.map((b) => ({
+      id: b.id,
+      kind: b.kind,
+      state: b.state,
+      x: b.tile.x,
+      z: b.tile.z,
+    })),
+  }),
 };
 
 // Click to ignite under cursor
@@ -1625,6 +1657,12 @@ window.__wildfireTestApi = {
         scene.add(vehicles.group);
         scene.add(vehicles.particleGroup);
         
+        // Rebind buildings visual to the new heightmap before reseeding
+        scene.remove(buildingsVisual.group);
+        buildingsVisual.dispose();
+        buildingsVisual = new BuildingsVisual(hm);
+        scene.add(buildingsVisual.group);
+
         // Regenerate procedural roads and spawn vehicles on new terrain
         reseedRoadsAndVehicles(2);
         

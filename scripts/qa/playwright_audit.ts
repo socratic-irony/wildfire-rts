@@ -655,6 +655,71 @@ async function hydrantRefillScenario(baseUrl: string, artifactDir: string) {
   }
 }
 
+async function buildingsProtectionScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    // Buildings exist at boot: road-adjacent homes plus off-road cabins.
+    const report = await page.evaluate(() => window.__wildfireTestApi!.getBuildings());
+    assert(report && report.buildings.length > 0, 'No buildings generated at boot');
+    assert(
+      report.buildings.some((b: { kind: string }) => b.kind === 'cabin'),
+      'No cabins generated away from roads',
+    );
+    assert(
+      report.buildings.every((b: { state: string }) => b.state === 'intact'),
+      'Buildings not all intact at boot',
+    );
+
+    // Load the scoring scenario, then torch one building directly. Keep
+    // auto-dispatch off so suppression can't save it out from under the test.
+    await page.evaluate(() => window.__wildfireTestApi!.setAutoDispatch(false));
+    await page.evaluate(() => window.__wildfireTestApi!.loadScenario());
+    const victim = report.buildings[0];
+    await page.evaluate(
+      ({ x, z }) => window.__wildfireTestApi!.igniteTile(x, z, 0.95),
+      { x: victim.x, z: victim.z },
+    );
+
+    let destroyed = 0;
+    let sawBurning = false;
+    for (let i = 0; i < 20; i++) {
+      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(3_000));
+      const r = await page.evaluate(() => window.__wildfireTestApi!.getBuildings());
+      const v = r.buildings.find((b: { id: number }) => b.id === victim.id);
+      if (v && v.state === 'burning') sawBurning = true;
+      destroyed = r.destroyed;
+      if (destroyed >= 1) break;
+    }
+    assert(sawBurning || destroyed >= 1, 'Torched building never caught fire');
+    assert(destroyed >= 1, 'Torched building never reached destroyed state');
+
+    // Scenario result reports structure outcomes and a score that penalizes
+    // the loss relative to a clean run.
+    const result = await page.evaluate(() => window.__wildfireTestApi!.getScenarioResult());
+    assert(result, 'No scenario result while scenario active');
+    assert(
+      typeof result.structures?.destroyed === 'number' && result.structures.destroyed >= 1,
+      `Scenario result missing destroyed structures: ${JSON.stringify(result)}`,
+    );
+    assert(typeof result.score === 'number', 'Scenario result has no score');
+    // Score formula: +10 per standing (intact or still-savable burning)
+    // structure, −25 per loss.
+    const expected =
+      (result.structures.intact + result.structures.burning) * 10 - result.structures.destroyed * 25;
+    assert(
+      result.score === expected,
+      `Score ${result.score} does not match structure outcomes ${JSON.stringify(result.structures)} (expected ${expected})`,
+    );
+    assert(
+      result.score < result.structures.total * 10,
+      `Score did not penalize a destroyed structure (${result.score} vs perfect ${result.structures.total * 10})`,
+    );
+    await screenshot(page, artifactDir, 'buildings-protection');
+  } finally {
+    await browser.close();
+  }
+}
+
 async function randomEventsScenario(baseUrl: string, artifactDir: string) {
   const { browser, page } = await createPage(baseUrl);
   try {
@@ -797,6 +862,7 @@ async function main() {
     await scenario('random-events', artifacts, () => randomEventsScenario(baseUrl, artifacts));
     await scenario('aircraft-drops', artifacts, () => aircraftDropsScenario(baseUrl, artifacts));
     await scenario('hydrant-refill', artifacts, () => hydrantRefillScenario(baseUrl, artifacts));
+    await scenario('buildings-protection', artifacts, () => buildingsProtectionScenario(baseUrl, artifacts));
 
     process.stdout.write('\n[game-audit] PASS\n');
   } finally {

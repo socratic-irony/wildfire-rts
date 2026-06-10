@@ -6,6 +6,18 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-06-09 — Buildings + protect-homes scoring
+
+Seeded procedural structures ([src/buildings/buildings.ts](src/buildings/buildings.ts)): houses and barns cluster 2–6 tiles off road tiles; cabins place ≥12 tiles from any road, preferring forest fuel. Each building occupies one tile and follows a latching state machine driven by the fire grid — intact → burning while the tile is hot → destroyed once it burns through, with recovery to intact if suppression saves it in time.
+
+Instanced rendering ([src/buildings/visual.ts](src/buildings/visual.ts)): walls + pyramid roofs with per-kind palettes, slight deterministic yaw variation, burning buildings tint orange, destroyed ones collapse to charred stubs.
+
+`getScenarioResult()` now reports `structures` (intact/burning/destroyed) and a protect-homes `score`: +10 per standing structure, −25 per loss. Test API adds `getBuildings()`. New audit scenario `buildings-protection` asserts boot generation (including off-road cabins), the burn-through lifecycle, and the score penalty.
+
+**Baseline**: `npm test` (209), `npm run build`, `npm run audit:game` (16 scenarios) all green.
+
+---
+
 ## 2026-06-09 — Aircraft roles + hydrant refill
 
 Helicopters, airplanes, and firefighters are now functional units. Aircraft fly directly to any target at cruise altitude (helicopter 10 m, airplane 16 m) via a new airborne branch in [src/vehicles/followerOrders.ts](src/vehicles/followerOrders.ts); firefighters walk off-road at type speed. Helicopters drop water; airplanes lay a retardant line along their flight direction plus a cooling water component. All three are spawnable from the menubar dropdown and `spawnVehicle`, with distinct placeholder meshes (rotor/skids, wings/tail, helmet).
