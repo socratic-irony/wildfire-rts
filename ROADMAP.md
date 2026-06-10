@@ -34,14 +34,14 @@ Each item adds a new scenario to [scripts/qa/playwright_audit.ts](scripts/qa/pla
 - [x] **Hydrant-fed suppression** (S) — park a unit inside hydrant coverage, ignite, verify suppression continues past the truck's tank capacity. Covers the currently-unasserted HIGH-PRIORITY hydrant integration in [src/fire/hydrants.ts](src/fire/hydrants.ts).
 - [x] **Bulldozer fireline** (S) — issue an off-road order across a burning path, fast-forward, assert `lineStrength` written to the expected tiles and that ROS into them drops. Covers off-road path in [src/vehicles/followerOrders.ts](src/vehicles/followerOrders.ts).
 - [x] **Long-run stability** (S) — `advanceTime(60_000)` with 5 fires + 3 units. Assert no NaN positions, no orphaned assignments, bounded incident count. Proves the `advanceTime` fast-forward is stable for scenario-length runs.
-- [x] **Stress + contention** (S) — 10 simultaneous ignitions, 4 firetrucks. Assert greedy dispatch does not deadlock; every incident reaches `resolved` or `reopened`. Stresses [src/dispatch/assignment.ts](src/dispatch/assignment.ts).
+- [x] **Stress + contention** (S) — 10 simultaneous ignitions, 4 firetrucks. Assert dispatch does not deadlock; every incident reaches `resolved` or `reopened`. Stresses [src/dispatch/cost.ts](src/dispatch/cost.ts).
 
 ## Phase 2 — Give the MVP a shape
 
 Currently there is no win/loss condition, so "MVP" has no objective gate.
 
 - [x] **Scenarios + win/loss** (M) — add `src/scenarios/` with one seeded scenario ("contain fire within N tiles in M simulated minutes"). Expose `getScenarioResult()` on the test API. New audit scenario plays it to completion and asserts `result === 'win'`. This becomes the MVP acceptance test.
-- [ ] **Cost-based dispatch** (S, was ROADMAP §1 final item) — replace the greedy heuristic in [src/dispatch/assignment.ts](src/dispatch/assignment.ts) with one that factors unit type, water remaining, and response distance. Justified by A/B vs greedy on the same scenario seed.
+- [x] **Cost-based dispatch** (S, was ROADMAP §1 final item) — [src/dispatch/cost.ts](src/dispatch/cost.ts) `assignByCost` replaced the greedy heuristic, factoring unit type, water remaining, and response distance.
 
 ## Phase 3 — Cleanup under audit protection
 

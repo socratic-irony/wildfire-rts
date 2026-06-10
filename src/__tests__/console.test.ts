@@ -85,28 +85,29 @@ describe('Debug Console', () => {
   });
 
   describe('command registration', () => {
-    it('should register new commands', () => {
-      const testCommand = {
+    it('should register new commands', async () => {
+      const execute = vi.fn(() => 'test output');
+      console.registerCommand({
         name: 'test',
         description: 'Test command',
-        execute: () => 'test output'
-      };
-      
-      console.registerCommand(testCommand);
-      // Command registration is internal, we'll test execution instead
-      expect(true).toBe(true); // placeholder
+        execute
+      });
+
+      await console['executeCommand']('test');
+      expect(execute).toHaveBeenCalledTimes(1);
     });
 
-    it('should unregister commands', () => {
-      const testCommand = {
+    it('should unregister commands', async () => {
+      const execute = vi.fn(() => 'test output');
+      console.registerCommand({
         name: 'test',
         description: 'Test command',
-        execute: () => 'test output'
-      };
-      
-      console.registerCommand(testCommand);
+        execute
+      });
       console.unregisterCommand('test');
-      expect(true).toBe(true); // placeholder
+
+      await console['executeCommand']('test');
+      expect(execute).not.toHaveBeenCalled();
     });
   });
 

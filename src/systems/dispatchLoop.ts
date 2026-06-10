@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *  1. Detect new incidents from the fire grid (delegates to IncidentRegistry).
- *  2. Auto-assign the nearest idle unit to each detected incident.
+ *  2. Auto-assign the cheapest suitable idle unit to each detected incident (see dispatch/cost.ts).
  *  3. Push movement goals onto PathFollower vehicles.
  *  4. Promote incidents to 'engaged' when the assigned unit arrives.
  *  5. Mark incidents 'resolved' when fire cools or the unit drains water.

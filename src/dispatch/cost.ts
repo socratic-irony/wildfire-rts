@@ -56,8 +56,8 @@ function waterPenalty(u: CostDispatchableUnit): number {
  *   - a lone firefighter being picked over a firetruck at similar range
  *
  * Incidents are processed in their natural order; within each incident
- * the cheapest unit is claimed. See ../assignment.ts for the greedy
- * baseline we are replacing.
+ * the cheapest unit is claimed. This replaced the greedy nearest-idle
+ * baseline that previously lived in ./assignment.ts.
  */
 export function assignByCost(
   incidents: ReadonlyArray<Incident>,

@@ -29,7 +29,6 @@ export default defineConfig({
       include: ['src/**/*.ts', 'tools/**/*.ts'],
       exclude: [
         'src/main.ts',
-        'src/config-demo.ts',
         'src/particle_testbed.ts',
         'src/vehicles_test.ts',
         'src/ui/**',

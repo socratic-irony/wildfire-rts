@@ -6,6 +6,16 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-06-09 — Test-suite audit + cruft sweep
+
+Stress-contention audit scenario now advances a fixed 60s of sim time instead of looping until a 60s wall-clock deadline — the wall-clock loop advanced unbounded sim time on fast runs, letting fire outrun road-serviceable range and balloon unresolved incidents (the failure that greeted this session).
+
+Cruft removed: `src/__tests__/fire_debug.test.ts` (four console.log tests asserting `expect(true)`), `src/config-demo.ts` (orphan demo entrypoint), and the dead greedy `assignNearestIdle` in [src/dispatch/assignment.ts](src/dispatch/assignment.ts) plus its test file — production dispatch has been `assignByCost` since 2026-04-20 (commit `1a14aec`, which also retro-ticks the Phase 2 cost-dispatch roadmap item). Two placeholder console tests now assert real register/unregister behavior.
+
+**Baseline**: `npm test`, `npm run build`, `npm run audit:game` (12 scenarios) all green.
+
+---
+
 ## 2026-05-04 — Road/hydrant render debug cleanup
 
 Road triangle-lattice and midline debug geometry in [src/roads/visual.ts](src/roads/visual.ts) is now hidden by default and can be re-enabled from the detailed toolbar road debug checkbox. Filled road meshes are double-sided so the asphalt/shoulder/stripe surfaces remain visible from normal RTS camera angles without relying on debug wireframes.
