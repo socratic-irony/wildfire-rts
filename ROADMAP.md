@@ -43,6 +43,16 @@ Currently there is no win/loss condition, so "MVP" has no objective gate.
 - [x] **Scenarios + win/loss** (M) — add `src/scenarios/` with one seeded scenario ("contain fire within N tiles in M simulated minutes"). Expose `getScenarioResult()` on the test API. New audit scenario plays it to completion and asserts `result === 'win'`. This becomes the MVP acceptance test.
 - [x] **Cost-based dispatch** (S, was ROADMAP §1 final item) — [src/dispatch/cost.ts](src/dispatch/cost.ts) `assignByCost` replaced the greedy heuristic, factoring unit type, water remaining, and response distance.
 
+## Phase 2b — MVP gameplay breadth (2026-06-09)
+
+Make the strategy loop real: varied threats, every vehicle class with a working role, structures worth protecting.
+
+- [x] **Random events** (S) — seeded lightning ignitions + wind shifts in [src/events/events.ts](src/events/events.ts), menubar toggle, `random-events` audit scenario asserts occurrence + determinism. Seeded boots are now fully deterministic (procedural road seed derives from the world seed).
+- [ ] **Aircraft roles** (M) — helicopters/airplanes fly off-road to incidents; helicopters drop water, airplanes drop retardant; both RTB to refill. Audit scenario `aircraft-drops`.
+- [ ] **Hydrant refill** (S) — firetrucks low on water reroute to the nearest on-path hydrant and refill there instead of driving home. Audit scenario `hydrant-refill`.
+- [ ] **Buildings + protect-homes scoring** (M) — procedural structures clustered near roads plus scattered cabins; burnable; scenario scoring rewards saved structures. Audit scenario `buildings-protection`.
+- [ ] **Civilian traffic** (S) — 3–4 generic vehicle styles with random colors wandering the road network.
+
 ## Phase 3 — Cleanup under audit protection
 
 Lower-risk once Phase 1 lands.

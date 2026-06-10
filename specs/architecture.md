@@ -35,6 +35,7 @@ Repository Topology
   - `sim.ts`: fixed-step fire simulation with accumulator; slope/wind ROS; ignition/wetness/retardant; smoldering.
   - `viz.ts`, `overlay.ts`, `perimeter.ts`: visualization (overlay quads, vertex tint; thin perimeter outline). Also exports `computePerimeter(grid)` for analytics/UI.
   - `stats.ts`: compute active counts, burned tiles/area, and perimeter length (`computeFireStats`).
+- Events: `src/events/events.ts`: seeded random-event system (lightning ignitions via exponential inter-arrival, wind shifts eased into the live sim env). Disabled by default; opted in via the menubar fire-section checkbox or `__wildfireTestApi.setRandomEvents(on, seed)`. Deterministic per seed — covered by the `random-events` audit scenario.
 - Roads: `src/roads/`
   - `cost.ts`: per-tile elevation/slope/valley fields for road A* cost.
   - `astar.ts`: grid A* (4/8-neigh), cost callback, with diag support.

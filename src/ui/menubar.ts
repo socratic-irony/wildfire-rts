@@ -65,6 +65,7 @@ type MenubarActions = {
     setVizMode?: (mode: 'overlay' | 'raised' | 'vertex') => void;
     applyWater?: (x: number, z: number, radius: number) => void;
     applyRetardant?: (x: number, z: number, radius: number) => void;
+    toggleRandomEvents?: (on: boolean) => void;
   };
   roads?: {
     toggle?: (on: boolean) => void;
@@ -574,6 +575,22 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     ribbonRow.appendChild(ribbonToggle);
     ribbonControls.forEach(control => ribbonRow.appendChild(control));
     fireControls.appendChild(ribbonRow);
+
+    // Random events toggle (lightning ignitions + wind shifts)
+    const eventsLabel = document.createElement('label');
+    eventsLabel.style.cssText = 'display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 12px;';
+    const eventsCheckbox = document.createElement('input');
+    eventsCheckbox.type = 'checkbox';
+    eventsCheckbox.checked = false;
+    eventsCheckbox.dataset.testid = 'random-events-toggle';
+    eventsCheckbox.addEventListener('change', () => {
+      actions.fire?.toggleRandomEvents?.(eventsCheckbox.checked);
+    });
+    const eventsText = document.createElement('span');
+    eventsText.textContent = 'Random events (lightning, wind shifts)';
+    eventsLabel.appendChild(eventsCheckbox);
+    eventsLabel.appendChild(eventsText);
+    fireControls.appendChild(eventsLabel);
 
     // Fire statistics display
     const fireStats = document.createElement('div');

@@ -6,6 +6,18 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-06-09 — Random events: lightning + wind shifts
+
+New seeded event system ([src/events/events.ts](src/events/events.ts)): lightning strikes ignite random ignitable tiles (never rock/water/road) with exponential inter-arrival times, and periodic wind shifts ease the live sim wind toward new direction/speed targets. Off by default; enabled via a menubar fire-section checkbox or `__wildfireTestApi.setRandomEvents(on, seed)`. `getEventLog()` exposes the event history.
+
+Procedural road seeding now derives from the world config seed instead of `Math.random()`, so a seeded boot is fully deterministic (terrain, roads, hydrants, spawn points). This surfaced that the `stress-contention` balloon bound was calibrated against shorter effective sim runs; recalibrated to the deterministic map (≤40 unresolved at 60s, with the stuck-busy and resolved≥2 checks carrying the non-deadlock claim).
+
+New audit scenario `random-events` asserts lightning + wind-shift occurrence, fire footprint from strikes, and same-seed determinism across reloads.
+
+**Baseline**: `npm test` (198), `npm run build`, `npm run audit:game` (13 scenarios) all green.
+
+---
+
 ## 2026-06-09 — Test-suite audit + cruft sweep
 
 Stress-contention audit scenario now advances a fixed 60s of sim time instead of looping until a 60s wall-clock deadline — the wall-clock loop advanced unbounded sim time on fast runs, letting fire outrun road-serviceable range and balloon unresolved incidents (the failure that greeted this session).

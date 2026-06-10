@@ -20,6 +20,7 @@ import { createPaintSystem } from './ui/paint';
 import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRetardantLine, applyWaterAoEWithHydrants, writeFirelineEdges } from './fire/grid';
 import { createFirelineOverlay } from './fire/firelineOverlay';
 import { countFireFootprint, createScenarioRunner, type ScenarioDef, type ScenarioResult, type ScenarioRunner } from './scenarios/scenario';
+import { createEventSystem, createRng, type EventSystem, type GameEvent } from './events/events';
 import { defaultContainmentScenario } from './scenarios/containment';
 import { FireSim } from './fire/sim';
 import type { Env as FireEnv } from './fire/sim';
@@ -88,6 +89,8 @@ declare global {
       loadScenario: (def?: ScenarioDef) => { id: string; containmentBudget: number; timeLimitSec: number };
       getScenarioResult: () => { id: string; result: ScenarioResult; elapsedSec: number; footprint: number; budget: number; timeLimitSec: number } | null;
       clearScenario: () => void;
+      setRandomEvents: (on: boolean, seed?: string) => void;
+      getEventLog: () => GameEvent[];
     };
   }
 }
@@ -178,6 +181,8 @@ loop.add((dt) => {
   // Update LOD for terrain chunks
   const camPos = rig.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
+  // Random events (lightning, wind shifts) mutate simEnv before the fire step.
+  eventSystem.tick(dt, fireGrid, simEnv, (tile, heat) => igniteTiles(fireGrid, [tile], heat));
   // Simulate fire at fixed steps and update visualization
   fireSim.step(dt);
   if (activeScenario && activeScenario.result === 'pending') {
@@ -511,6 +516,8 @@ onResize();
 let fireGrid = buildFireGrid(hm, biomes, { cellSize: hm.scale });
 let simEnv: FireEnv = { windDirRad: 0, windSpeed: 0 };
 let fireSim = new FireSim(fireGrid, simEnv);
+// Random events — disabled by default; opt-in via menubar or test API.
+let eventSystem: EventSystem = createEventSystem('default');
 
 // Initialize paint system now that fire grid is available
 paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, hm, fireGrid);
@@ -715,10 +722,12 @@ function clearRoadNetwork() {
 }
 
 function seedProceduralRoads(count = 2) {
+  // Derive the road seed from the world seed so a seeded boot is fully
+  // deterministic (terrain, roads, hydrants, vehicle spawn points).
   roadPaths = generateProceduralRoads(hm, {
     count,
     kinds: ['figure8'],
-    seed: Math.floor(Math.random() * 1e9)
+    seed: Math.floor(createRng(`roads:${worldCfg.noise.seed}`)() * 1e9)
   });
   applyRoadPaths();
 }
@@ -1243,6 +1252,11 @@ window.__wildfireTestApi = {
   clearScenario: () => {
     activeScenario = null;
   },
+  setRandomEvents: (on, seed) => {
+    if (seed !== undefined) eventSystem = createEventSystem(seed);
+    eventSystem.setEnabled(on);
+  },
+  getEventLog: () => [...eventSystem.getLog()],
 };
 
 // Click to ignite under cursor
@@ -1372,6 +1386,9 @@ window.__wildfireTestApi = {
           // This will be called by the paint system
           console.log(`Retardant applied at (${x}, ${z}) with radius ${radius}`);
         }
+      },
+      toggleRandomEvents: (on) => {
+        eventSystem.setEnabled(on);
       }
     },
     roads: {
