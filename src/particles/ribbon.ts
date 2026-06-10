@@ -37,7 +37,22 @@ export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset
     return len;
   }
 
+  // The scroll/flicker animation is a shader uniform and updates every call;
+  // the perimeter geometry rebuild is heavy (full-grid trace + new buffers)
+  // and the boundary moves slowly, so rebuild at most 5x per second.
+  let lastRebuild = -Infinity;
+
   function update(grid: FireGrid, time: number) {
+    if (time - lastRebuild >= 0.2) {
+      lastRebuild = time;
+      rebuildGeometry(grid);
+    }
+    ensurePatched();
+    const sh = (mat as any).userData.shader;
+    if (sh) sh.uniforms.uTime.value = time;
+  }
+
+  function rebuildGeometry(grid: FireGrid) {
     const perims = computePerimeter(grid);
     const verts: number[] = [];
     const uvs: number[] = [];
@@ -68,6 +83,9 @@ export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset
     geo.setAttribute('uv', new BufferAttribute(new Float32Array(uvs), 2));
     geo.setIndex(indices);
     geo.computeVertexNormals();
+  }
+
+  function ensurePatched() {
     if (!(mat as any).userData._patched) {
       (mat as any).onBeforeCompile = (s: any) => {
         s.uniforms.uTime = { value: 0 };
@@ -84,8 +102,6 @@ export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset
       };
       (mat as any).userData._patched = true;
     }
-    const sh = (mat as any).userData.shader;
-    if (sh) sh.uniforms.uTime.value = time;
   }
 
     const setVisible = (on: boolean) => { mesh.visible = on; };

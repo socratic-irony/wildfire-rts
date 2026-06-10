@@ -116,6 +116,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
 
   // Performance tracking
   let acc = 0;
+  let statsAcc = 0;
   let frames = 0;
   let fps = 0;
   let lastMemoryUpdate = 0;
@@ -883,17 +884,23 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
       buildControlsPanel(); // Rebuild panel when actions change
     },
     update(dt: number, renderer: import('three').WebGLRenderer, updateOpts: any = {}) {
-      opts = { ...opts, ...updateOpts };
-      
       // Update FPS
-      acc += dt; 
+      acc += dt;
       frames++;
-      if (acc >= 0.5) { 
-        fps = Math.round(frames / acc); 
-        acc = 0; 
-        frames = 0; 
+      if (acc >= 0.5) {
+        fps = Math.round(frames / acc);
+        acc = 0;
+        frames = 0;
       }
-      
+
+      // Everything below scans the fire grid (computeFireStats), walks the
+      // scene, and writes DOM text — far too heavy for every frame. 4 Hz is
+      // plenty for a stats readout.
+      statsAcc += dt;
+      if (statsAcc < 0.25) return;
+      statsAcc = 0;
+      opts = { ...opts, ...updateOpts };
+
       // Update memory info every second
       const now = performance.now();
       if (config.debug.memory_metrics_enabled && visible && now - lastMemoryUpdate > 1000) {

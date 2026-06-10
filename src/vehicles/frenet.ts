@@ -2,6 +2,22 @@ import { Matrix4, Object3D, Quaternion, Vector3 } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 import { Path2D, V2 } from '../paths/path2d';
 
+// Module-scope temps — update() runs per vehicle per frame; allocating here
+// instead of per call keeps the hot loop GC-free.
+const _normal = new Vector3();
+const _pos = new Vector3();
+const _q = new Quaternion();
+const _scl = new Vector3();
+const _fwd = new Vector3();
+const _bx = new Vector3();
+const _by = new Vector3();
+const _lane = new Vector3();
+const _newPos = new Vector3();
+const _m = new Matrix4();
+const _rotY = new Matrix4();
+const _ft = new Vector3();
+const _fr = new Vector3();
+
 function terrainNormal(hm: Heightmap, wx: number, wz: number) {
   const eps = hm.scale * 0.35;
   const hL = hm.sample(wx - eps, wz);
@@ -10,9 +26,7 @@ function terrainNormal(hm: Heightmap, wx: number, wz: number) {
   const hU = hm.sample(wx, wz + eps);
   const Hx = (hR - hL) / (2 * eps);
   const Hz = (hU - hD) / (2 * eps);
-  const n = new Vector3(-Hx, 1, -Hz);
-  n.normalize();
-  return n;
+  return _normal.set(-Hx, 1, -Hz).normalize();
 }
 
 export class PathFollower {
@@ -66,10 +80,10 @@ export class PathFollower {
   }
 
   private groundFrame(tanXZ: V2, n: Vector3) {
-    const t = new Vector3(tanXZ.x, 0, tanXZ.z).normalize();
-    // project t to be orthonormal to n
-    t.sub(n.clone().multiplyScalar(t.dot(n))).normalize();
-    const r = new Vector3().crossVectors(t, n).normalize();
+    const t = _ft.set(tanXZ.x, 0, tanXZ.z).normalize();
+    // project t to be orthonormal to n (without allocating)
+    t.addScaledVector(n, -t.dot(n)).normalize();
+    const r = _fr.crossVectors(t, n).normalize();
     return { t, n, r };
   }
 
@@ -98,12 +112,12 @@ export class PathFollower {
     const L = Math.min(this.Lmax, Math.max(this.Lmin, this.Lmin + this.kLook * this.v));
     const sampL = this.path.sample(this.s + L);
     const target = sampL.p;
-    const pos = new Vector3(); this.object.matrix.decompose(pos, new Quaternion(), new Vector3());
+    const pos = _pos; this.object.matrix.decompose(pos, _q, _scl);
     const toT = { x: target.x - pos.x, z: target.z - pos.z } as V2;
     const distT = Math.hypot(toT.x, toT.z) || 1;
     const dirT = { x: toT.x / distT, z: toT.z / distT } as V2;
     // current forward from matrix column Z
-    const fwd = new Vector3(); this.object.matrix.extractBasis(new Vector3(), new Vector3(), fwd);
+    const fwd = _fwd; this.object.matrix.extractBasis(_bx, _by, fwd);
     const fwdXZ = { x: fwd.x, z: fwd.z } as V2;
     const cross = fwdXZ.x * dirT.z - fwdXZ.z * dirT.x;
     const dot = fwdXZ.x * dirT.x + fwdXZ.z * dirT.z;
@@ -224,13 +238,13 @@ export class PathFollower {
     const y = this.hm.sample(p.x, p.z);
     const n = terrainNormal(this.hm, p.x, p.z);
     const frame = this.groundFrame(t, n);
-    const lane = frame.r.clone().multiplyScalar(this.laneOffset);
-    const newPos = new Vector3(p.x, y, p.z).add(lane);
-    const m = new Matrix4().makeBasis(frame.r, n, frame.t);
+    const lane = _lane.copy(frame.r).multiplyScalar(this.laneOffset);
+    const newPos = _newPos.set(p.x, y, p.z).add(lane);
+    const m = _m.makeBasis(frame.r, n, frame.t);
     // rotate around Y by a bounded amount toward headingErr
     const turnGain = 2.2;
     const yawRate = Math.max(-2.5, Math.min(2.5, turnGain * headingErr));
-    const rotY = new Matrix4().makeRotationY(yawRate * dt);
+    const rotY = _rotY.makeRotationY(yawRate * dt);
     m.multiply(rotY);
     this.object.matrix.copy(m);
     this.object.matrix.setPosition(newPos);

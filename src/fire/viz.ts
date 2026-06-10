@@ -13,6 +13,7 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
   const perimeter = createFirePerimeter(hm);
   let mode: FireVizMode = 'overlay';
   let acc = 0; // for throttling vertex updates
+  let perimAcc = 0; // for throttling perimeter outline rebuilds
 
   const addToScene = (root: Object3D) => { (root as any).add(overlay.inst); (root as any).add(perimeter.inst); };
   const removeFromScene = (root: Object3D) => { (root as any).remove(overlay.inst); (root as any).remove(perimeter.inst); };
@@ -104,8 +105,13 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
         acc = 0;
       }
     }
-    // Always update perimeter outline for readability across modes
-    perimeter.update(grid);
+    // Perimeter outline rebuild traces the whole fire boundary; the boundary
+    // moves slowly, so ~7 Hz is visually identical at a fraction of the cost.
+    perimAcc += dt;
+    if (perimAcc >= 0.15) {
+      perimAcc = 0;
+      perimeter.update(grid);
+    }
   };
 
   return { 

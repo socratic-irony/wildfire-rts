@@ -53,12 +53,32 @@ const DARK_GLASS = 0x1a2230;
 const TIRE = 0x141414;
 const STEEL = 0xb8bcc2;
 
+// Shared material cache — every sedan body, wheel, glass band, etc. reuses one
+// material instance, cutting GPU state switches and per-vehicle allocations.
+// Light bar materials are intentionally NOT cached (they animate per truck).
+const materialCache = new Map<string, MeshStandardMaterial>();
+
 function std(color: number, roughness = 0.75, metalness = 0.1): MeshStandardMaterial {
-  return new MeshStandardMaterial({ color: new Color(color), roughness, metalness });
+  const key = `${color}|${roughness}|${metalness}`;
+  let mat = materialCache.get(key);
+  if (!mat) {
+    mat = new MeshStandardMaterial({ color: new Color(color), roughness, metalness });
+    materialCache.set(key, mat);
+  }
+  return mat;
 }
 
+// Shared box geometry cache — same-type vehicles reuse identical part geometry.
+const geoCache = new Map<string, BoxGeometry>();
+
 function box(w: number, h: number, d: number, mat: MeshStandardMaterial, name?: string): Mesh {
-  const m = new Mesh(new BoxGeometry(w, h, d), mat);
+  const key = `${w.toFixed(4)}|${h.toFixed(4)}|${d.toFixed(4)}`;
+  let geo = geoCache.get(key);
+  if (!geo) {
+    geo = new BoxGeometry(w, h, d);
+    geoCache.set(key, geo);
+  }
+  const m = new Mesh(geo, mat);
   m.castShadow = true;
   if (name) m.name = name;
   return m;

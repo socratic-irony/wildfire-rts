@@ -11,7 +11,8 @@
     "audit:game": "tsx scripts/qa/playwright_audit.ts",
     "test:changed": "vitest run --changed=HEAD~1",
     "validate-assets": "tsx scripts/assets/validate.ts",
-    "generate-manifest": "tsx scripts/assets/generate-manifest.ts"
+    "generate-manifest": "tsx scripts/assets/generate-manifest.ts",
+    "perf:probe": "tsx scripts/qa/perf_probe.ts"
   },
   "dependencies": {
     "simplex-noise": "^4.0.3",

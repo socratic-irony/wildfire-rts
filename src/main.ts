@@ -159,6 +159,7 @@ const orbit = new RTSOrbitCamera(
 
 const loop = new Loop();
 let suppressRenderDuringAdvance = false;
+const tmpCamWorld = new Vector3();
 loop.add((dt) => {
   const move = {
     left: input.keys.has('a') || input.keys.has('arrowleft'),
@@ -185,7 +186,7 @@ loop.add((dt) => {
   }
   selection.update();
   // Update LOD for terrain chunks
-  const camPos = rig.camera.getWorldPosition(new Vector3());
+  const camPos = rig.camera.getWorldPosition(tmpCamWorld);
   chunked.updateLOD(camPos.x, camPos.z);
   // Random events (lightning, wind shifts) mutate simEnv before the fire step.
   eventSystem.tick(dt, fireGrid, simEnv, (tile, heat) => igniteTiles(fireGrid, [tile], heat));
@@ -195,9 +196,15 @@ loop.add((dt) => {
     activeScenario.tick(dt, countFireFootprint(fireGrid));
   }
   fireViz.update(fireGrid, dt);
-  // Update water and retardant decals
-  suppressionDecals.update(fireGrid);
-  firelineOverlay.update(fireGrid);
+  // Water/retardant decals and fireline overlay rebuild from full-grid scans;
+  // their content changes slowly, so 5 Hz is indistinguishable and saves three
+  // 16k-tile sweeps per frame.
+  overlayScanAcc += dt;
+  if (overlayScanAcc >= 0.2) {
+    overlayScanAcc = 0;
+    suppressionDecals.update(fireGrid);
+    firelineOverlay.update(fireGrid);
+  }
   // Building fire states + tint at 2 Hz — cheap, and state changes are slow.
   buildingStateAcc += dt;
   if (buildingStateAcc >= 0.5) {
@@ -555,6 +562,8 @@ let buildings: Building[] = [];
 let buildingsVisual = new BuildingsVisual(hm);
 scene.add(buildingsVisual.group);
 let buildingStateAcc = 0;
+// Throttle for full-grid overlay rebuilds (decals, firelines).
+let overlayScanAcc = 0;
 
 // Initialize paint system now that fire grid is available
 paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, hm, fireGrid);

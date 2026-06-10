@@ -6,6 +6,21 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-06-10 — Performance pass: ~2× faster sim step, lighter frames
+
+Measured with the new `npm run perf:probe` (times `advanceTime(30s)` plus 300 rendered frames under software GL): sim step cost dropped from 6.7 ms to 3.5 ms per 50 ms step (−47%), rendered frame time from 547 ms to 408 ms (−25% even under swiftshader; real GPUs benefit more from the CPU-side cuts).
+
+What changed:
+- Water/retardant decals and the fireline overlay rebuilt from full 16k-tile scans every frame; now 5 Hz ([src/main.ts](src/main.ts)).
+- The menubar ran `computeFireStats` (another full-grid scan) plus DOM writes every frame; the stats block now refreshes at 4 Hz ([src/ui/menubar.ts](src/ui/menubar.ts)).
+- Fire ribbon geometry (perimeter trace + new buffers) rebuilt every frame; now 5 Hz, with the scroll/flicker shader uniform still updating per frame ([src/particles/ribbon.ts](src/particles/ribbon.ts)). Perimeter outline likewise ~7 Hz ([src/fire/viz.ts](src/fire/viz.ts)).
+- `PathFollower.update` and the off-road/airborne movers allocated ~8 vectors/quaternions/matrices per vehicle per frame; all hoisted to module temps ([src/vehicles/frenet.ts](src/vehicles/frenet.ts), [followerOrders.ts](src/vehicles/followerOrders.ts)).
+- Vehicle part materials and box geometries are now cached and shared across vehicles (light-bar materials stay per-truck for the flash animation) ([src/vehicles/voxelMeshes.ts](src/vehicles/voxelMeshes.ts)).
+
+**Baseline**: `npm test` (209), `npm run build`, `npm run audit:game` (17 scenarios) all green.
+
+---
+
 ## 2026-06-10 — FX + environment visual pass
 
 Aircraft drops are now visible: helicopters dump a dense falling water column from the belly, air tankers trail an orange-red retardant curtain behind them ([src/vehicles/vehicleFx.ts](src/vehicles/vehicleFx.ts)). Firetruck mesh light bars flash alternating red/blue while the truck is responding (busy, RTB, or refilling) and glow steady when idle; helicopter rotors keep spinning per the previous pass.

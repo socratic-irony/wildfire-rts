@@ -137,6 +137,17 @@ export function updateOffroadFollowers(followers: FollowerEntry[], hm: Heightmap
   }
 }
 
+// Module temps — these update functions run per off-road unit per frame.
+const _oPos = new Vector3();
+const _oTo = new Vector3();
+const _oUp = new Vector3();
+const _oFwd = new Vector3();
+const _oRight = new Vector3();
+const _oTan = new Vector3();
+const _oM = new Matrix4();
+const _oSet = new Vector3();
+const _oNormal = new Vector3();
+
 function terrainNormalAt(hm: Heightmap, wx: number, wz: number) {
   const eps = hm.scale * 0.35;
   const hL = hm.sample(wx - eps, wz);
@@ -145,16 +156,14 @@ function terrainNormalAt(hm: Heightmap, wx: number, wz: number) {
   const hU = hm.sample(wx, wz + eps);
   const Hx = (hR - hL) / (2 * eps);
   const Hz = (hU - hD) / (2 * eps);
-  const n = new Vector3(-Hx, 1, -Hz);
-  n.normalize();
-  return n;
+  return _oNormal.set(-Hx, 1, -Hz).normalize();
 }
 
 /** Fly toward the target at cruise altitude, easing height; hover on arrival. */
 function updateAirborneFollower(entry: FollowerEntry, hm: Heightmap, dt: number) {
   if (!entry.offroadTarget) return;
-  const pos = entry.object.getWorldPosition(new Vector3());
-  const toTarget = new Vector3(entry.offroadTarget.x - pos.x, 0, entry.offroadTarget.z - pos.z);
+  const pos = entry.object.getWorldPosition(_oPos);
+  const toTarget = _oTo.set(entry.offroadTarget.x - pos.x, 0, entry.offroadTarget.z - pos.z);
   const dist = Math.hypot(toTarget.x, toTarget.z);
   const speed = getDefaults(entry.type).speedTilesPerSec * hm.scale;
   if (dist < Math.max(0.25, speed * dt)) {
@@ -168,20 +177,20 @@ function updateAirborneFollower(entry: FollowerEntry, hm: Heightmap, dt: number)
   const nz = pos.z + dir.z * step;
   const targetY = hm.sample(nx, nz) + cruiseAltitude(entry.type);
   const ny = pos.y + (targetY - pos.y) * Math.min(1, 2.5 * dt);
-  const up = new Vector3(0, 1, 0);
-  const fwd = new Vector3(dir.x, 0, dir.z).normalize();
-  const right = new Vector3().crossVectors(fwd, up).normalize();
-  const m = new Matrix4().makeBasis(right, up, fwd);
+  const up = _oUp.set(0, 1, 0);
+  const fwd = _oFwd.set(dir.x, 0, dir.z).normalize();
+  const right = _oRight.crossVectors(fwd, up).normalize();
+  const m = _oM.makeBasis(right, up, fwd);
   entry.object.matrix.copy(m);
-  entry.object.matrix.setPosition(new Vector3(nx, ny, nz));
+  entry.object.matrix.setPosition(_oSet.set(nx, ny, nz));
   entry.object.matrixAutoUpdate = false;
   entry.follower.v = speed;
 }
 
 function updateOffroadFollower(entry: FollowerEntry, hm: Heightmap, dt: number) {
   if (!entry.offroadTarget) return;
-  const pos = entry.object.getWorldPosition(new Vector3());
-  const toTarget = new Vector3(entry.offroadTarget.x - pos.x, 0, entry.offroadTarget.z - pos.z);
+  const pos = entry.object.getWorldPosition(_oPos);
+  const toTarget = _oTo.set(entry.offroadTarget.x - pos.x, 0, entry.offroadTarget.z - pos.z);
   const dist = Math.hypot(toTarget.x, toTarget.z);
   if (dist < 0.15) {
     entry.offroadTarget = null;
@@ -197,12 +206,12 @@ function updateOffroadFollower(entry: FollowerEntry, hm: Heightmap, dt: number) 
   const nz = pos.z + dir.z * step;
   const ny = hm.sample(nx, nz);
   const up = terrainNormalAt(hm, nx, nz);
-  const fwd = new Vector3(dir.x, 0, dir.z).normalize();
-  const right = new Vector3().crossVectors(fwd, up).normalize();
-  const tangent = new Vector3().crossVectors(up, right).normalize();
-  const m = new Matrix4().makeBasis(right, up, tangent);
+  const fwd = _oFwd.set(dir.x, 0, dir.z).normalize();
+  const right = _oRight.crossVectors(fwd, up).normalize();
+  const tangent = _oTan.crossVectors(up, right).normalize();
+  const m = _oM.makeBasis(right, up, tangent);
   entry.object.matrix.copy(m);
-  entry.object.matrix.setPosition(new Vector3(nx, ny, nz));
+  entry.object.matrix.setPosition(_oSet.set(nx, ny, nz));
   entry.object.matrixAutoUpdate = false;
   entry.follower.v = speed;
 }
