@@ -325,6 +325,23 @@ loop.add((dt) => {
     // Spin helicopter rotors — fast in flight, idle-slow when parked.
     const rotor = entry.mesh.userData?.mainRotor as Object3D | undefined;
     if (rotor) rotor.rotation.y += (entry.follower.v > 0.1 || entry.offroadTarget ? 22 : 2.5) * dt;
+    // Flash the light bar while responding; steady dim glow when idle.
+    const lightbar = entry.mesh.userData?.lightbar as Object3D | undefined;
+    if (lightbar) {
+      const responding = entry.busy || entry.returningToBase || entry.refillTarget != null;
+      const redMat = ((lightbar.children[0] as any)?.material) as { emissiveIntensity: number } | undefined;
+      const blueMat = ((lightbar.children[1] as any)?.material) as { emissiveIntensity: number } | undefined;
+      if (redMat && blueMat) {
+        if (responding) {
+          const phase = Math.sin(t * 12);
+          redMat.emissiveIntensity = phase > 0 ? 2.5 : 0.15;
+          blueMat.emissiveIntensity = phase > 0 ? 0.15 : 2.5;
+        } else {
+          redMat.emissiveIntensity = 0.5;
+          blueMat.emissiveIntensity = 0.5;
+        }
+      }
+    }
     followerFxStates.push(fx);
   }
   vehicles.updateExternalFx(dt, followerFxStates);
@@ -402,13 +419,10 @@ window.addEventListener('keydown', (e) => {
 
 // Stage F: vegetation
 let forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
-scene.add(forest.leaves);
-scene.add(forest.trunks);
-if (forest.broadLeaves) scene.add(forest.broadLeaves);
-if (forest.broadTrunks) scene.add(forest.broadTrunks);
+scene.add(forest.group);
 
 let shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub });
-scene.add(shrubs.inst);
+scene.add(shrubs.group);
 
 let rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
 scene.add(rocks.inst);
@@ -1600,21 +1614,15 @@ window.__wildfireTestApi = {
         scene.add(chunked.group);
         
         // Rebuild vegetation
-        if (forest.leaves.parent) scene.remove(forest.leaves);
-        if (forest.trunks.parent) scene.remove(forest.trunks);
-        if (forest.broadLeaves?.parent) scene.remove(forest.broadLeaves);
-        if (forest.broadTrunks?.parent) scene.remove(forest.broadTrunks);
-        if (shrubs.inst.parent) scene.remove(shrubs.inst);
+        if (forest.group.parent) scene.remove(forest.group);
+        if (shrubs.group.parent) scene.remove(shrubs.group);
         if (rocks.inst.parent) scene.remove(rocks.inst);
         
         forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
-        scene.add(forest.leaves);
-        scene.add(forest.trunks);
-        if (forest.broadLeaves) scene.add(forest.broadLeaves);
-        if (forest.broadTrunks) scene.add(forest.broadTrunks);
-        
+        scene.add(forest.group);
+
         shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub });
-        scene.add(shrubs.inst);
+        scene.add(shrubs.group);
         
         rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
         scene.add(rocks.inst);

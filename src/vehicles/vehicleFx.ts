@@ -216,6 +216,56 @@ export function updateExternalFx(
       } else {
         record.waterAcc = 0;
       }
+    } else if (state.type === VehicleType.HELICOPTER && state.sprayingWater) {
+      // Bucket dump: a dense column of water falling from the belly.
+      const dumpRate = 45;
+      record.waterAcc += dumpRate * dt;
+      while (record.waterAcc >= 1) {
+        ctx.tmpVec3
+          .copy(state.pos)
+          .addScaledVector(state.up, -ctx.cellSize * 0.2)
+          .addScaledVector(state.right, (Math.random() - 0.5) * ctx.cellSize * 0.4)
+          .addScaledVector(state.forward, (Math.random() - 0.5) * ctx.cellSize * 0.4);
+        ctx.waterParticles.spawnOne({
+          pos: { x: ctx.tmpVec3.x, y: ctx.tmpVec3.y, z: ctx.tmpVec3.z },
+          vel: {
+            x: (Math.random() - 0.5) * 0.8,
+            y: -4.5 - Math.random() * 2.0,
+            z: (Math.random() - 0.5) * 0.8,
+          },
+          life: 1.6 + Math.random() * 0.5,
+          size0: ctx.cellSize * (0.1 + Math.random() * 0.06),
+          size1: ctx.cellSize * (0.2 + Math.random() * 0.08),
+          color0: [0.35, 0.58, 0.95],
+          color1: [0.8, 0.92, 1.0],
+        });
+        record.waterAcc -= 1;
+      }
+    } else if (state.type === VehicleType.AIRPLANE && state.sprayingWater) {
+      // Retardant drop: an orange-red curtain trailing behind the tanker.
+      const dropRate = 55;
+      record.waterAcc += dropRate * dt;
+      while (record.waterAcc >= 1) {
+        ctx.tmpVec3
+          .copy(state.pos)
+          .addScaledVector(state.up, -ctx.cellSize * 0.15)
+          .addScaledVector(state.forward, -(0.3 + Math.random() * 0.8) * ctx.cellSize)
+          .addScaledVector(state.right, (Math.random() - 0.5) * ctx.cellSize * 0.7);
+        ctx.waterParticles.spawnOne({
+          pos: { x: ctx.tmpVec3.x, y: ctx.tmpVec3.y, z: ctx.tmpVec3.z },
+          vel: {
+            x: state.forward.x * 1.5 + (Math.random() - 0.5) * 1.0,
+            y: -3.5 - Math.random() * 1.5,
+            z: state.forward.z * 1.5 + (Math.random() - 0.5) * 1.0,
+          },
+          life: 1.8 + Math.random() * 0.6,
+          size0: ctx.cellSize * (0.09 + Math.random() * 0.05),
+          size1: ctx.cellSize * (0.22 + Math.random() * 0.1),
+          color0: [0.95, 0.35, 0.12],
+          color1: [0.85, 0.45, 0.25],
+        });
+        record.waterAcc -= 1;
+      }
     } else {
       record.waterAcc = 0;
     }

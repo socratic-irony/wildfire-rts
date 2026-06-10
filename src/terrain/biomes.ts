@@ -137,8 +137,13 @@ export function applyBiomeVertexColors(hm: Heightmap, colors: Float32Array, biom
     const R = (r * rockCol[0] + f * forestCol[0] + c * chapCol[0]) / sum;
     const G = (r * rockCol[1] + f * forestCol[1] + c * chapCol[1]) / sum;
     const B = (r * rockCol[2] + f * forestCol[2] + c * chapCol[2]) / sum;
-    colors[i * 3 + 0] = R;
-    colors[i * 3 + 1] = G;
-    colors[i * 3 + 2] = B;
+    // Deterministic per-vertex value jitter breaks up flat single-color
+    // fields without textures. Hash the vertex index; greens get slightly
+    // more variation than rock so meadows read as mottled.
+    const h = (Math.imul(i + 1, 2654435761) >>> 0) % 1024;
+    const n = (h / 1024 - 0.5) * 0.07;
+    colors[i * 3 + 0] = Math.min(1, Math.max(0, R + n));
+    colors[i * 3 + 1] = Math.min(1, Math.max(0, G + n * 0.9));
+    colors[i * 3 + 2] = Math.min(1, Math.max(0, B + n * 0.7));
   }
 }

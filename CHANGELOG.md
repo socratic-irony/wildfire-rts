@@ -6,6 +6,18 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-06-10 — FX + environment visual pass
+
+Aircraft drops are now visible: helicopters dump a dense falling water column from the belly, air tankers trail an orange-red retardant curtain behind them ([src/vehicles/vehicleFx.ts](src/vehicles/vehicleFx.ts)). Firetruck mesh light bars flash alternating red/blue while the truck is responding (busy, RTB, or refilling) and glow steady when idle; helicopter rotors keep spinning per the previous pass.
+
+Vegetation variety: conifers gained a second foliage tier and per-instance height/color variation (deep pine → bluish spruce); broadleaf and shrub instances get per-instance hue/lightness jitter (shrubs range sage → dry olive with squash variation). Burn tinting now multiplies each instance's base color instead of overwriting it, so unburned vegetation keeps its variety and burned vegetation chars from its own hue. `createForest`/`createShrubs` now return a single `group` for scene management.
+
+Terrain: biome vertex colors get deterministic hash-based value jitter (±0.035) so fields read as mottled ground instead of flat fills.
+
+**Baseline**: `npm test` (209), `npm run build`, `npm run audit:game` (17 scenarios) all green.
+
+---
+
 ## 2026-06-09 — Voxel vehicle overhaul + civilian traffic
 
 All vehicle meshes rebuilt as multi-part voxel models in [src/vehicles/voxelMeshes.ts](src/vehicles/voxelMeshes.ts) (meshes.ts re-exports). Firetruck: crew cab, equipment body with white stripe, railed ladder with rungs, red/blue light bar (named `lightbar` for the flash pass), six wheels. Bulldozer: tracks instead of wheels, lift-arm blade, exhaust stack. Helicopter: glass nose, belly water tank, tail boom/fin/rotor, skids with struts, and a `mainRotor` group the frame loop spins (fast in flight, idle when parked). Air tanker: high wing with engine nacelles and props, retardant belly, red tail. Firefighter: legs/torso/arms, air tank, helmet.

@@ -22,10 +22,11 @@ describe('applyBiomeVertexColors', () => {
       chaparral: new Uint8Array(N).fill(0),
     };
     applyBiomeVertexColors(hm, colors, mask);
-    // Rock color ~ [0.60, 0.55, 0.60]
-    expect(colors[0]).toBeCloseTo(0.60, 3);
-    expect(colors[1]).toBeCloseTo(0.55, 3);
-    expect(colors[2]).toBeCloseTo(0.60, 3);
+    // Rock color ~ [0.60, 0.55, 0.60] with up to ±0.04 deterministic
+    // per-vertex jitter for visual variation.
+    expect(Math.abs(colors[0] - 0.60)).toBeLessThan(0.05);
+    expect(Math.abs(colors[1] - 0.55)).toBeLessThan(0.05);
+    expect(Math.abs(colors[2] - 0.60)).toBeLessThan(0.05);
   });
 
   it('blends palettes when multiple masks are 1', () => {
