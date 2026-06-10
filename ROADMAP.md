@@ -51,7 +51,7 @@ Make the strategy loop real: varied threats, every vehicle class with a working 
 - [x] **Aircraft roles** (M) — helicopters/airplanes fly off-road to incidents at cruise altitude; helicopters drop water, airplanes drop retardant lines; both RTB to refill. Dispatch is routeability-aware so off-road fires go to aircraft. Audit scenario `aircraft-drops`.
 - [x] **Hydrant refill** (S) — water-empty firetrucks reroute to the nearest on-path hydrant and refill at 400 L/s instead of driving home (low fuel still forces home RTB). Audit scenario `hydrant-refill`.
 - [x] **Buildings + protect-homes scoring** (M) — seeded procedural structures in [src/buildings/buildings.ts](src/buildings/buildings.ts): houses/barns clustered near roads, cabins deep in the woods; latching intact → burning → destroyed states driven by the fire grid; `getScenarioResult()` reports structure outcomes and a protect-homes score (+10 standing / −25 lost). Audit scenario `buildings-protection`.
-- [ ] **Civilian traffic** (S) — 3–4 generic vehicle styles with random colors wandering the road network.
+- [x] **Civilian traffic** (S) — four civilian styles (sedan, pickup, van, hatchback) with a seeded 8-color palette wander the road network; boot fleet is 1 firetruck + 1 bulldozer + 3 civilians per road loop. All vehicle meshes upgraded to multi-part voxel builds in [src/vehicles/voxelMeshes.ts](src/vehicles/voxelMeshes.ts) (light bars, ladder rungs, dozer tracks, spinning heli rotor, tanker wings). Audit scenario `civilian-traffic`.
 
 ## Phase 3 — Cleanup under audit protection
 

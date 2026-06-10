@@ -10,6 +10,7 @@
 - Procedural road loops (figure-8 by default) seeded at boot/regenerate; follower vehicles auto-spawn on seeded paths
 - Click-select PathFollower vehicles and issue move orders along the road network (neon green selection box)
 - Bulldozers (yellow) can accept off-road move orders; firetrucks (red) remain road-only
+- **Voxel mesh overhaul + civilian traffic (2026-06-09)**: multi-part voxel builds for every type in `voxelMeshes.ts` (light bar + railed ladder on the firetruck, dozer tracks, spinning `mainRotor` heli group, tanker wings/nacelles, firefighter figure). Civilians come in four styles (sedan, pickup, van, hatchback) with a seeded 8-color palette; boot fleet is 1 firetruck + 1 bulldozer + 3 civilians per road loop. Covered by `civilian-traffic` audit scenario and mesh unit tests.
 - **Aircraft roles (2026-06-09)**: helicopters and airplanes are spawnable followers that fly directly to any target at cruise altitude (10 m / 16 m) via the airborne branch in `followerOrders.ts`; helicopters drop water, airplanes drop a retardant line along their flight direction plus a cooling water component. Firefighters walk off-road at type speed. Dispatch assignment is routeability-aware (`canService` in `dispatch/cost.ts`) so off-road fires go to aircraft instead of starving on an unroutable truck. Covered by the `aircraft-drops` audit scenario.
 
 ### ⏳ Outstanding

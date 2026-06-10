@@ -20,6 +20,8 @@ type GameState = {
     followers: Array<{
       id: number;
       type: string;
+      style: string | null;
+      color: number | null;
       x: number;
       y: number;
       z: number;
@@ -655,6 +657,36 @@ async function hydrantRefillScenario(baseUrl: string, artifactDir: string) {
   }
 }
 
+async function civilianTrafficScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    const start = await getState(page);
+    const civs = start.vehicles.followers.filter((f) => f.type === 'car');
+    assert(civs.length >= 3, `Expected ≥3 civilian vehicles at boot, got ${civs.length}`);
+
+    const styles = new Set(civs.map((c) => c.style));
+    assert(
+      styles.size >= 2,
+      `Civilian fleet lacks style variety: ${JSON.stringify([...styles])}`,
+    );
+    const colors = new Set(civs.map((c) => c.color));
+    assert(colors.size >= 2, `Civilian fleet lacks color variety: ${JSON.stringify([...colors])}`);
+
+    // Civilians wander the road network on their own.
+    await page.evaluate(() => window.__wildfireTestApi!.advanceTime(10_000));
+    const after = await getState(page);
+    let moved = 0;
+    for (const c of civs) {
+      const now = after.vehicles.followers.find((f) => f.id === c.id);
+      if (now && Math.hypot(now.x - c.x, now.z - c.z) > 2) moved++;
+    }
+    assert(moved >= 2, `Civilians are not driving (only ${moved} moved >2m in 10s)`);
+    await screenshot(page, artifactDir, 'civilian-traffic');
+  } finally {
+    await browser.close();
+  }
+}
+
 async function buildingsProtectionScenario(baseUrl: string, artifactDir: string) {
   const { browser, page } = await createPage(baseUrl);
   try {
@@ -815,12 +847,14 @@ async function stressContentionScenario(baseUrl: string, artifactDir: string) {
       sawResolved >= 2,
       `Dispatch resolved too few incidents under contention (${sawResolved}): ${JSON.stringify(latest.dispatch.incidents.map((i) => i.status))}`,
     );
-    // Sanity: unresolved counts stay bounded. With the seeded boot map, 60s of
-    // spread from 10 ignitions yields ~33 incidents (many off-road, beyond
-    // truck service range) while suppression holds the near-road cluster. A
-    // dispatch that stops suppressing entirely blows well past this bound.
+    // Sanity: unresolved counts stay bounded. With the seeded boot map and
+    // fleet (civilian traffic shares the roads and slows truck response via
+    // intersection queuing), 60s of spread from 10 ignitions yields ~54
+    // incidents, most off-road beyond truck service range. The hard
+    // non-deadlock invariants are the stuck-busy and resolved≥2 asserts
+    // above; this bound only catches runaway spread.
     assert(
-      unresolved.length <= 40,
+      unresolved.length <= 70,
       `Unresolved incidents ballooned (${unresolved.length}) — dispatch may be starving`,
     );
     await screenshot(page, artifactDir, 'stress-contention');
@@ -863,6 +897,7 @@ async function main() {
     await scenario('aircraft-drops', artifacts, () => aircraftDropsScenario(baseUrl, artifacts));
     await scenario('hydrant-refill', artifacts, () => hydrantRefillScenario(baseUrl, artifacts));
     await scenario('buildings-protection', artifacts, () => buildingsProtectionScenario(baseUrl, artifacts));
+    await scenario('civilian-traffic', artifacts, () => civilianTrafficScenario(baseUrl, artifacts));
 
     process.stdout.write('\n[game-audit] PASS\n');
   } finally {

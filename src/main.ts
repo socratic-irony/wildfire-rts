@@ -39,7 +39,7 @@ import { applyRoadMaskToFireGrid, clearRoadMask, createRoadMask, rasterizePolyli
 import { generateProceduralRoads } from './roads/procedural';
 import { buildPlannedRoadPath } from './roads/planner';
 import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } from './vehicles/vehicles';
-import { createVehicleMesh } from './vehicles/meshes';
+import { createVehicleMesh, CIVILIAN_STYLES, CIVILIAN_COLORS, type CivilianStyle, type VehicleMeshOptions } from './vehicles/meshes';
 import { createPayload, tickFuel, needsReturnToBase, consumeWater, refuel, refill, LOW_FUEL_FRACTION, type PayloadState } from './vehicles/payload';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
@@ -322,6 +322,9 @@ loop.add((dt) => {
     // Yield indicator — show when held at a low speed cap (intersection yield/stop).
     const yieldInd = entry.mesh.userData?.yieldIndicator as Object3D | undefined;
     if (yieldInd) yieldInd.visible = entry.follower.isYielding();
+    // Spin helicopter rotors — fast in flight, idle-slow when parked.
+    const rotor = entry.mesh.userData?.mainRotor as Object3D | undefined;
+    if (rotor) rotor.rotation.y += (entry.follower.v > 0.1 || entry.offroadTarget ? 22 : 2.5) * dt;
     followerFxStates.push(fx);
   }
   vehicles.updateExternalFx(dt, followerFxStates);
@@ -609,6 +612,9 @@ type ActiveFollower = {
   offroadTarget?: Vector3 | null;
   /** Set while the unit is driving to / refilling at a hydrant. */
   refillTarget: { x: number; z: number } | null;
+  /** Civilian body style + paint color; null for service vehicles. */
+  style: CivilianStyle | null;
+  color: number | null;
 };
 
 let followers: ActiveFollower[] = [];
@@ -754,49 +760,72 @@ function seedProceduralRoads(count = 2) {
   applyRoadPaths();
 }
 
-function createFollowerMesh(vehicleType: VManagerVehicleType): Object3D {
-  return createVehicleMesh(vehicleType, hm.scale);
+function createFollowerMesh(vehicleType: VManagerVehicleType, meshOpts?: VehicleMeshOptions): Object3D {
+  return createVehicleMesh(vehicleType, hm.scale, meshOpts);
 }
 
-function spawnFollowersOnAllPaths(perPath = 3) {
-  const typeSequence = [
-    VManagerVehicleType.CAR,
-    VManagerVehicleType.FIRETRUCK,
-    VManagerVehicleType.BULLDOZER,
-  ];
+// Seeded picker for civilian style/color variety, reset on every reseed so a
+// seeded boot is deterministic.
+let civilianRng = createRng(`civilians:${worldCfg.noise.seed}`);
+
+function nextCivilianLook(): { style: CivilianStyle; color: number } {
+  return {
+    style: CIVILIAN_STYLES[Math.floor(civilianRng() * CIVILIAN_STYLES.length)],
+    color: CIVILIAN_COLORS[Math.floor(civilianRng() * CIVILIAN_COLORS.length)],
+  };
+}
+
+function spawnFollowerOnPath(p: Path2D, startS: number, vehicleType: VManagerVehicleType) {
+  const obj = new Object3D();
+  const look = vehicleType === VManagerVehicleType.CAR ? nextCivilianLook() : null;
+  const mesh = createFollowerMesh(vehicleType, look ? { civilianStyle: look.style, color: look.color } : undefined);
+  obj.add(mesh);
+  scene.add(obj);
+  const follower = new PathFollower(p, hm, obj, startS);
+  follower.setSpacingMode(spacingMode);
+  obj.updateMatrixWorld(true);
+  const id = followerIdCounter++;
+  const fxState: VehicleFxState = {
+    id,
+    pos: new Vector3(),
+    forward: new Vector3(),
+    up: new Vector3(),
+    right: new Vector3(),
+    speed: 0,
+    type: vehicleType,
+    sprayingWater: false,
+    siren: vehicleType === VManagerVehicleType.FIRETRUCK,
+  };
+  const p0 = obj.getWorldPosition(new Vector3());
+  followers.push({
+    id, follower, object: obj, mesh, type: vehicleType, fxState,
+    payload: createPayload(vehicleType), busy: false, assignedIncidentId: null,
+    returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null,
+    refillTarget: null, style: look?.style ?? null, color: look?.color ?? null,
+  });
+}
+
+/**
+ * Boot fleet per road network: one firetruck, one bulldozer, and a handful of
+ * civilian vehicles with seeded style/color variety.
+ */
+function spawnFollowersOnAllPaths(civiliansPerPath = 3) {
   for (const p of path2ds) {
-    const total = Math.max(1, perPath);
-    for (let k = 0; k < total; k++) {
-      const obj = new Object3D();
-      const vehicleType = typeSequence[(followerIdCounter + k) % typeSequence.length];
-      const mesh = createFollowerMesh(vehicleType);
-      obj.add(mesh);
-      scene.add(obj);
-      const startS = (p.length / total) * k;
-      const follower = new PathFollower(p, hm, obj, startS);
-      follower.setSpacingMode(spacingMode);
-      obj.updateMatrixWorld(true);
-      const id = followerIdCounter++;
-      const fxState: VehicleFxState = {
-        id,
-        pos: new Vector3(),
-        forward: new Vector3(),
-        up: new Vector3(),
-        right: new Vector3(),
-        speed: 0,
-        type: vehicleType,
-        sprayingWater: false,
-        siren: vehicleType === VManagerVehicleType.FIRETRUCK,
-      };
-      const p0 = obj.getWorldPosition(new Vector3());
-      followers.push({ id, follower, object: obj, mesh, type: vehicleType, fxState, payload: createPayload(vehicleType), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null, refillTarget: null });
+    const fleet: VManagerVehicleType[] = [
+      VManagerVehicleType.FIRETRUCK,
+      VManagerVehicleType.BULLDOZER,
+      ...Array<VManagerVehicleType>(Math.max(0, civiliansPerPath)).fill(VManagerVehicleType.CAR),
+    ];
+    for (let k = 0; k < fleet.length; k++) {
+      spawnFollowerOnPath(p, (p.length / fleet.length) * k, fleet[k]);
     }
   }
 }
 function reseedRoadsAndVehicles(count = 2) {
   seedProceduralRoads(count);
   clearFollowers();
-  spawnFollowersOnAllPaths(1);
+  civilianRng = createRng(`civilians:${worldCfg.noise.seed}`);
+  spawnFollowersOnAllPaths(3);
   buildings = generateBuildings(hm, fireGrid, roadMask, String(worldCfg.noise.seed));
   buildingsVisual.update(buildings);
 }
@@ -824,28 +853,8 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
     const proj = path2ds[i].project(start);
     if (proj.dist < bestDist) { bestDist = proj.dist; bestS = proj.s; bestIdx = i; }
   }
-  const obj = new Object3D();
   const type = vehicleType ?? VManagerVehicleType.CAR;
-  const mesh = createFollowerMesh(type);
-  obj.add(mesh);
-  scene.add(obj);
-  const follower = new PathFollower(path2ds[bestIdx], hm, obj, bestS);
-  follower.setSpacingMode(spacingMode);
-  obj.updateMatrixWorld(true);
-  const spawnPos = obj.getWorldPosition(new Vector3());
-  const id = followerIdCounter++;
-  const fxState: VehicleFxState = {
-    id,
-    pos: new Vector3(),
-    forward: new Vector3(),
-    up: new Vector3(),
-    right: new Vector3(),
-    speed: 0,
-    type,
-    sprayingWater: false,
-    siren: type === VManagerVehicleType.FIRETRUCK,
-  };
-  followers.push({ id, follower, object: obj, mesh, type, fxState, payload: createPayload(type), busy: false, assignedIncidentId: null, returningToBase: false, homePos: { x: spawnPos.x, z: spawnPos.z }, offroadTarget: null, refillTarget: null });
+  spawnFollowerOnPath(path2ds[bestIdx], bestS, type);
 }
 
 
@@ -1178,7 +1187,7 @@ function buildGameState() {
     hydrants: {
       count: hydrantSystem.hydrants.length,
       visible: hydrantVisual.group.visible,
-      positions: hydrantSystem.hydrants.slice(0, 16).map((hydrant) => ({
+      positions: hydrantSystem.hydrants.map((hydrant) => ({
         id: hydrant.id,
         x: hydrant.gridPos.x,
         z: hydrant.gridPos.z,
@@ -1200,6 +1209,8 @@ function buildGameState() {
         return {
           id: entry.id,
           type: String(VManagerVehicleType[entry.type] ?? entry.type).toLowerCase(),
+          style: entry.style,
+          color: entry.color,
           x: Number(pos.x.toFixed(2)),
           y: Number(pos.y.toFixed(2)),
           z: Number(pos.z.toFixed(2)),

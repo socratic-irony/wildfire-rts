@@ -6,6 +6,18 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-06-09 — Voxel vehicle overhaul + civilian traffic
+
+All vehicle meshes rebuilt as multi-part voxel models in [src/vehicles/voxelMeshes.ts](src/vehicles/voxelMeshes.ts) (meshes.ts re-exports). Firetruck: crew cab, equipment body with white stripe, railed ladder with rungs, red/blue light bar (named `lightbar` for the flash pass), six wheels. Bulldozer: tracks instead of wheels, lift-arm blade, exhaust stack. Helicopter: glass nose, belly water tank, tail boom/fin/rotor, skids with struts, and a `mainRotor` group the frame loop spins (fast in flight, idle when parked). Air tanker: high wing with engine nacelles and props, retardant belly, red tail. Firefighter: legs/torso/arms, air tank, helmet.
+
+Civilian traffic: four body styles (sedan, pickup, van, hatchback) with a seeded 8-color palette. Boot fleet per road loop is now 1 firetruck + 1 bulldozer + 3 civilians; follower state exposes `style`/`color`. New audit scenario `civilian-traffic` asserts fleet size, style/color variety, and that civilians actually drive.
+
+The richer traffic slows truck response via intersection queuing, so the `stress-contention` spread bound was recalibrated (≤70; the stuck-busy and resolved≥2 asserts remain the real non-deadlock invariants). `getState` now lists all hydrants instead of the first 16.
+
+**Baseline**: `npm test` (209), `npm run build`, `npm run audit:game` (17 scenarios) all green.
+
+---
+
 ## 2026-06-09 — Buildings + protect-homes scoring
 
 Seeded procedural structures ([src/buildings/buildings.ts](src/buildings/buildings.ts)): houses and barns cluster 2–6 tiles off road tiles; cabins place ≥12 tiles from any road, preferring forest fuel. Each building occupies one tile and follows a latching state machine driven by the fire grid — intact → burning while the tile is hot → destroyed once it burns through, with recovery to intact if suppression saves it in time.
