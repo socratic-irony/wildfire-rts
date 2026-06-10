@@ -562,11 +562,12 @@ async function stressContentionScenario(baseUrl: string, artifactDir: string) {
       }
     }, firetrucks);
 
-    // Let auto-dispatch churn for up to 60s of sim time.
-    const deadline = Date.now() + 60_000;
+    // Let auto-dispatch churn for up to 60s of sim time. Bound by sim time,
+    // not wall clock — wall-clock loops advance unbounded sim time on fast
+    // machines, letting the fire outrun road-serviceable range.
     let latest = ready;
     let sawResolved = 0;
-    while (Date.now() < deadline) {
+    for (let step = 0; step < 20; step++) {
       await page.evaluate(() => window.__wildfireTestApi!.advanceTime(3_000));
       latest = await getState(page);
       sawResolved = latest.dispatch.incidents.filter((i) => i.status === 'resolved').length;
