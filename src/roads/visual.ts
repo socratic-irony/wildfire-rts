@@ -1,6 +1,7 @@
 import {
   BufferGeometry,
   CircleGeometry,
+  DoubleSide,
   Float32BufferAttribute,
   Group,
   Line,
@@ -38,11 +39,11 @@ type ClosestHit = {
 
 export class RoadsVisual {
   public group = new Group();
-  private mat = new MeshStandardMaterial({ color: 0x222428, roughness: 0.95, metalness: 0.05, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: true, depthTest: false });
-  private shoulderMat = new MeshBasicMaterial({ color: 0x7a6247, transparent: true, opacity: 0.38, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
-  private stripeMat = new MeshBasicMaterial({ color: 0xf5f5f5, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, vertexColors: false });
+  private mat = new MeshStandardMaterial({ color: 0x1b1f24, roughness: 0.95, metalness: 0.05, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: true, depthTest: false, side: DoubleSide });
+  private shoulderMat = new MeshBasicMaterial({ color: 0x7a6247, transparent: true, opacity: 0.38, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, side: DoubleSide });
+  private stripeMat = new MeshBasicMaterial({ color: 0xf5f5f5, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, vertexColors: false, side: DoubleSide });
   private debugLineMat = new LineBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.75, depthWrite: false, depthTest: false });
-  private simpleMat = new MeshBasicMaterial({ color: 0x3b3f45, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false });
+  private simpleMat = new MeshBasicMaterial({ color: 0x2f353d, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false, side: DoubleSide });
   private debugRibbonMat = new MeshBasicMaterial({ color: 0x0b1a2b, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, wireframe: true });
   private yOffset: number;
   private hm: Heightmap;
@@ -50,6 +51,8 @@ export class RoadsVisual {
   private frames: RoadFrame[][] = [];
   private cumS: number[][] = [];
   private closedFlags: boolean[] = [];
+  private diagnosticsVisible = false;
+  private readonly diagnosticsGroup = new Group();
 
   // Spatial index for segments (uniform grid)
   private gridCellSize = 0; // set on first path add
@@ -80,10 +83,14 @@ export class RoadsVisual {
     this.hm = hm;
     this.yOffset = Math.max(0.3, hm.scale * 0.24);
     this.group.renderOrder = 10;
+    this.diagnosticsGroup.visible = this.diagnosticsVisible;
+    this.group.add(this.diagnosticsGroup);
   }
 
   clear() {
     for (const c of [...this.group.children]) this.group.remove(c);
+    this.clearDiagnostics();
+    this.group.add(this.diagnosticsGroup);
     this.paths = [];
     this.frames = [];
     this.cumS = [];
@@ -97,6 +104,11 @@ export class RoadsVisual {
     }
     this.intersectionGeo = undefined;
     this.midlineIndex.build([], this.hm.scale * 3);
+  }
+
+  setDebugDiagnosticsVisible(visible: boolean) {
+    this.diagnosticsVisible = visible;
+    this.diagnosticsGroup.visible = visible;
   }
 
   // Expose smoothed midlines as world XZ arrays for controllers
@@ -167,7 +179,7 @@ export class RoadsVisual {
       const debugMesh = new Mesh(debugGeo, this.debugRibbonMat);
       debugMesh.renderOrder = 11;
       debugMesh.frustumCulled = false;
-      this.group.add(debugMesh);
+      this.diagnosticsGroup.add(debugMesh);
     }
     this.frames[pathIndex] = frames;
     // Build cumulative s for this path
@@ -231,7 +243,7 @@ export class RoadsVisual {
       const line = new Line(lineGeo, this.debugLineMat);
       line.renderOrder = 12;
       line.frustumCulled = false;
-      this.group.add(line);
+      this.diagnosticsGroup.add(line);
     }
     // Rebuild midline spatial index to include the newly added path
     const allMidlines = this.paths.map(p => p.map(v => ({ x: v.x, z: v.y })));
@@ -476,6 +488,13 @@ export class RoadsVisual {
     const len = Math.hypot(hit.abx, hit.abz) || 1;
     const tangent = new Vector3(hit.abx / len, 0, hit.abz / len);
     return { pos, normal: terrainNormal, tangent, segIndex: hit.segIndex, t: hit.t } as const;
+  }
+
+  private clearDiagnostics() {
+    while (this.diagnosticsGroup.children.length) {
+      this.diagnosticsGroup.remove(this.diagnosticsGroup.children[0]);
+    }
+    this.diagnosticsGroup.visible = this.diagnosticsVisible;
   }
 }
 

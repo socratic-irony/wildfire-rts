@@ -69,6 +69,7 @@ type MenubarActions = {
   roads?: {
     toggle?: (on: boolean) => void;
     clear?: () => void;
+    toggleDebugDiagnostics?: (on: boolean) => void;
   };
   vehicles?: {
     spawn?: (type?: VehicleType) => void;
@@ -80,6 +81,7 @@ type MenubarActions = {
   };
   hydrants?: {
     toggle?: (on: boolean) => void;
+    toggleCoverage?: (on: boolean) => void;
     update?: () => void;
     clear?: () => void;
   };
@@ -106,6 +108,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
   let igniteMode = false;
   let opts: any = {};
   let selectedVehicleType: VehicleType = 'generic';
+  let roadDebugDiagnosticsOn = false;
 
   // Performance tracking
   let acc = 0;
@@ -590,6 +593,26 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
 
     controlsPanel.appendChild(createSection('🔥 Fire System', fireControls));
 
+    // Road debug controls
+    const roadControls = document.createElement('div');
+    roadControls.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+    const roadDebugLabel = document.createElement('label');
+    roadDebugLabel.style.cssText = 'display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 12px;';
+    const roadDebugCheckbox = document.createElement('input');
+    roadDebugCheckbox.type = 'checkbox';
+    roadDebugCheckbox.checked = roadDebugDiagnosticsOn;
+    roadDebugCheckbox.dataset.testid = 'roads-debug-diagnostics-toggle';
+    roadDebugCheckbox.addEventListener('change', () => {
+      roadDebugDiagnosticsOn = roadDebugCheckbox.checked;
+      actions.roads?.toggleDebugDiagnostics?.(roadDebugDiagnosticsOn);
+    });
+    const roadDebugText = document.createElement('span');
+    roadDebugText.textContent = 'Show road lattice / midline diagnostics';
+    roadDebugLabel.appendChild(roadDebugCheckbox);
+    roadDebugLabel.appendChild(roadDebugText);
+    roadControls.appendChild(roadDebugLabel);
+    controlsPanel.appendChild(createSection('🛣️ Roads', roadControls));
+
     // Vehicle Controls Section
     const vehicleControls = document.createElement('div');
     vehicleControls.style.cssText = 'display: flex; flex-wrap: wrap; align-items: center; gap: 8px;';
@@ -664,6 +687,17 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
       actions.hydrants?.toggle?.(hydrantsVisible);
     });
 
+    const hydrantCoverageBtn = document.createElement('button');
+    hydrantCoverageBtn.style.cssText = 'background: #111827; color: #e5e7eb; border: 1px solid #374151; border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;';
+    let hydrantCoverageVisible = false;
+    hydrantCoverageBtn.textContent = 'Coverage: Off';
+    hydrantCoverageBtn.dataset.testid = 'hydrant-coverage-toggle';
+    hydrantCoverageBtn.addEventListener('click', () => {
+      hydrantCoverageVisible = !hydrantCoverageVisible;
+      hydrantCoverageBtn.textContent = `Coverage: ${hydrantCoverageVisible ? 'On' : 'Off'}`;
+      actions.hydrants?.toggleCoverage?.(hydrantCoverageVisible);
+    });
+
     const hydrantUpdateBtn = document.createElement('button');
     hydrantUpdateBtn.style.cssText = 'background: #111827; color: #e5e7eb; border: 1px solid #374151; border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;';
     hydrantUpdateBtn.textContent = 'Update Placement';
@@ -675,6 +709,7 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     hydrantClearBtn.addEventListener('click', () => actions.hydrants?.clear?.());
 
     hydrantControls.appendChild(hydrantVisBtn);
+    hydrantControls.appendChild(hydrantCoverageBtn);
     hydrantControls.appendChild(hydrantUpdateBtn);
     hydrantControls.appendChild(hydrantClearBtn);
 

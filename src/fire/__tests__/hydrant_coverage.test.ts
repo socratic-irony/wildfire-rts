@@ -20,6 +20,12 @@ function hydrant(x: number, z: number, active = true, coverageRadius = 5): FireH
 }
 
 describe('hydrantCoverageRings', () => {
+  it('starts hidden so coverage does not clutter normal play', () => {
+    const hm = generateHeightmap(16, 16, 1, { seed: 's', frequency: 0, amplitude: 0, octaves: 1, persistence: 1 });
+    const rings = createHydrantCoverageRings(hm);
+    expect(rings.inst.visible).toBe(false);
+  });
+
   it('renders one ring per active hydrant', () => {
     const hm = generateHeightmap(16, 16, 1, { seed: 's', frequency: 0, amplitude: 0, octaves: 1, persistence: 1 });
     const rings = createHydrantCoverageRings(hm);

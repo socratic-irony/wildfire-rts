@@ -19,6 +19,7 @@ export function createHydrantCoverageRings(hm: Heightmap, maxHydrants = 500) {
   });
   const inst = new InstancedMesh(ring, mat, maxHydrants);
   (inst as any).count = 0;
+  inst.visible = false;
   inst.frustumCulled = false;
   inst.renderOrder = 6;
 

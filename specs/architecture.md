@@ -38,7 +38,8 @@ Repository Topology
 - Roads: `src/roads/`
   - `cost.ts`: per-tile elevation/slope/valley fields for road A* cost.
   - `astar.ts`: grid A* (4/8-neigh), cost callback, with diag support.
-  - `visual.ts`: smoothed ribbon mesh (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe.
+  - `planner.ts`: shared player/testbed road planner combining terrain cost, slope blocking, grade penalty, curvature penalty, 4-neighbor A*, and angular path reduction.
+  - `visual.ts`: smoothed ribbon mesh (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe. Triangle lattice/midline diagnostics are hidden by default and exposed only through debug controls.
   - `procedural.ts`: procedural loop generator (oval/figure-8/rectangle) for boot/regenerate seeding.
   - `state.ts`: rasterization of road paths to a road mask; integration hooks (e.g., fire grid fuel adjustments).
 - Vehicles: `src/vehicles/vehicles.ts`: instanced agents with road and air pathing, terrain-aligned pose, and fire-suppression hooks.
@@ -47,8 +48,8 @@ Repository Topology
   - `src/vehicles/followerOrders.ts`: selection + order utilities for Frenet followers (including off-road bulldozer orders).
   - `src/vehicles/menubarMapping.ts`: UI type mapping for spawn commands.
 - **Fire Hydrants (HIGH PRIORITY)**: `src/fire/hydrants.ts`: automatic placement along roads (50m spacing, 100+ tiles min), coverage areas (~10m), integration with suppression system to enable firefighter deployment from road tiles within coverage.
-- UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
-- Browser automation: `src/main.ts` exposes `window.render_game_to_text()`, `window.advanceTime(ms)`, and `window.__wildfireTestApi` so Playwright/browser audits can inspect live game state, fast-forward the loop, and exercise fire/road/vehicle flows deterministically without brittle pixel-only input.
+- UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/menubar.ts` owns the primary toolbar and detailed debug controls, including road lattice diagnostics and optional hydrant coverage rings. `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
+- Browser automation: `src/main.ts` exposes `window.render_game_to_text()`, `window.advanceTime(ms)`, and `window.__wildfireTestApi` so Playwright/browser audits can inspect live game state, fast-forward the loop, and exercise fire/road/vehicle flows deterministically without brittle pixel-only input. `advanceTime` keeps 50 ms simulation chunks but suppresses intermediate renders so software-WebGL audit runs stay bounded.
 - Repo automation: `scripts/qa/playwright_audit.ts` powers `npm run audit:game`, which launches the local Vite app and verifies the current MVP loop (bootstrap, roads, vehicles, suppression, auto-dispatch, manual dispatch) against the live browser build.
 - Specs: `specs/` contains domain specs (terrain, fire_behavior, vehicles, architecture).
 - Root docs: `AGENTS.md` (guidelines, commit hygiene).
@@ -79,8 +80,8 @@ Key Abstractions & Data
   - FireSim: neighbor ignition via ROS and Poisson arrival; spotting (simple); combustion progressions; early extinguish; moisture decay.
   - FireViz: overlay instances and vertex tint; perimeter overlay hugging terrain; analytics via `computePerimeter` + `computeFireStats`.
 - Roads
-  - CostField: elevation/slope/valley; slope-block threshold; turn penalty in `main.ts` when planning player roads.
-  - Visual: Catmull–Rom smoothed midlines resampled to uniform spacing (~2 tile asphalt width) with 3-lane cross-section; normal-offset plus depth-test-disabled overlays so roads sit visibly above terrain; dusty shoulders blended back into terrain; dashed center stripe polygon-offset above the surface.
+  - CostField/planner: elevation/slope/valley; slope-block threshold; grade and curvature penalties live in `src/roads/planner.ts` so the main game and vehicle testbed share identical player-road planning.
+  - Visual: Catmull–Rom smoothed midlines resampled to uniform spacing (~2 tile asphalt width) with 3-lane cross-section; normal-offset plus depth-test-disabled, double-sided filled meshes so roads sit visibly above terrain from RTS camera angles; dusty shoulders blended back into terrain; dashed center stripe polygon-offset above the surface. Optional diagnostic wireframe and midline render under a hidden-by-default debug group.
   - Mask: `Uint8Array` marking road tiles; consumed by vehicles pathing and fire integration.
   - Procedural: road loops are generated in tile space on boot/regenerate and re-projected onto the current heightmap via `RoadsVisual`.
 - Vehicles
@@ -91,12 +92,13 @@ Key Abstractions & Data
   - System: `{ hydrants[], roadMask, minSpacingTiles, idealSpacingTiles }` with automatic placement and coverage calculation.
   - Placement: Auto-spawn every ~50m along roads with 100+ tile minimum spacing; dynamic updates on road changes.
   - Coverage: ~10m radius areas enabling firefighter deployment and unlimited water supply from road tiles.
+  - Visualization: hydrant markers are visible by default; coverage radius rings start hidden and can be enabled from detailed debug controls.
   - Integration: Extends `applyWaterAoE` suppression system; complements firetruck capabilities.
 
 Event Flow & Input
 
 - Click handling in `main.ts` branches by mode:
-  - Roads On: raycast to terrain → grid cell → A* builds road path → visualize + rasterize mask.
+  - Roads On: raycast to terrain → grid cell → shared road planner builds an A* road path → visualize + rasterize mask.
   - Vehicles Move On: raycast → grid → set shared destination on road network.
   - Otherwise: ignite tile for fire demo if ignite mode is active.
 - Dispatch lifecycle: `dispatchLoop` promotes incidents from `detected` → `assigned` → `engaged`, and the registry resolves incidents once the source tile is no longer burning/igniting and any remaining smolder heat has fallen below the extinguish threshold.

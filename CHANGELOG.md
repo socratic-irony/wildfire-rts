@@ -6,6 +6,20 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-05-04 — Road/hydrant render debug cleanup
+
+Road triangle-lattice and midline debug geometry in [src/roads/visual.ts](src/roads/visual.ts) is now hidden by default and can be re-enabled from the detailed toolbar road debug checkbox. Filled road meshes are double-sided so the asphalt/shoulder/stripe surfaces remain visible from normal RTS camera angles without relying on debug wireframes.
+
+Hydrant coverage radius rings in [src/fire/hydrantCoverage.ts](src/fire/hydrantCoverage.ts) now start hidden and can be re-enabled from the detailed toolbar hydrant coverage button, leaving hydrant markers visible without covering the playfield.
+
+Player road planning now goes through shared [src/roads/planner.ts](src/roads/planner.ts), removing duplicated slope/grade/curvature A* cost logic from [src/main.ts](src/main.ts) and [src/vehicles_test.ts](src/vehicles_test.ts).
+
+`window.advanceTime()` now keeps 50 ms deterministic simulation chunks but suppresses intermediate renders during browser automation, then renders once at the end. This preserves scenario behavior while avoiding minutes of software-WebGL work.
+
+**Baseline**: `npm test` (202 passing), `npm run build`, and `npm run audit:game` (12 scenarios) all green.
+
+---
+
 ## 2026-04-20 — Phase 2a: scenario win/loss + MVP acceptance gate
 
 Added `src/scenarios/` with a pure evaluator and stateful runner ([scenario.ts](src/scenarios/scenario.ts)) plus a seeded default ([containment.ts](src/scenarios/containment.ts)). A scenario resolves to `pending | win | loss` from `(elapsedSec, footprint)`; footprint is the monotonic count of tiles ever touched by fire. Loss latches the moment the footprint breaches the budget.

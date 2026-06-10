@@ -2,6 +2,7 @@ node_modules
 dist
 .DS_Store
 screenshots/
+output/
 
 # Local configuration overrides
 config/local.json

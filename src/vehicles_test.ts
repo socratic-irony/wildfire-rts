@@ -10,10 +10,10 @@ import { computeBiomes, applyBiomeVertexColors } from './terrain/biomes';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
 import { buildTerrainCost } from './roads/cost';
-import { aStarPath } from './roads/astar';
 import { RoadsVisual } from './roads/visual';
 import { createRoadMask, rasterizePolyline, clearRoadMask } from './roads/state';
 import { makeAngularPath } from './roads/path';
+import { buildPlannedRoadPath } from './roads/planner';
 import { VehiclesManager } from './vehicles/vehicles';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
@@ -279,50 +279,7 @@ function spawnFollowerAtCamera() {
       roadEndpoints.push({ x: gx, z: gz });
       if (roadEndpoints.length >= 2) {
         const [a, b] = [roadEndpoints[roadEndpoints.length - 2], roadEndpoints[roadEndpoints.length - 1]];
-        const WE = 0.4, WS = 6.0, WV = 0.5;
-        const SLOPE_MAX_TAN = 0.7;
-        const CURV_W = 2.8;
-        const WG = 14.0;
-        const costField = {
-          width: roadCost.width,
-          height: roadCost.height,
-          costAt: (x: number, z: number, stepDir: { dx: number; dz: number }, prevDir?: { dx: number; dz: number }) => {
-            const i = z * roadCost.width + x;
-            const base = 1 + WE * roadCost.elev[i] + WS * roadCost.slope[i] - WV * roadCost.valley[i];
-            if (roadCost.slope[i] > SLOPE_MAX_TAN) return Infinity;
-            let grade = 0;
-            const prevX = x - stepDir.dx;
-            const prevZ = z - stepDir.dz;
-            if (
-              prevX >= 0 && prevZ >= 0 &&
-              prevX < roadCost.width && prevZ < roadCost.height
-            ) {
-              const wxPrev = (prevX + 0.5) * hm.scale;
-              const wzPrev = (prevZ + 0.5) * hm.scale;
-              const wxCur = (x + 0.5) * hm.scale;
-              const wzCur = (z + 0.5) * hm.scale;
-              const hPrev = hm.sample(wxPrev, wzPrev);
-              const hCur = hm.sample(wxCur, wzCur);
-              const horiz = Math.hypot(stepDir.dx, stepDir.dz) * hm.scale;
-              if (horiz > 1e-4) {
-                const slope = Math.abs(hCur - hPrev) / horiz;
-                grade = WG * Math.pow(slope, 1.35);
-              }
-            }
-            let curv = 0;
-            if (prevDir && (prevDir.dx || prevDir.dz)) {
-              const pvLen = Math.hypot(prevDir.dx, prevDir.dz) || 1;
-              const stLen = Math.hypot(stepDir.dx, stepDir.dz) || 1;
-              const pdx = prevDir.dx / pvLen, pdz = prevDir.dz / pvLen;
-              const sdx = stepDir.dx / stLen, sdz = stepDir.dz / stLen;
-              const dot = Math.max(-1, Math.min(1, pdx * sdx + pdz * sdz));
-              curv = CURV_W * (1 - Math.max(0, dot));
-            }
-            return Math.max(0.05, base + grade + curv);
-          }
-        };
-        const rawPath = aStarPath(costField as any, a, b, { diag: false, heuristic: 'euclid', maxIter: roadCost.width * roadCost.height * 6 });
-        const path = makeAngularPath(rawPath);
+        const path = buildPlannedRoadPath(hm, roadCost, a, b);
         if (path.length) {
           roadsVis.addPath(path);
           rasterizePolyline(roadMask, path, 0.9);

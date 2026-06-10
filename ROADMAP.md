@@ -47,6 +47,7 @@ Currently there is no win/loss condition, so "MVP" has no objective gate.
 
 Lower-risk once Phase 1 lands.
 
+- [x] **Road/hydrant render debug cleanup** (S) — hide the diagnostic road triangle lattice/midline and hydrant coverage rings by default, expose them through detailed debug controls, and centralize duplicated player-road planner logic in [src/roads/planner.ts](src/roads/planner.ts).
 - [ ] **Decompose `src/main.ts`** (M, 1027 LOC) — extract `src/input/handlers.ts` and `src/systems/fireLoop.ts`.
 - [ ] **Decompose `src/vehicles/vehicles.ts`** (M, 1010 LOC).
 - [ ] **Decompose `src/ui/menubar.ts`** (M, 901 LOC) — split per-section.
