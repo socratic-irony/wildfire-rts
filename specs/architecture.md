@@ -24,8 +24,10 @@ Repository Topology
   - `rtsOrbit.ts`: RTS-style orbit/pan controller (input handling inside class). Camera stays at a fixed world Y; scroll zoom adjusts horizontal radius (not altitude); WASD pans along XZ without height sensitivity; left-drag yaws and adjusts pitch within a narrow clamp; rotation does not snap pivot to cursor (no initial jump).
   - `loop.ts`: frame loop with callback list; provides `dt` to subsystems.
   - `input.ts`: lightweight keyboard/pointer state tracker shared by `main.ts`, the vehicle testbed, and the particle test page (normalizes keys to lowercase and exposes a `Set`).
+  - `random.ts`: shared deterministic 32-bit linear-congruential generator used by actor scattering; preserves the established per-seed sequences.
 - Terrain: `src/terrain/`
   - `heightmap.ts`: procedural map generator + bilinear `sample(wx,wz)` API.
+  - `coordinates.ts`: nearest-cell world-to-grid conversion with map-bound clamping, shared by interaction and actor-placement call sites.
   - `mesh.ts`, `material.ts`: low-poly tri mesh + flat-shaded material with grid overlay support.
   - `biomes.ts`: biome masks (rock/forest/chaparral) + vertex tinting.
   - `chunks.ts`: chunked LOD terrain with visibility toggle and base/hi geometry; per-chunk edge skirts to hide LOD cracks; bounding spheres for distance tests.
@@ -76,7 +78,7 @@ Runtime Model
 
 Key Abstractions & Data
 
-- Heightmap: `{ width,height,scale,data[], sample(wx,wz) }` — source of truth for elevation.
+- Heightmap: `{ width,height,scale,data[], sample(wx,wz) }` — source of truth for elevation. `worldToGridCell(heightmap, worldX, worldZ)` is the shared nearest-cell conversion for world points; callers that intentionally use floor-based occupancy or already-grid coordinates retain their distinct semantics.
 - Terrain chunks: Mesh nodes grouped; each chunk stores `baseColors` for quick vertex recolor.
 - Fire
   - FireGrid: `{ width,height,params,tiles[], burning[], smoldering[], bCount,sCount,time,seed }`.
@@ -120,6 +122,7 @@ Performance Principles
 Error Handling & Determinism
 
 - FireSim retains a seed for deterministic `rand01` hashing; call orders should be stable within a tick.
+- Procedural actor scattering uses `createLcg(seed)` from `src/core/random.ts`; each generator owns independent state and retains the legacy LCG sequence for existing seeds.
 - Clamp and guard divisions with small epsilons (e.g., distances, dot products) to avoid NaNs.
 
 Extensibility Hooks
@@ -137,6 +140,8 @@ Testing Strategy
 - `src/__tests__/source_graph.test.ts` resolves relative TypeScript imports from documented application, testbed, script, test, configuration, and logging-demo roots, and fails when a maintained source module becomes unreachable. The abandoned, unreferenced dispatch station-registry prototype was removed when this gate was introduced.
 - Unit tests around math-heavy pieces:
   - Heightmap sampling, normal estimation.
+  - Pinned LCG sequences and independent generator state.
+  - World-to-grid nearest-cell rounding, scale conversion, and boundary clamping.
   - FireSim tick transitions and ignition probabilities (deterministic seeds).
   - A* path validity and slope/turn costs.
 - Browser audits use `render_game_to_text`, `advanceTime`, and `__wildfireTestApi` to verify live feature claims such as road placement, hydrant regeneration, vehicle spawning/dispatch, and suppression outcomes against the rendered scene.

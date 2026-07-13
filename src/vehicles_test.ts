@@ -5,6 +5,7 @@ import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
 import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
+import { worldToGridCell } from './terrain/coordinates';
 import { createTerrainMaterial } from './terrain/material';
 import { computeBiomes } from './terrain/biomes';
 import { buildChunkedTerrain } from './terrain/chunks';
@@ -272,8 +273,7 @@ function spawnFollowerAtCamera() {
     const hits = ray.intersectObject(chunked.group, true);
     if (!hits.length) return;
     const p = hits[0].point;
-    const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
-    const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+    const { x: gx, z: gz } = worldToGridCell(hm, p.x, p.z);
     if (roadsEnabled) {
       roadEndpoints.push({ x: gx, z: gz });
       if (roadEndpoints.length >= 2) {

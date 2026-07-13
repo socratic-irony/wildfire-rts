@@ -1,14 +1,7 @@
 import { Color, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D } from 'three';
+import { createLcg } from '../core/random';
 import type { Heightmap } from '../terrain/heightmap';
 import type { BiomeMask } from '../terrain/biomes';
-
-function seededRng(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (1664525 * s + 1013904223) >>> 0;
-    return s / 0xffffffff;
-  };
-}
 
 export function createRocks(hm: Heightmap, biomes: BiomeMask, opts: { density?: number } = {}) {
   // Distorted low-poly rock: start from icosahedron, apply slight vertex jitter
@@ -28,7 +21,7 @@ export function createRocks(hm: Heightmap, biomes: BiomeMask, opts: { density?: 
   const mat = new MeshStandardMaterial({ color: new Color('#9A8C98'), flatShading: true, roughness: 0.95, metalness: 0 });
 
   // Scatter rules: prefer rock biome and steeper/higher elevations; low density
-  const rng = seededRng(24680);
+  const rng = createLcg(24680);
   const cols = hm.width;
   const rows = hm.height;
   const instances: { x: number; z: number; y: number; rot: number; sx: number; sy: number; sz: number }[] = [];

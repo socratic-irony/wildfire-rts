@@ -8,8 +8,10 @@ import {
   MeshStandardMaterial,
   Object3D,
 } from 'three';
+import { createLcg } from '../core/random';
 import { Heightmap } from '../terrain/heightmap';
 import { BiomeMask } from '../terrain/biomes';
+import { worldToGridCell } from '../terrain/coordinates';
 import type { FireGrid } from '../fire/grid';
 import { FireState } from '../fire/grid';
 
@@ -17,14 +19,6 @@ type ForestOpts = {
   density?: number;         // probability per 2x2 tile in forest biome
   broadleafRatio?: number;  // 0..1 chance of broadleaf vs conifer
 };
-
-function seededRng(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (1664525 * s + 1013904223) >>> 0;
-    return s / 0xffffffff;
-  };
-}
 
 export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts = {}) {
   // Conifer: two stacked cone tiers + cylinder trunk
@@ -66,7 +60,7 @@ export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts 
   injectSway(broadTrunkMat);
 
   // Scatter
-  const rng = seededRng(12345);
+  const rng = createLcg(12345);
   const cols = hm.width;
   const rows = hm.height;
   type TreeInst = {
@@ -103,8 +97,7 @@ export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts 
         const wx = (x + jx) * hm.scale;
         const wz = (z + jz) * hm.scale;
         const wy = hm.sample(wx, wz);
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(wx / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(wz / hm.scale)));
+        const { x: gx, z: gz } = worldToGridCell(hm, wx, wz);
         if (rng() >= broadleafRatio) {
           conifers.push({
             x: wx, z: wz, y: wy, rot: rng() * Math.PI * 2,

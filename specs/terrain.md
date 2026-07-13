@@ -4,7 +4,8 @@ Status (current)
 
 - Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint with deterministic hash jitter (mottled fields, no textures), instanced trees (two-tier conifers + broadleaf, per-instance color/height variety with multiplicative burn tint) and shrubs (per-instance sage→olive hues, squash variety) with light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (shared A* planner with valley bonus plus strong slope/grade/curvature penalties) rendered as double-sided leveled angular ribbons that plane into hillsides while snapping to tile centres with orthogonal turns at ~2-tile asphalt width. Road triangle-lattice/midline diagnostics and hydrant coverage radius rings are available through debug controls but are hidden during normal play.
 - Terrain regeneration replaces the road visual and hydrant systems with instances bound to the new heightmap/mask, keeping ribbons and hydrants flush with the refreshed terrain.
-- Unit tests verify terrain cost field derivation (elevation normalization, slope, valley), shared road planner endpoints, hidden-by-default road diagnostics, and hidden-by-default hydrant coverage rings.
+- Procedural trees, shrubs, and rocks retain their established deterministic scatter sequences through a shared per-instance LCG helper. Nearest-cell conversion from world coordinates is centralized for terrain interactions and actor fire-state lookup; floor-based occupancy and grid-unit APIs remain intentionally separate.
+- Unit tests verify terrain cost field derivation (elevation normalization, slope, valley), shared road planner endpoints, hidden-by-default road diagnostics, hidden-by-default hydrant coverage rings, pinned LCG output, and world-to-grid rounding/clamping across map scales.
 - In progress/available toggles: grid on/off, fire visualization modes (overlay/raised/vertex) for the separate fire spec work.
 - Not yet: advanced postprocessing, full biome tuning UI, decal-based road materials, networked path graph tools.
 
@@ -42,8 +43,10 @@ Status (current)
     camera.ts            // RTS camera controller (custom)
     input.ts             // Keyboard/mouse bindings
     loop.ts              // RAF, fixed/variable update
+    random.ts            // Deterministic per-instance LCG helper
   /terrain
     heightmap.ts         // Noise config, normalize, slope/normal calc
+    coordinates.ts       // World-point to nearest clamped grid cell
     mesh.ts              // Terrain geometry builder (indexed)
     material.ts          // Flat-shaded material factory
     grid.ts              // Grid overlay (shader projection or line mesh)
@@ -293,9 +296,17 @@ Start with **shader projection** for clarity/perf; make toggleable.
 // terrain/heightmap.ts
 export type Heightmap = {
   width: number; height: number; // tiles
+  scale: number; // world units per tile
   sample(x: number, z: number): number; // height in world units
   data: Float32Array; // (width+1)*(height+1)
 };
+
+// terrain/coordinates.ts
+export function worldToGridCell(
+  heightmap: Pick<Heightmap, 'width' | 'height' | 'scale'>,
+  worldX: number,
+  worldZ: number,
+): { x: number; z: number };
 
 export type BiomeMask = {
   isRock: Uint8Array;

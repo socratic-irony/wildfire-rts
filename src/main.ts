@@ -5,6 +5,7 @@ import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
 import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
+import { worldToGridCell } from './terrain/coordinates';
 import { createTerrainMaterial } from './terrain/material';
 import { RTSOrbitCamera } from './core/rtsOrbit';
 import { computeBiomesTuned } from './terrain/biomes';
@@ -248,8 +249,7 @@ loop.add((dt) => {
     const hits = _hoverRay.intersectObject(chunked.group, true);
     if (hits.length) {
       const p = hits[0].point;
-      const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
-      const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+      const { x: gx, z: gz } = worldToGridCell(hm, p.x, p.z);
       const idx = gz * fireGrid.width + gx;
       const t0 = fireGrid.tiles[idx];
       const stateName = ['Unburned','Igniting','Burning','Smoldering','Burned'][t0.state] || String(t0.state);
@@ -1570,8 +1570,7 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
       const hits = ray.intersectObject(chunked.group, true);
       if (hits.length) {
         const p = hits[0].point;
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(p.x / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(p.z / hm.scale)));
+        const { x: gx, z: gz } = worldToGridCell(hm, p.x, p.z);
         roadEndpoints.push({ x: gx, z: gz });
         if (roadEndpoints.length >= 2) {
           const [a, b] = [roadEndpoints[roadEndpoints.length - 2], roadEndpoints[roadEndpoints.length - 1]];

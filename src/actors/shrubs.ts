@@ -1,16 +1,10 @@
 import { Color, DodecahedronGeometry, Group, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D } from 'three';
+import { createLcg } from '../core/random';
 import { Heightmap } from '../terrain/heightmap';
 import { BiomeMask } from '../terrain/biomes';
+import { worldToGridCell } from '../terrain/coordinates';
 import type { FireGrid } from '../fire/grid';
 import { FireState } from '../fire/grid';
-
-function seededRng(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (1664525 * s + 1013904223) >>> 0;
-    return s / 0xffffffff;
-  };
-}
 
 export function createShrubs(hm: Heightmap, biomes: BiomeMask, opts: { density?: number } = {}) {
   const geo = new DodecahedronGeometry(0.35, 0);
@@ -27,7 +21,7 @@ export function createShrubs(hm: Heightmap, biomes: BiomeMask, opts: { density?:
     (mat as any).userData.shader = shader;
   };
 
-  const rng = seededRng(67890);
+  const rng = createLcg(67890);
   const cols = hm.width;
   const rows = hm.height;
   type ShrubInst = {
@@ -47,8 +41,7 @@ export function createShrubs(hm: Heightmap, biomes: BiomeMask, opts: { density?:
         const wx = (x + jx) * hm.scale;
         const wz = (z + jz) * hm.scale;
         const wy = hm.sample(wx, wz);
-        const gx = Math.max(0, Math.min(hm.width - 1, Math.round(wx / hm.scale)));
-        const gz = Math.max(0, Math.min(hm.height - 1, Math.round(wz / hm.scale)));
+        const { x: gx, z: gz } = worldToGridCell(hm, wx, wz);
         // Per-instance hue range: sage greens through dry olive.
         const baseCol = new Color('#6FA06F');
         baseCol.offsetHSL((rng() - 0.5) * 0.08, (rng() - 0.5) * 0.25, (rng() - 0.5) * 0.12);
