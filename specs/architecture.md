@@ -160,7 +160,7 @@ Open Opportunities / Next Items
 - Fire: edge-based line strength; crown behavior; UI paint tools; wire stats into UI.
 - Roads: directed lane graph, road-class metadata, turn splines, and cross-component intersection routing.
 - Vehicles: turn selection across the future lane graph; compatible conflict-zone tokens/signals; retirement of the deprecated grid traffic stack.
-- Repository maintenance: enforce unused-code type-checking and reduce oversized orchestration modules only behind characterization tests; preserve documented app and testbed behavior during cleanup.
+- Repository maintenance: enforce unused-code type-checking and reduce oversized orchestration modules only behind characterization tests; preserve documented app and testbed behavior during cleanup. The approved implementation sequence is recorded in `docs/plans/2026-07-12-repository-cleanup.md`.
 - (v2.0+) Scenario persistence (save/load) – out of scope for current milestone.
 - Telemetry: per-subsystem timings in stats overlay; debug draws (normals, probability arrows).
 
