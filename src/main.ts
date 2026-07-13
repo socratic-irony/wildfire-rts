@@ -44,6 +44,7 @@ import { createPayload, tickFuel, needsReturnToBase, consumeWater, refuel, refil
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
+import { assignPathLeaders } from './vehicles/trafficSpacing';
 import { canSetTargetOnCurrentPath, createFollowerSelection, findFollowerHit, isOffroadOrderType, issueMoveOrder, setTargetOnCurrentPath, updateOffroadFollowers, type FollowerEntry } from './vehicles/followerOrders';
 import { mapMenubarToVehicleType } from './vehicles/menubarMapping';
 import { createIncidentRegistry } from './dispatch/incident';
@@ -68,6 +69,7 @@ declare global {
       clearFire: () => void;
       addRoad: (ax: number, az: number, bx: number, bz: number) => boolean;
       clearRoads: () => void;
+      setupTrafficScenario: () => boolean;
       spawnVehicle: (type?: 'generic' | 'firetruck' | 'bulldozer' | 'helicopter' | 'airplane' | 'firefighter') => boolean;
       findOffroadBurnableTiles: (minDistFromRoad: number, count: number) => Array<{ x: number; z: number }>;
       clearVehicles: () => void;
@@ -78,6 +80,7 @@ declare global {
       applyRetardantAt: (x: number, z: number, radius?: number, intensity?: number) => void;
       updateHydrants: () => void;
       setAutoDispatch: (on: boolean) => void;
+      canManualDispatch: (incidentId: number, followerId: number) => boolean;
       manualDispatch: (incidentId: number, followerId: number) => boolean;
       getTileAt: (x: number, z: number) => {
         x: number;
@@ -293,19 +296,16 @@ loop.add((dt) => {
     groups.get(p)!.push(i);
   }
   for (const [path, idxs] of groups) {
-    idxs.sort((a, b) => followers[a].follower.s - followers[b].follower.s);
-    for (let k = idxs.length - 1; k >= 0; k--) {
-      const idx = idxs[k];
+    assignPathLeaders(path, idxs.map((idx) => followers[idx].follower));
+    for (const idx of idxs) followers[idx].follower.setSpacingMode(spacingMode);
+  }
+  const controlledFollowers = [...groups.entries()].flatMap(([path, idxs]) =>
+    idxs.map((idx) => ({ id: followers[idx].id, follower: followers[idx].follower, path })),
+  );
+  intersectionManager.updateBeforeMovement(controlledFollowers, dt);
+  for (const [path, idxs] of groups) {
+    for (const idx of idxs) {
       const current = followers[idx].follower;
-      if (k === idxs.length - 1) {
-        current.setLeader(undefined, undefined);
-      } else {
-        const leadIdx = idxs[k + 1];
-        const leadFollower = followers[leadIdx].follower;
-        current.setLeader(leadFollower.s, leadFollower.v);
-      }
-      current.setSpacingMode(spacingMode);
-      intersectionManager.preUpdateFollower(current, path, dt);
       current.update(dt);
       intersectionManager.postUpdateFollower(current, path);
     }
@@ -379,7 +379,7 @@ loop.add((dt) => {
       vehicleHud.render(null);
     } else {
       vehicleHud.render({
-        type: String(VManagerVehicleType[active.type] ?? active.type),
+        type: String(active.type),
         payload: active.payload,
         returningToBase: active.returningToBase,
         assignedIncidentId: active.assignedIncidentId,
@@ -661,10 +661,16 @@ const INTERSECTION_CLEAR_ZONE = 8;
 intersectionManager.setCanEnterProbe((follower, info) => {
   return !followers.some(other => {
     if (other.follower === follower) return false;
-    if (other.follower.path !== follower.path) return false;
-    let ds = other.follower.s - info.s;
-    if (follower.path.closed && ds < 0) ds += follower.path.length;
-    return ds > 0 && ds < INTERSECTION_CLEAR_ZONE;
+    if (other.follower.path === follower.path) {
+      let ds = other.follower.s - info.s;
+      if (follower.path.closed && ds < 0) ds += follower.path.length;
+      if (ds > 0 && ds < INTERSECTION_CLEAR_ZONE) return true;
+    }
+    const phase = intersectionManager.getFollowerPhase(other.follower);
+    if (phase !== 'entering' && phase !== 'crossing') return false;
+    other.object.updateMatrixWorld(true);
+    const pos = other.object.getWorldPosition(tmpFollowerWorld);
+    return Math.hypot(pos.x - info.pos.x, pos.z - info.pos.z) < INTERSECTION_CLEAR_ZONE;
   });
 });
 
@@ -710,16 +716,18 @@ function rebuildPath2Ds() {
     const last = pts[pts.length - 1];
     const isClosed = Math.hypot(first.x - last.x, first.z - last.z) < hm.scale * 1.5;
     const path = new Path2D(pts, { closed: isClosed });
-    const interMap = new Map<number, IntersectionInfo>();
+    const occurrences: IntersectionInfo[] = [];
     for (const idx of components) {
       const list = rawIntersections[idx] || [];
       for (const inter of list) {
-        if (interMap.has(inter.id)) continue;
-        const proj = path.project({ x: inter.pos.x, z: inter.pos.z });
-        interMap.set(inter.id, { id: inter.id, s: proj.s, pos: { x: inter.pos.x, z: inter.pos.z } });
+        const projections = path.projectAll({ x: inter.pos.x, z: inter.pos.z }, hm.scale * 0.35);
+        for (const projection of projections) {
+          if (occurrences.some((entry) => entry.id === inter.id && Math.abs(entry.s - projection.s) <= 1e-3)) continue;
+          occurrences.push({ id: inter.id, s: projection.s, pos: { x: inter.pos.x, z: inter.pos.z } });
+        }
       }
     }
-    const ordered = Array.from(interMap.values()).sort((a, b) => a.s - b.s);
+    const ordered = occurrences.sort((a, b) => a.s - b.s);
     newPaths.push(path);
     newIntersections.push(ordered);
   }
@@ -805,6 +813,7 @@ function spawnFollowerOnPath(p: Path2D, startS: number, vehicleType: VManagerVeh
   obj.add(mesh);
   scene.add(obj);
   const follower = new PathFollower(p, hm, obj, startS);
+  if (!isOffroadOrderType(vehicleType)) follower.laneOffset = Math.min(0.35, hm.scale * 0.3);
   follower.setSpacingMode(spacingMode);
   obj.updateMatrixWorld(true);
   const id = followerIdCounter++;
@@ -843,6 +852,28 @@ function spawnFollowersOnAllPaths(civiliansPerPath = 3) {
       spawnFollowerOnPath(p, (p.length / fleet.length) * k, fleet[k]);
     }
   }
+}
+
+function setupTrafficScenario() {
+  clearRoadNetwork();
+  roadPaths = [
+    [{ x: 16, z: 64 }, { x: 112, z: 64 }],
+    [{ x: 64, z: 16 }, { x: 64, z: 112 }],
+  ];
+  applyRoadPaths();
+  clearFollowers();
+  if (path2ds.length !== 2 || pathIntersections.some((entries) => entries.length !== 1)) return false;
+
+  for (let pathIndex = 0; pathIndex < path2ds.length; pathIndex++) {
+    const path = path2ds[pathIndex];
+    const stopS = pathIntersections[pathIndex][0].s;
+    for (const offset of [5, 12]) {
+      spawnFollowerOnPath(path, Math.max(0, stopS - offset), VManagerVehicleType.CAR);
+      followers[followers.length - 1].follower.v = 6;
+    }
+  }
+  orbit.focus(64.5, 64.5, 18, 24);
+  return true;
 }
 function reseedRoadsAndVehicles(count = 2) {
   seedProceduralRoads(count);
@@ -1151,7 +1182,24 @@ reseedRoadsAndVehicles(2);
 
 function buildGameState() {
   const selected = selection.getSelected() as (FollowerEntry & { id?: number }) | null;
+  const traffic = intersectionManager.getSnapshot();
+  const trafficByFollower = new Map(traffic.followers.map((state) => [state.id, state]));
   const roadTileCount = roadMask.mask.reduce((sum, cell) => sum + cell, 0);
+  let minimumFollowerGap: number | null = null;
+  for (const path of path2ds) {
+    const onPath = followers
+      .filter((entry) => entry.follower.path === path && !isOffroadOrderType(entry.type))
+      .map((entry) => entry.follower.s)
+      .sort((a, b) => a - b);
+    for (let i = 1; i < onPath.length; i++) {
+      const gap = onPath[i] - onPath[i - 1];
+      minimumFollowerGap = minimumFollowerGap == null ? gap : Math.min(minimumFollowerGap, gap);
+    }
+    if (path.closed && onPath.length > 1) {
+      const seamGap = onPath[0] + path.length - onPath[onPath.length - 1];
+      minimumFollowerGap = minimumFollowerGap == null ? seamGap : Math.min(minimumFollowerGap, seamGap);
+    }
+  }
   const activeFireTiles: Array<{
     x: number;
     z: number;
@@ -1205,6 +1253,8 @@ function buildGameState() {
       pathCount: roadPaths.length,
       networkCount: path2ds.length,
       tileCount: roadTileCount,
+      intersectionCount: traffic.intersections.length,
+      intersections: traffic.intersections,
       pendingEndpoints: roadEndpoints.map((p) => ({ x: p.x, z: p.z })),
     },
     hydrants: {
@@ -1226,12 +1276,13 @@ function buildGameState() {
     vehicles: {
       selectedId: selected?.id ?? null,
       count: followers.length,
+      minimumFollowerGap: minimumFollowerGap == null ? null : Number(minimumFollowerGap.toFixed(2)),
       followers: followers.slice(0, 24).map((entry) => {
         entry.object.updateMatrixWorld(true);
         const pos = entry.object.getWorldPosition(new Vector3());
         return {
           id: entry.id,
-          type: String(VManagerVehicleType[entry.type] ?? entry.type).toLowerCase(),
+          type: String(entry.type).toLowerCase(),
           style: entry.style,
           color: entry.color,
           x: Number(pos.x.toFixed(2)),
@@ -1240,6 +1291,8 @@ function buildGameState() {
           pathLength: Number(entry.follower.path.length.toFixed(2)),
           s: Number(entry.follower.s.toFixed(2)),
           speed: Number(entry.follower.v.toFixed(2)),
+          trafficPhase: trafficByFollower.get(entry.id)?.phase ?? 'cruising',
+          intersectionId: trafficByFollower.get(entry.id)?.intersectionId ?? null,
           busy: entry.busy,
           returningToBase: entry.returningToBase,
           assignedIncidentId: entry.assignedIncidentId,
@@ -1313,6 +1366,7 @@ window.__wildfireTestApi = {
   },
   addRoad: (ax, az, bx, bz) => buildRoadBetween({ x: ax, z: az }, { x: bx, z: bz }),
   clearRoads: () => clearRoadNetwork(),
+  setupTrafficScenario,
   spawnVehicle: (type = 'generic') => {
     rebuildPath2Ds();
     if (!path2ds.length) return false;
@@ -1351,6 +1405,7 @@ window.__wildfireTestApi = {
     const entry = followers.find((f) => f.id === id);
     if (!entry) return false;
     selection.select(entry as unknown as FollowerEntry);
+    dispatchPanel.update(followers.length, followers.filter((f) => f.busy).length);
     return true;
   },
   orderFollowerTo: (id, x, z) => {
@@ -1397,6 +1452,7 @@ window.__wildfireTestApi = {
   setAutoDispatch: (on) => {
     dispatchLoop.setAutoDispatch(on);
   },
+  canManualDispatch: (incidentId, followerId) => canManualDispatchFollower(incidentId, followerId),
   manualDispatch: (incidentId, followerId) => manualDispatchFollower(incidentId, followerId),
   loadScenario: (def = defaultContainmentScenario) => {
     activeScenario = createScenarioRunner(def);
@@ -1438,6 +1494,10 @@ window.__wildfireTestApi = {
     })),
   }),
 };
+
+if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
+  setupTrafficScenario();
+}
 
 // Click to ignite under cursor
 {
@@ -1528,6 +1588,7 @@ window.__wildfireTestApi = {
       const hitFollower = findFollowerHit(ray, followers as FollowerEntry[]);
       if (hitFollower) {
         selection.select(hitFollower);
+        dispatchPanel.update(followers.length, followers.filter((f) => f.busy).length);
         return;
       }
       const selected = selection.getSelected();

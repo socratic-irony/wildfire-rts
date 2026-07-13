@@ -46,6 +46,7 @@ export class PathFollower {
   aLatMax = 5; vMaxClamp = 10; arriveDist = 6;
   minMovingSpeed = 0.6;
   laneOffset = 0;
+  roadSurfaceOffset: number;
   minGap = 2.0; timeHeadway = 1.0; // following gaps
   spacingMode: 'hybrid' | 'gap' | 'time' = 'hybrid';
   // smoothing
@@ -56,6 +57,7 @@ export class PathFollower {
 
   constructor(path: Path2D, hm: Heightmap, object: Object3D, s0 = 0) {
     this.path = path; this.hm = hm; this.object = object; this.s = s0;
+    this.roadSurfaceOffset = Math.max(0.38, hm.scale * 0.38);
     this.snapToPath();
   }
 
@@ -93,7 +95,7 @@ export class PathFollower {
     const n = terrainNormal(this.hm, p.x, p.z);
     const frame = this.groundFrame(t, n);
     const lane = frame.r.clone().multiplyScalar(this.laneOffset);
-    const pos = new Vector3(p.x, y, p.z).add(lane);
+    const pos = new Vector3(p.x, y, p.z).addScaledVector(n, this.roadSurfaceOffset).add(lane);
     const m = new Matrix4().makeBasis(frame.r, n, frame.t);
     this.object.matrix.copy(m);
     this.object.matrix.setPosition(pos);
@@ -239,7 +241,7 @@ export class PathFollower {
     const n = terrainNormal(this.hm, p.x, p.z);
     const frame = this.groundFrame(t, n);
     const lane = _lane.copy(frame.r).multiplyScalar(this.laneOffset);
-    const newPos = _newPos.set(p.x, y, p.z).add(lane);
+    const newPos = _newPos.set(p.x, y, p.z).addScaledVector(n, this.roadSurfaceOffset).add(lane);
     const m = _m.makeBasis(frame.r, n, frame.t);
     // rotate around Y by a bounded amount toward headingErr
     const turnGain = 2.2;

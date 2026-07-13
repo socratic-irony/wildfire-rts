@@ -41,13 +41,15 @@ Repository Topology
   - `cost.ts`: per-tile elevation/slope/valley fields for road A* cost.
   - `astar.ts`: grid A* (4/8-neigh), cost callback, with diag support.
   - `planner.ts`: shared player/testbed road planner combining terrain cost, slope blocking, grade penalty, curvature penalty, 4-neighbor A*, and angular path reduction.
-  - `visual.ts`: smoothed ribbon mesh (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe. Triangle lattice/midline diagnostics are hidden by default and exposed only through debug controls.
+  - `visual.ts`: one depth-tested smoothed asphalt ribbon (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe, and stable physical-intersection metadata. Duplicate segment hits merge by position, self-crossings retain both path arc occurrences under one intersection ID, and simple endpoint joins are excluded. Triangle lattice/midline diagnostics are hidden by default and exposed only through debug controls.
   - `procedural.ts`: procedural loop generator (oval/figure-8/rectangle) for boot/regenerate seeding.
   - `state.ts`: rasterization of road paths to a road mask; integration hooks (e.g., fire grid fuel adjustments).
 - Vehicles: `src/vehicles/vehicles.ts`: instanced agents with road and air pathing, terrain-aligned pose, and fire-suppression hooks.
   - `src/vehicles/types.ts`: shared vehicle enums + FX state types.
   - `src/vehicles/vehicleFx.ts`: particle/light FX helpers for vehicles and external emitters.
   - `src/vehicles/followerOrders.ts`: selection + order utilities for Frenet followers (including off-road bulldozer orders).
+  - `src/vehicles/intersectionManager.ts`: authoritative all-way-stop controller for visible Frenet followers; batch approach/queue/grant arbitration, full-stop timing, exclusive occupancy, closed-loop-safe clearance, spillback probe, and telemetry.
+  - `src/vehicles/trafficSpacing.ts`: assigns same-path leaders including the virtual closed-loop seam leader.
   - `src/vehicles/menubarMapping.ts`: UI type mapping for spawn commands.
 - **Fire Hydrants (HIGH PRIORITY)**: `src/fire/hydrants.ts`: automatic placement along roads (50m spacing, 100+ tiles min), coverage areas (~10m), integration with suppression system to enable firefighter deployment from road tiles within coverage.
 - UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/menubar.ts` owns the primary toolbar and detailed debug controls, including road lattice diagnostics and optional hydrant coverage rings. `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
@@ -83,13 +85,14 @@ Key Abstractions & Data
   - FireViz: overlay instances and vertex tint; perimeter overlay hugging terrain; analytics via `computePerimeter` + `computeFireStats`.
 - Roads
   - CostField/planner: elevation/slope/valley; slope-block threshold; grade and curvature penalties live in `src/roads/planner.ts` so the main game and vehicle testbed share identical player-road planning.
-  - Visual: Catmull–Rom smoothed midlines resampled to uniform spacing (~2 tile asphalt width) with 3-lane cross-section; normal-offset plus depth-test-disabled, double-sided filled meshes so roads sit visibly above terrain from RTS camera angles; dusty shoulders blended back into terrain; dashed center stripe polygon-offset above the surface. Optional diagnostic wireframe and midline render under a hidden-by-default debug group.
+  - Visual: Catmull–Rom smoothed midlines resampled to uniform spacing (~2 tile asphalt width) with a 3-column cross-section; one normal-offset, depth-tested, double-sided asphalt mesh so terrain and vehicles occlude it correctly; dusty shoulders blended back into terrain; dashed center stripe polygon-offset above the surface. The production group must not stack a second filled baseline ribbon because the separation reads as variable road thickness on hills. Optional diagnostic wireframe and midline render under a hidden-by-default debug group.
   - Mask: `Uint8Array` marking road tiles; consumed by vehicles pathing and fire integration.
   - Procedural: road loops are generated in tile space on boot/regenerate and re-projected onto the current heightmap via `RoadsVisual`.
 - Vehicles
   - Agent: `{ pos, grid, path[], pathIdx, speedTilesPerSec, autoFollowRoad, prev? }`.
   - Movement: interpolate along grid path; altitude from heightmap; orientation from terrain normal + path direction.
   - Pathing: A* restricted to road tiles; auto-follow advances along connected road neighbors.
+  - Visible Frenet traffic: `Path2D` centerline motion with right-side lane offset and terrain-normal road clearance; `IntersectionManager` owns traffic phase and grants. Cars currently continue on their assigned centerline at crossings rather than switching directed edges.
 - **Fire Hydrants (HIGH PRIORITY)**
   - System: `{ hydrants[], roadMask, minSpacingTiles, idealSpacingTiles }` with automatic placement and coverage calculation.
   - Placement: Auto-spawn every ~50m along roads with 100+ tile minimum spacing; dynamic updates on road changes.
@@ -134,6 +137,7 @@ Testing Strategy (planned)
   - FireSim tick transitions and ignition probabilities (deterministic seeds).
   - A* path validity and slope/turn costs.
 - Browser audits use `render_game_to_text`, `advanceTime`, and `__wildfireTestApi` to verify live feature claims such as road placement, hydrant regeneration, vehicle spawning/dispatch, and suppression outcomes against the rendered scene.
+- The `traffic-intersection` browser scenario creates two crossing roads and four cars, then verifies queue formation, deterministic all-way-stop service, exclusive occupancy, minimum spacing, non-overlap, progress, drained queues, and error-free WebGL rendering while capturing visible stopped-car contention.
 - `npm run audit:game` is the current end-to-end browser verification entry point and should be rerun after changes that touch movement, UI actions, dispatch, or fire suppression flows.
 - Headless update tests to validate determinism (e.g., same perimeter length after N ticks).
 
@@ -154,8 +158,8 @@ LLM Orientation Checklist
 Open Opportunities / Next Items
 
 - Fire: edge-based line strength; crown behavior; UI paint tools; wire stats into UI.
-- Roads: adaptive planning using curvature + slope fields; optional lane metadata; intersections routing.
-- Vehicles: safe road midline projector with spatial index; yaw smoothing; spacing/collision; speed model by grade/curvature.
+- Roads: directed lane graph, road-class metadata, turn splines, and cross-component intersection routing.
+- Vehicles: turn selection across the future lane graph; compatible conflict-zone tokens/signals; retirement of the deprecated grid traffic stack.
 - (v2.0+) Scenario persistence (save/load) – out of scope for current milestone.
 - Telemetry: per-subsystem timings in stats overlay; debug draws (normals, probability arrows).
 

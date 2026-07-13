@@ -2,9 +2,12 @@ Intersection Logic Spec (Vehicles on Procedural Roads)
 
 Status
 
-- ✅ Implemented in `VehiclesManager`: four-way-stop intersection queues, per-node occupant tracking, and stop-time gating for grid-follow vehicles
-- ⏳ Pending integration for Frenet `PathFollower` vehicles; share queue tokens and spillback checks across both controllers before expanding to priority or reservation systems
-- Refer to `docs/vehicles/dual_architecture.md` for how intersection data currently stays inside the instanced manager layer
+- ✅ Visible Frenet `PathFollower` vehicles use `IntersectionManager` for deterministic all-way-stop approach, queue, grant, occupancy, crossing, and clearance phases
+- ✅ Closed-loop-safe approach math controls both occurrences of a self-crossing figure-eight; simple shared endpoints are not misclassified as controlled intersections
+- ✅ Batch arbitration uses full-stop time then follower ID, so simultaneous arrivals are independent of per-frame update order
+- ✅ Braking-envelope speed caps, minimum full-stop time, same-path headway, closed-loop seam spacing, and outbound spillback probes are active
+- ✅ `render_game_to_text`/`__wildfireTestApi` expose queues, occupants, phases, and minimum path gap; the Playwright `traffic-intersection` scenario verifies four-car fairness and clearance
+- ⏳ Directed lane-graph routing and turn selection remain future work; followers currently continue on their assigned centerline through crossings
 
 0) Goals
 	•	No collisions, no deadlocks, no jitter.
@@ -301,6 +304,10 @@ function tickIntersection(dt: number) {
 ⸻
 
 12) Testing Scenarios (Acceptance)
+
+Current automated coverage (2026-07-12):
+	• Unit: closed-loop approach, simultaneous-arrival tie break, blocked exit, clearance release, braking envelope, both self-crossing approaches, and loop-seam leader assignment.
+	• Browser: deterministic two-road/four-car contention records queue formation, exclusive occupancy, service of all four IDs, ≥1.9 m same-path gap, physical non-overlap, drained queue, finite transforms, and progress through the crossing.
 	1.	Single 4-way, light traffic: no collisions; FIFO fairness; vehicles come to full stop then go in order.
 	2.	Simultaneous arrivals on all four approaches: correct tie-break sequence; no deadlock.
 	3.	Left vs through vs right: right turns yield correctly only when conflicting; otherwise pass quickly.
@@ -311,6 +318,8 @@ function tickIntersection(dt: number) {
 ⸻
 
 13) Implementation Order
+
+The current controller implements an exclusive-occupancy all-way-stop subset across steps 1–3. Directed movement splines, conflict matrices/tokens, and turn routing remain deferred with the lane graph; step 4+ remains optional future capacity work.
 	1.	Geometry & data: stop lines, movement splines, conflict matrix (or zones).
 	2.	Vehicle state machine around nodes; spillback check.
 	3.	All-way stop manager with deterministic ordering.

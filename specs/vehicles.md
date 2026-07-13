@@ -12,10 +12,12 @@
 - Bulldozers (yellow) can accept off-road move orders; firetrucks (red) remain road-only
 - **Voxel mesh overhaul + civilian traffic (2026-06-09)**: multi-part voxel builds for every type in `voxelMeshes.ts` (light bar + railed ladder on the firetruck, dozer tracks, spinning `mainRotor` heli group, tanker wings/nacelles, firefighter figure). Civilians come in four styles (sedan, pickup, van, hatchback) with a seeded 8-color palette; boot fleet is 1 firetruck + 1 bulldozer + 3 civilians per road loop. Covered by `civilian-traffic` audit scenario and mesh unit tests.
 - **Aircraft roles (2026-06-09)**: helicopters and airplanes are spawnable followers that fly directly to any target at cruise altitude (10 m / 16 m) via the airborne branch in `followerOrders.ts`; helicopters drop water, airplanes drop a retardant line along their flight direction plus a cooling water component. Firefighters walk off-road at type speed. Dispatch assignment is routeability-aware (`canService` in `dispatch/cost.ts`) so off-road fires go to aircraft instead of starving on an unroutable truck. Covered by the `aircraft-drops` audit scenario.
+- **Road traffic reliability (2026-07-12)**: visible Frenet followers now share deterministic batch intersection arbitration, closed-loop seam spacing, braking-distance approach caps, full-stop FIFO queues, occupant/clearance gating, and spillback checks. Vehicles ride above one depth-tested asphalt ribbon and render after its overlays; stopped/creeping vehicles show an above-road gold yield ring. Covered by focused unit tests and the `traffic-intersection` browser audit.
 
 ### ⏳ Outstanding
-- Share intersection/spacing logic with `PathFollower` controllers and reconcile duplicate movement stacks
-- Reintroduce robust road-midline projection with spatial indexing and curvature-aware steering
+- Replace assigned-centerline traversal with a directed lane graph so vehicles can choose left/through/right movements and route between road components
+- Reconcile or retire the deprecated grid-agent traffic stack in `VehiclesManager`; the player-visible Frenet stack is authoritative
+- Expand intersection control with compatible movement/conflict tokens, signals, or priority roads if higher throughput is needed
 - Expand geometry/visual polish for helicopter/airplane/firefighter models and siren/lighting fidelity
 
 > See `docs/vehicles/dual_architecture.md` for how the Frenet followers and `VehiclesManager` exchange FX data.
@@ -38,7 +40,8 @@
 - Instanced vehicles with grid-follow fallback constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction)
 - Auto-seeded procedural road loops at startup/regenerate plus menubar hooks to spawn/clear vehicles; fewer default spawns (1 per road)
 - Four-way-stop intersection management to avoid collisions
-- Road visuals: leveled tile-centred ribbon with dashed center stripe, dusty shoulders that blend into terrain, polygon offset to avoid z-fighting
+- Stable physical crossing metadata: duplicate segment hits merge into one intersection ID, self-crossings retain both arc occurrences, and simple endpoint joins are excluded
+- Road visuals: one depth-tested, terrain-hugging ribbon with dashed center stripe, dusty shoulders that blend into terrain, and polygon offset to avoid z-fighting
 - Road building: cost field includes aggressive slope/grade penalties with hard blocks for steep tiles; turn penalty biases A* to reduce sharp curves and favour straight, level alignments
 - Unit tests cover road A* pathfinding, terrain cost normalization, and vehicle ability plumbing
 
@@ -107,11 +110,12 @@ Movement & Orientation
   - Up vector = terrain normal at (x, z); aircraft use world up.
   - Forward = direction from current path segment (grid neighbor delta).
   - Right = cross(forward, up); forward reprojected to terrain plane.
+  - Visible road followers use a terrain-normal surface offset above the raised asphalt plus a small right-side lane offset, preventing road overlays from hiding vehicle bodies.
 
 Roads (Visual + Mask)
 
 - Visual
-  - Angular ribbon aligned to tile centres, 3-column cross-section (L/M/R) without curve smoothing.
+  - One Catmull–Rom-smoothed, depth-tested asphalt ribbon with a 3-column cross-section (L/M/R); diagnostics never add another filled production surface.
   - Shoulders: translucent dusty bands outside road.
   - Center stripe: dashed gray quads along midline.
   - Vertices offset along terrain normal; polygon offset to avoid z-fighting.
@@ -139,7 +143,8 @@ Performance Targets
 
 ## Outstanding Focus Areas
 
-- PathFollower vehicles do not yet consume the `VehiclesManager` intersection queues; share gating logic so both controllers obey the same four-way-stop rules.
+- Directed lane-graph routing and explicit left/through/right turn splines are not yet implemented; current followers stay on their assigned centerline.
+- The deprecated grid-agent `VehiclesManager` still has its own internal intersection fields; visible gameplay traffic uses `IntersectionManager` and should remain authoritative until the grid layer is retired.
 - Reintroduce road-midline projection with spatial indexing to keep followers pinned to centerlines and smooth yaw through tight curves.
 - Expand the speed model to factor in grade, curvature, and road class, and add lane/offset support for wider roads.
 - Improve collision spacing for long convoys (lane-based offsets, platooning heuristics) beyond the current leader-follow spacing.

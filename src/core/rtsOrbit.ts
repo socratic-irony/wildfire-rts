@@ -64,6 +64,13 @@ export class RTSOrbitCamera {
     this.inputLockCheck = checkFn;
   }
 
+  /** Recenter and frame a world-space point (used by scenario presentation and debug tools). */
+  public focus(x: number, z: number, distance = this.distance, altitude = this.altitude) {
+    this.distance = Math.max(this.minDist, Math.min(this.maxDist, distance));
+    this.altitude = Math.max(2, Math.min(400, altitude));
+    this.setPivot(x, z);
+  }
+
   // Check if mouse input should be locked (e.g., during painting operations)
   private isInputLocked(): boolean {
     return this.inputLockCheck ? this.inputLockCheck() : false;

@@ -39,11 +39,10 @@ type ClosestHit = {
 
 export class RoadsVisual {
   public group = new Group();
-  private mat = new MeshStandardMaterial({ color: 0x1b1f24, roughness: 0.95, metalness: 0.05, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: true, depthTest: false, side: DoubleSide });
-  private shoulderMat = new MeshBasicMaterial({ color: 0x7a6247, transparent: true, opacity: 0.38, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, side: DoubleSide });
-  private stripeMat = new MeshBasicMaterial({ color: 0xf5f5f5, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, vertexColors: false, side: DoubleSide });
+  private mat = new MeshStandardMaterial({ color: 0x1b1f24, roughness: 0.95, metalness: 0.05, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: true, depthTest: true, side: DoubleSide });
+  private shoulderMat = new MeshBasicMaterial({ color: 0x7a6247, transparent: true, opacity: 0.38, depthWrite: false, depthTest: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, side: DoubleSide });
+  private stripeMat = new MeshBasicMaterial({ color: 0xf5f5f5, transparent: false, opacity: 1.0, depthWrite: false, depthTest: true, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, vertexColors: false, side: DoubleSide });
   private debugLineMat = new LineBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.75, depthWrite: false, depthTest: false });
-  private simpleMat = new MeshBasicMaterial({ color: 0x2f353d, transparent: false, opacity: 1.0, depthWrite: false, depthTest: false, side: DoubleSide });
   private debugRibbonMat = new MeshBasicMaterial({ color: 0x0b1a2b, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, wireframe: true });
   private yOffset: number;
   private hm: Heightmap;
@@ -161,26 +160,6 @@ export class RoadsVisual {
       this.group.add(line);
       return;
     }
-    // Simple ribbon as a reliable baseline (in case shaded ribbon blends into terrain)
-    {
-      const simpleFrames = computeSimpleFrames(mid, this.hm, closed);
-      const simpleWidth = Math.max(width * 0.9, this.hm.scale * 1.2);
-      const { positions, colors, indices } = buildRibbonStrip(simpleFrames, simpleWidth, this.yOffset * 1.45, closed);
-      const geo = new BufferGeometry();
-      geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
-      if (colors.length) geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
-      geo.setIndex(indices);
-      const mesh = new Mesh(geo, this.simpleMat);
-      mesh.renderOrder = 9;
-      mesh.frustumCulled = false;
-      this.group.add(mesh);
-
-      const debugGeo = geo.clone();
-      const debugMesh = new Mesh(debugGeo, this.debugRibbonMat);
-      debugMesh.renderOrder = 11;
-      debugMesh.frustumCulled = false;
-      this.diagnosticsGroup.add(debugMesh);
-    }
     this.frames[pathIndex] = frames;
     // Build cumulative s for this path
     const cum: number[] = []; let accS = 0;
@@ -208,9 +187,16 @@ export class RoadsVisual {
       geo.setIndex(indices);
       geo.computeVertexNormals();
       const mesh = new Mesh(geo, this.mat);
+      mesh.name = 'road-surface';
       mesh.renderOrder = 6;
       mesh.receiveShadow = true;
       this.group.add(mesh);
+
+      const debugMesh = new Mesh(geo.clone(), this.debugRibbonMat);
+      debugMesh.name = 'road-surface-diagnostic';
+      debugMesh.renderOrder = 11;
+      debugMesh.frustumCulled = false;
+      this.diagnosticsGroup.add(debugMesh);
     }
     // Shoulders: faint dusty brown bands outside the road
     {
@@ -221,6 +207,7 @@ export class RoadsVisual {
       geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
       geo.setIndex(indices);
       const mesh = new Mesh(geo, this.shoulderMat);
+      mesh.name = 'road-shoulders';
       mesh.renderOrder = 7;
       this.group.add(mesh);
     }
@@ -232,6 +219,7 @@ export class RoadsVisual {
       const stripeYOffset = this.yOffset + Math.max(0.02, 0.04 * scale);
       const geo = buildCenterDashed(frames, stripeWidth, dash, gap, stripeYOffset, closed);
       const mesh = new Mesh(geo, this.stripeMat);
+      mesh.name = 'road-center-stripe';
       mesh.renderOrder = 8;
       this.group.add(mesh);
     }
@@ -283,13 +271,27 @@ export class RoadsVisual {
     this.intersections = [];
     this.perPathIntersections = this.perPathIntersections.map(() => []);
     const segsAtCell = (x: number, z: number) => this.grid[z * W + x];
+    const occurrenceEps = Math.max(0.05, scale * 0.15);
+    const addOccurrence = (path: number, id: number, s: number, pos: Vector2, otherPath: number, otherS: number) => {
+      const list = this.perPathIntersections[path];
+      if (list.some((entry) => entry.id === id && Math.abs(entry.s - s) <= occurrenceEps)) return;
+      list.push({ id, s, pos: pos.clone(), otherPath, otherS });
+    };
     const addInt = (pos: Vector2, A: typeof this.segs[number], tA: number, B: typeof this.segs[number], tB: number) => {
       const sA = this.cumS[A.path][A.i] + tA * A.len;
       const sB = this.cumS[B.path][B.i] + tB * B.len;
-      const id = this.intersections.length;
-      this.intersections.push({ id, pos: new Vector2(pos.x, pos.y), a: { path: A.path, s: sA, seg: A.i, t: tA }, b: { path: B.path, s: sB, seg: B.i, t: tB } });
-      this.perPathIntersections[A.path].push({ id, s: sA, pos: new Vector2(pos.x, pos.y), otherPath: B.path, otherS: sB });
-      this.perPathIntersections[B.path].push({ id, s: sB, pos: new Vector2(pos.x, pos.y), otherPath: A.path, otherS: sA });
+      if (A.path === B.path && this.closedFlags[A.path]) {
+        const pathLength = this.cumS[A.path][this.cumS[A.path].length - 1] || 0;
+        const separation = Math.abs(sA - sB);
+        if (Math.min(separation, Math.max(0, pathLength - separation)) <= occurrenceEps) return;
+      }
+      const existing = this.intersections.find((entry) => entry.pos.distanceTo(pos) <= occurrenceEps);
+      const id = existing?.id ?? this.intersections.length;
+      if (!existing) {
+        this.intersections.push({ id, pos: pos.clone(), a: { path: A.path, s: sA, seg: A.i, t: tA }, b: { path: B.path, s: sB, seg: B.i, t: tB } });
+      }
+      addOccurrence(A.path, id, sA, pos, B.path, sB);
+      addOccurrence(B.path, id, sB, pos, A.path, sA);
     };
     const segSeg = (a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2) => {
       const ax = a2.x - a1.x, az = a2.y - a1.y;
@@ -317,7 +319,13 @@ export class RoadsVisual {
             const key = ai < bi ? `${ai}-${bi}` : `${bi}-${ai}`;
             if (seen.has(key)) continue; seen.add(key);
             const res = segSeg(A.a, A.b, B.a, B.b);
-            if (res) addInt(new Vector2(res.x, res.y), A, res.ua, B, res.ub);
+            if (res) {
+              const lastSegA = (this.closedFlags[A.path] ? this.paths[A.path].length : this.paths[A.path].length - 1) - 1;
+              const lastSegB = (this.closedFlags[B.path] ? this.paths[B.path].length : this.paths[B.path].length - 1) - 1;
+              const atPathEndA = !this.closedFlags[A.path] && ((A.i === 0 && res.ua <= 1e-5) || (A.i === lastSegA && res.ua >= 1 - 1e-5));
+              const atPathEndB = !this.closedFlags[B.path] && ((B.i === 0 && res.ub <= 1e-5) || (B.i === lastSegB && res.ub >= 1 - 1e-5));
+              if (!(atPathEndA && atPathEndB)) addInt(new Vector2(res.x, res.y), A, res.ua, B, res.ub);
+            }
           }
         }
       }
@@ -804,35 +812,6 @@ function computeRoadFrames(path: Vector2[], _width: number, hm: Heightmap, close
       tangent: tangent.clone(),
       terrainNormal,
       rawHeight: rawHeights[i],
-    });
-  }
-  return frames;
-}
-
-function computeSimpleFrames(path: Vector2[], hm: Heightmap, closed: boolean): RoadFrame[] {
-  const N = path.length;
-  if (N === 0) return [];
-  const centers = path.map((p) => new Vector3(p.x, hm.sample(p.x, p.y), p.y));
-  const frames: RoadFrame[] = [];
-  for (let i = 0; i < N; i++) {
-    const prevIdx = closed ? (i - 1 + N) % N : Math.max(0, i - 1);
-    const nextIdx = closed ? (i + 1) % N : Math.min(N - 1, i + 1);
-    const prev = centers[prevIdx];
-    const next = centers[nextIdx];
-    const tangent = next.clone().sub(prev);
-    if (tangent.lengthSq() < 1e-6) tangent.set(1, 0, 0);
-    tangent.normalize();
-    const up = WORLD_UP.clone();
-    let left = new Vector3().crossVectors(up, tangent);
-    if (left.lengthSq() < 1e-6) left.set(-tangent.z, 0, tangent.x);
-    left.normalize();
-    frames.push({
-      center: centers[i],
-      up,
-      left,
-      tangent: tangent.clone(),
-      terrainNormal: up.clone(),
-      rawHeight: centers[i].y,
     });
   }
   return frames;

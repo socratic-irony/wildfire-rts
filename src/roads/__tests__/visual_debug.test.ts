@@ -72,4 +72,25 @@ describe('RoadsVisual debug diagnostics', () => {
       return material.side === DoubleSide;
     })).toBe(true);
   });
+
+  it('renders exactly one depth-tested production road surface', () => {
+    const hm = generateHeightmap(16, 16, 1, { seed: 'flat', frequency: 0, amplitude: 0, octaves: 1, persistence: 1 });
+    const roads = new RoadsVisual(hm);
+
+    roads.addPath([
+      { x: 2, z: 2 },
+      { x: 12, z: 2 },
+      { x: 12, z: 10 },
+    ]);
+
+    const surfaces: Mesh[] = [];
+    roads.group.traverse((child) => {
+      if (child instanceof Mesh && child.name === 'road-surface') surfaces.push(child);
+    });
+
+    expect(surfaces).toHaveLength(1);
+    const material = Array.isArray(surfaces[0].material) ? surfaces[0].material[0] : surfaces[0].material;
+    expect(material.depthTest).toBe(true);
+    expect(material.depthWrite).toBe(true);
+  });
 });

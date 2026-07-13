@@ -3,6 +3,27 @@ import type { Heightmap } from '../terrain/heightmap';
 import type { FireGrid } from '../fire/grid';
 import { computePerimeter } from '../fire/perimeter';
 
+type RibbonShader = {
+  uniforms: Record<string, { value: number }>;
+  vertexShader: string;
+  fragmentShader: string;
+};
+
+export function patchRibbonShader(shader: RibbonShader, speed = 0.35) {
+  shader.uniforms.uTime = { value: 0 };
+  shader.uniforms.uSpeed = { value: speed };
+  shader.vertexShader = `uniform float uTime;\nuniform float uSpeed;\nvarying vec2 vRibbonUv;\n${shader.vertexShader}`
+    .replace(
+      '#include <uv_vertex>',
+      '#include <uv_vertex>\nvRibbonUv = uv;\nvRibbonUv.x += uTime * uSpeed;',
+    );
+  shader.fragmentShader = `varying vec2 vRibbonUv;\n${shader.fragmentShader}`
+    .replace(
+      '#include <output_fragment>',
+      '#include <output_fragment>\nfloat band = abs(fract(vRibbonUv.x) - 0.5);\nfloat flame = smoothstep(0.45, 0.0, band);\ngl_FragColor.rgb *= (0.7 + 0.3 * flame);\ngl_FragColor.a *= (0.5 + 0.5 * flame);',
+    );
+}
+
 export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset?: number; speed?: number; opacity?: number; visible?: boolean }) {
   let widthW = (opts?.width ?? 0.45) * hm.scale; // world-space width
   const yOff = opts?.yOffset ?? 0.1;
@@ -88,16 +109,7 @@ export function createFireRibbon(hm: Heightmap, opts?: { width?: number; yOffset
   function ensurePatched() {
     if (!(mat as any).userData._patched) {
       (mat as any).onBeforeCompile = (s: any) => {
-        s.uniforms.uTime = { value: 0 };
-        s.uniforms.uSpeed = { value: opts?.speed ?? 0.35 };
-        s.vertexShader = s.vertexShader.replace(
-          '#include <uv_vertex>',
-          `#include <uv_vertex>\n vUv.x += uTime * uSpeed;`
-        );
-        s.fragmentShader = s.fragmentShader.replace(
-          '#include <output_fragment>',
-          `#include <output_fragment>\n float band = abs(fract(vUv.x) - 0.5);\n float flame = smoothstep(0.45, 0.0, band);\n gl_FragColor.rgb *= (0.7 + 0.3 * flame);\n gl_FragColor.a *= (0.5 + 0.5 * flame);`
-        );
+        patchRibbonShader(s, opts?.speed ?? 0.35);
         (mat as any).userData.shader = s;
       };
       (mat as any).userData._patched = true;

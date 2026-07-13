@@ -16,7 +16,7 @@ function hydrant(x: number, z: number, active = true, coverageRadius = 5): FireH
     distanceAlongPath: 0,
     coverageRadius,
     active,
-  } as FireHydrant;
+  } as unknown as FireHydrant;
 }
 
 describe('hydrantCoverageRings', () => {

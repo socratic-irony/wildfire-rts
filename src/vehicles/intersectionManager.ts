@@ -7,48 +7,75 @@ export type IntersectionInfo = {
   pos: { x: number; z: number };
 };
 
+export type TrafficPhase = 'cruising' | 'approaching' | 'queued' | 'entering' | 'crossing';
+
+export type ControlledFollower = {
+  id: number;
+  follower: PathFollower;
+  path: Path2D;
+};
+
 type PathEntry = {
   path: Path2D;
   intersections: IntersectionInfo[];
-  lookup: Map<number, IntersectionInfo>;
 };
 
 type QueueEntry = {
+  id: number;
   follower: PathFollower;
   ready: boolean;
-  arrivalSeq?: number;
+  stoppedAt: number | null;
 };
 
 type IntersectionState = {
+  id: number;
   queue: QueueEntry[];
-  occupant?: PathFollower;
+  occupant?: { id: number; follower: PathFollower };
 };
 
 type FollowerState = {
+  id: number;
   intersectionId?: number;
+  intersection?: IntersectionInfo;
+  phase: TrafficPhase;
   waitElapsed: number;
-  hasStopped: boolean;
+};
+
+export type IntersectionSnapshot = {
+  intersections: Array<{
+    id: number;
+    queue: number[];
+    occupantId: number | null;
+  }>;
+  followers: Array<{
+    id: number;
+    intersectionId: number | null;
+    phase: TrafficPhase;
+    waitElapsed: number;
+  }>;
 };
 
 export class IntersectionManager {
   private pathEntries = new Map<Path2D, PathEntry>();
   private intersectionStates = new Map<number, IntersectionState>();
   private followerStates: WeakMap<PathFollower, FollowerState> = new WeakMap();
-  private arrivalCounter = 0;
+  private trackedFollowers = new Set<PathFollower>();
+  private legacyIds: WeakMap<PathFollower, number> = new WeakMap();
+  private nextLegacyId = 1_000_000;
+  private time = 0;
   private canEnterProbe?: (follower: PathFollower, info: IntersectionInfo) => boolean;
 
-  // Tuning constants (meters / seconds)
-  private approachDistance = 10;
-  private stopDistance = 1.5;
-  private clearDistance = 4;
-  private minStopTime = 1.0;
-  private stopSpeedThreshold = 0.18;
-  private approachMaxSpeed = 6;
-  private creepSpeed = 0.6;
-  private crossingSpeed = 4;
+  // Tuning constants (world meters / seconds).
+  private readonly approachDistance = 12;
+  private readonly stopDistance = 1.5;
+  private readonly stopTolerance = 0.25;
+  private readonly clearDistance = 4;
+  private readonly minStopTime = 1;
+  private readonly stopSpeedThreshold = 0.18;
+  private readonly approachMaxSpeed = 6;
+  private readonly crossingSpeed = 4;
 
-  /** Set a probe function called before granting intersection entry.
-   *  Return false to block entry (e.g. exit space occupied). */
+  /** Return false to keep a ready vehicle queued (for example, spillback). */
   setCanEnterProbe(fn?: (follower: PathFollower, info: IntersectionInfo) => boolean) {
     this.canEnterProbe = fn;
   }
@@ -56,19 +83,24 @@ export class IntersectionManager {
   setPaths(entries: Array<{ path: Path2D; intersections: IntersectionInfo[] }>) {
     this.pathEntries.clear();
     this.intersectionStates.clear();
-    const seenIds = new Set<number>();
     for (const { path, intersections } of entries) {
-      const sorted = [...intersections].sort((a, b) => a.s - b.s);
-      const lookup = new Map<number, IntersectionInfo>();
-      for (const info of sorted) {
-        lookup.set(info.id, info);
-        seenIds.add(info.id);
+      const unique: IntersectionInfo[] = [];
+      for (const info of intersections) {
+        if (!unique.some((entry) => entry.id === info.id && Math.abs(entry.s - info.s) <= 1e-4)) {
+          unique.push(info);
+        }
+        if (!this.intersectionStates.has(info.id)) {
+          this.intersectionStates.set(info.id, { id: info.id, queue: [] });
+        }
       }
-      this.pathEntries.set(path, { path, intersections: sorted, lookup });
+      unique.sort((a, b) => a.s - b.s);
+      this.pathEntries.set(path, { path, intersections: unique });
     }
-    for (const id of seenIds) this.intersectionStates.set(id, { queue: [] });
     this.followerStates = new WeakMap();
-    this.arrivalCounter = 0;
+    this.trackedFollowers.clear();
+    this.legacyIds = new WeakMap();
+    this.nextLegacyId = 1_000_000;
+    this.time = 0;
   }
 
   clearFollowers() {
@@ -77,105 +109,168 @@ export class IntersectionManager {
       state.occupant = undefined;
     }
     this.followerStates = new WeakMap();
+    this.trackedFollowers.clear();
   }
 
+  /**
+   * Apply approach/queue caps to all road followers, then arbitrate grants as a
+   * batch. Batch arbitration makes simultaneous arrivals independent of array
+   * update order.
+   */
+  updateBeforeMovement(entries: ControlledFollower[], dt: number) {
+    this.time += Math.max(0, dt);
+    for (const entry of entries) this.prepareFollower(entry, dt);
+    this.resolveReadyQueues();
+  }
+
+  /** Backwards-compatible single-follower entry point used by older callers. */
   preUpdateFollower(follower: PathFollower, path: Path2D, dt: number) {
+    let id = this.legacyIds.get(follower);
+    if (id == null) {
+      id = this.nextLegacyId++;
+      this.legacyIds.set(follower, id);
+    }
+    this.updateBeforeMovement([{ id, follower, path }], dt);
+  }
+
+  postUpdateFollower(follower: PathFollower, path: Path2D) {
+    const followerState = this.followerStates.get(follower);
+    if (followerState?.intersectionId == null) return;
     const entry = this.pathEntries.get(path);
-    const followerState = this.ensureFollowerState(follower);
-    if (!entry || !entry.intersections.length) {
+    const info = entry ? followerState.intersection : undefined;
+    if (!info) {
+      this.releaseFollower(follower);
+      return;
+    }
+    const signedToIntersection = this.signedDistance(path, follower.s, info.s);
+    if (signedToIntersection <= 0) {
+      followerState.phase = 'crossing';
+      if (-signedToIntersection >= this.clearDistance) this.releaseFollower(follower);
+    }
+  }
+
+  getFollowerPhase(follower: PathFollower): TrafficPhase {
+    return this.followerStates.get(follower)?.phase ?? 'cruising';
+  }
+
+  getSnapshot(): IntersectionSnapshot {
+    const intersections = [...this.intersectionStates.values()]
+      .sort((a, b) => a.id - b.id)
+      .map((state) => ({
+        id: state.id,
+        queue: [...state.queue]
+          .sort(this.compareQueueEntries)
+          .map((entry) => entry.id),
+        occupantId: state.occupant?.id ?? null,
+      }));
+    const followers = [...this.trackedFollowers]
+      .map((follower) => this.followerStates.get(follower))
+      .filter((state): state is FollowerState => state != null)
+      .sort((a, b) => a.id - b.id)
+      .map((state) => ({
+        id: state.id,
+        intersectionId: state.intersectionId ?? null,
+        phase: state.phase,
+        waitElapsed: Number(state.waitElapsed.toFixed(3)),
+      }));
+    return { intersections, followers };
+  }
+
+  private prepareFollower(entry: ControlledFollower, dt: number) {
+    const { id, follower, path } = entry;
+    const pathEntry = this.pathEntries.get(path);
+    const followerState = this.ensureFollowerState(follower, id);
+    this.trackedFollowers.add(follower);
+    if (!pathEntry || pathEntry.intersections.length === 0 || path.length <= 0) {
       this.releaseFollower(follower);
       return;
     }
 
-    let info = followerState.intersectionId != null ? entry.lookup.get(followerState.intersectionId) : undefined;
+    let info = followerState.intersectionId == null ? undefined : followerState.intersection;
     if (!info) {
-      const next = this.findNextIntersection(entry, path, follower.s);
+      const next = this.findNextIntersection(pathEntry, path, follower.s);
       if (!next || next.dist > this.approachDistance) {
         this.releaseFollower(follower);
         return;
       }
       info = next.info;
       followerState.intersectionId = info.id;
+      followerState.intersection = info;
+      followerState.phase = 'approaching';
       followerState.waitElapsed = 0;
-      followerState.hasStopped = false;
     }
 
     const state = this.getIntersectionState(info.id);
     this.pruneState(state, info.id);
+    const signedToIntersection = this.signedDistance(path, follower.s, info.s);
 
-    const distAhead = this.distanceAhead(path, follower.s, info.s);
-    const distPast = this.distancePast(path, follower.s, info.s);
-    if (distPast >= this.clearDistance) {
-      this.releaseFollower(follower);
-      return;
-    }
-
-    if (state.occupant === follower) {
-      follower.setSpeedCap(this.crossingSpeed, 0.25);
+    if (state.occupant?.follower === follower) {
+      followerState.phase = signedToIntersection > 0 ? 'entering' : 'crossing';
       followerState.waitElapsed = 0;
-      followerState.hasStopped = false;
+      follower.setSpeedCap(this.crossingSpeed, this.capDuration(dt));
       return;
     }
 
-    const queueEntry = this.ensureQueueEntry(state, follower);
-
-    if (distAhead <= this.stopDistance) {
-      follower.setSpeedCap(0, 0.3);
+    const queueEntry = this.ensureQueueEntry(state, follower, id);
+    const distanceToStopLine = signedToIntersection - this.stopDistance;
+    if (distanceToStopLine <= this.stopTolerance) {
+      followerState.phase = 'queued';
+      follower.setSpeedCap(0, this.capDuration(dt));
       if (follower.v < this.stopSpeedThreshold) {
-        followerState.hasStopped = true;
-        followerState.waitElapsed += dt;
+        followerState.waitElapsed += Math.max(0, dt);
         queueEntry.ready = true;
-        if (queueEntry.arrivalSeq == null) queueEntry.arrivalSeq = this.arrivalCounter++;
+        if (queueEntry.stoppedAt == null) queueEntry.stoppedAt = this.time;
       } else {
         followerState.waitElapsed = 0;
+        queueEntry.ready = false;
+        queueEntry.stoppedAt = null;
       }
-      const front = this.getQueueFront(state);
-      if (
-        !state.occupant &&
-        front &&
-        front.follower === follower &&
-        queueEntry.ready &&
-        followerState.waitElapsed >= this.minStopTime &&
-        (this.canEnterProbe?.(follower, info) ?? true)
-      ) {
-        this.removeFromQueue(state, follower);
-        state.occupant = follower;
-        followerState.waitElapsed = 0;
-        followerState.hasStopped = false;
-        follower.setSpeedCap(this.crossingSpeed, 0.25);
-      }
-    } else {
-      followerState.hasStopped = false;
+      return;
+    }
+
+    followerState.phase = 'approaching';
+    followerState.waitElapsed = 0;
+    queueEntry.ready = false;
+    queueEntry.stoppedAt = null;
+    const brake = Math.max(0.1, follower.brake || 12);
+    const brakingCap = Math.sqrt(2 * brake * Math.max(0, distanceToStopLine));
+    follower.setSpeedCap(Math.min(this.approachMaxSpeed, brakingCap), this.capDuration(dt));
+  }
+
+  private resolveReadyQueues() {
+    for (const state of this.intersectionStates.values()) {
+      if (state.occupant) continue;
+      const candidate = [...state.queue]
+        .filter((entry) => {
+          const followerState = this.followerStates.get(entry.follower);
+          return entry.ready && followerState != null && followerState.waitElapsed >= this.minStopTime;
+        })
+        .sort(this.compareQueueEntries)[0];
+      if (!candidate) continue;
+      const followerState = this.followerStates.get(candidate.follower);
+      const info = followerState?.intersection;
+      if (!followerState || !info || !(this.canEnterProbe?.(candidate.follower, info) ?? true)) continue;
+
+      this.removeFromQueue(state, candidate.follower);
+      state.occupant = { id: candidate.id, follower: candidate.follower };
+      followerState.phase = 'entering';
       followerState.waitElapsed = 0;
-      queueEntry.ready = false;
-      const t = Math.max(0, Math.min(1, (distAhead - this.stopDistance) / Math.max(1e-3, this.approachDistance - this.stopDistance)));
-      const cap = this.creepSpeed + (this.approachMaxSpeed - this.creepSpeed) * t;
-      follower.setSpeedCap(cap, 0.25);
+      candidate.follower.setSpeedCap(this.crossingSpeed, 0.25);
     }
   }
 
-  postUpdateFollower(follower: PathFollower, path: Path2D) {
-    const followerState = this.followerStates.get(follower);
-    if (!followerState?.intersectionId) return;
-    const entry = this.pathEntries.get(path);
-    if (!entry) {
-      this.releaseFollower(follower);
-      return;
-    }
-    const info = entry.lookup.get(followerState.intersectionId);
-    if (!info) {
-      this.releaseFollower(follower);
-      return;
-    }
-    const distPast = this.distancePast(path, follower.s, info.s);
-    if (distPast >= this.clearDistance) this.releaseFollower(follower);
-  }
+  private readonly compareQueueEntries = (a: QueueEntry, b: QueueEntry) => {
+    const timeDelta = (a.stoppedAt ?? Infinity) - (b.stoppedAt ?? Infinity);
+    return timeDelta || a.id - b.id;
+  };
 
-  private ensureFollowerState(follower: PathFollower) {
+  private ensureFollowerState(follower: PathFollower, id: number) {
     let state = this.followerStates.get(follower);
     if (!state) {
-      state = { waitElapsed: 0, hasStopped: false };
+      state = { id, phase: 'cruising', waitElapsed: 0 };
       this.followerStates.set(follower, state);
+    } else {
+      state.id = id;
     }
     return state;
   }
@@ -183,7 +278,7 @@ export class IntersectionManager {
   private getIntersectionState(id: number) {
     let state = this.intersectionStates.get(id);
     if (!state) {
-      state = { queue: [] };
+      state = { id, queue: [] };
       this.intersectionStates.set(id, state);
     }
     return state;
@@ -191,82 +286,71 @@ export class IntersectionManager {
 
   private pruneState(state: IntersectionState, id: number) {
     state.queue = state.queue.filter((entry) => this.followerStates.get(entry.follower)?.intersectionId === id);
-    if (state.occupant && this.followerStates.get(state.occupant)?.intersectionId !== id) {
+    if (state.occupant && this.followerStates.get(state.occupant.follower)?.intersectionId !== id) {
       state.occupant = undefined;
     }
   }
 
-  private ensureQueueEntry(state: IntersectionState, follower: PathFollower) {
-    let entry = state.queue.find((q) => q.follower === follower);
+  private ensureQueueEntry(state: IntersectionState, follower: PathFollower, id: number) {
+    let entry = state.queue.find((queued) => queued.follower === follower);
     if (!entry) {
-      entry = { follower, ready: false };
+      entry = { id, follower, ready: false, stoppedAt: null };
       state.queue.push(entry);
+    } else {
+      entry.id = id;
     }
     return entry;
   }
 
-  private getQueueFront(state: IntersectionState) {
-    let best: QueueEntry | undefined;
-    for (const entry of state.queue) {
-      if (!entry.ready || entry.arrivalSeq == null) continue;
-      if (!best || (best.arrivalSeq ?? Infinity) > entry.arrivalSeq) best = entry;
-    }
-    if (best) return best;
-    let fallback: QueueEntry | undefined;
-    for (const entry of state.queue) {
-      const seq = entry.arrivalSeq ?? Infinity;
-      if (!fallback || (fallback.arrivalSeq ?? Infinity) > seq) fallback = entry;
-    }
-    return fallback;
-  }
-
   private removeFromQueue(state: IntersectionState, follower: PathFollower) {
-    const idx = state.queue.findIndex((entry) => entry.follower === follower);
-    if (idx >= 0) state.queue.splice(idx, 1);
+    const index = state.queue.findIndex((entry) => entry.follower === follower);
+    if (index >= 0) state.queue.splice(index, 1);
   }
 
   private releaseFollower(follower: PathFollower) {
     const followerState = this.followerStates.get(follower);
-    if (!followerState?.intersectionId) return;
-    const state = this.intersectionStates.get(followerState.intersectionId);
-    if (state) {
-      this.removeFromQueue(state, follower);
-      if (state.occupant === follower) state.occupant = undefined;
+    if (!followerState) return;
+    if (followerState.intersectionId != null) {
+      const state = this.intersectionStates.get(followerState.intersectionId);
+      if (state) {
+        this.removeFromQueue(state, follower);
+        if (state.occupant?.follower === follower) state.occupant = undefined;
+      }
     }
     followerState.intersectionId = undefined;
+    followerState.intersection = undefined;
+    followerState.phase = 'cruising';
     followerState.waitElapsed = 0;
-    followerState.hasStopped = false;
   }
 
   private findNextIntersection(entry: PathEntry, path: Path2D, s: number) {
     let bestInfo: IntersectionInfo | undefined;
     let bestDist = Infinity;
     for (const info of entry.intersections) {
-      let ds = info.s - s;
-      if (path.closed) {
-        if (ds < 0) ds += path.length;
-      } else if (ds < 0) {
-        continue;
-      }
-      if (ds < bestDist) {
-        bestDist = ds;
+      const distance = this.forwardDistance(path, s, info.s);
+      if (distance < bestDist) {
+        bestDist = distance;
         bestInfo = info;
       }
     }
-    if (!bestInfo) return null;
-    return { info: bestInfo, dist: bestDist } as const;
+    return bestInfo ? { info: bestInfo, dist: bestDist } : null;
   }
 
-  private distanceAhead(path: Path2D, from: number, to: number) {
-    let ds = to - from;
-    if (path.closed && ds < 0) ds += path.length;
-    return Math.max(0, ds);
+  private forwardDistance(path: Path2D, from: number, to: number) {
+    if (!path.closed) return to >= from ? to - from : Infinity;
+    if (path.length <= 0) return Infinity;
+    return ((to - from) % path.length + path.length) % path.length;
   }
 
-  private distancePast(path: Path2D, from: number, to: number) {
-    let ds = from - to;
-    if (path.closed && ds < 0) ds += path.length;
-    return Math.max(0, ds);
+  /** Signed shortest arc from follower position to intersection. */
+  private signedDistance(path: Path2D, from: number, to: number) {
+    if (!path.closed) return to - from;
+    if (path.length <= 0) return 0;
+    const half = path.length * 0.5;
+    return ((to - from + half) % path.length + path.length) % path.length - half;
+  }
+
+  private capDuration(dt: number) {
+    return Math.max(0.12, dt * 2.5);
   }
 }
-

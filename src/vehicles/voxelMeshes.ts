@@ -92,12 +92,13 @@ function makeYieldIndicator(scale: number): Mesh {
     transparent: true,
     opacity: 0.8,
     depthWrite: false,
+    depthTest: false,
     side: DoubleSide,
   });
   const ind = new Mesh(geo, mat);
-  ind.position.y = -scale * 0.2;
+  ind.position.y = scale * 0.34;
   ind.visible = false;
-  ind.renderOrder = 7;
+  ind.renderOrder = 21;
   ind.name = 'yieldIndicator';
   return ind;
 }
@@ -452,6 +453,9 @@ export function createVehicleMesh(
       buildCivilian(group, scale, opts.civilianStyle ?? 'sedan', opts.color ?? CIVILIAN_COLORS[0]);
       break;
   }
+  group.traverse((child) => {
+    if ((child as Mesh).isMesh) child.renderOrder = 20;
+  });
   const yieldInd = makeYieldIndicator(scale);
   group.add(yieldInd);
   group.userData.yieldIndicator = yieldInd as Object3D;

@@ -7,7 +7,14 @@ import { chromium, type Page } from 'playwright';
 
 type GameState = {
   world: { elapsed: number; fireTime: number; wind: { dirRad: number; speed: number } };
-  roads: { pathCount: number; networkCount: number; tileCount: number; pendingEndpoints: Array<{ x: number; z: number }> };
+  roads: {
+    pathCount: number;
+    networkCount: number;
+    tileCount: number;
+    intersectionCount: number;
+    intersections: Array<{ id: number; queue: number[]; occupantId: number | null }>;
+    pendingEndpoints: Array<{ x: number; z: number }>;
+  };
   hydrants: { count: number; positions: Array<{ id: number; x: number; z: number; coverageRadius: number; active: boolean }> };
   fire: {
     burningCount: number;
@@ -17,6 +24,7 @@ type GameState = {
   vehicles: {
     count: number;
     selectedId: number | null;
+    minimumFollowerGap: number | null;
     followers: Array<{
       id: number;
       type: string;
@@ -26,6 +34,9 @@ type GameState = {
       y: number;
       z: number;
       speed: number;
+      s: number;
+      trafficPhase: string;
+      intersectionId: number | null;
       busy: boolean;
       returningToBase: boolean;
       assignedIncidentId: number | null;
@@ -39,6 +50,8 @@ type GameState = {
     incidents: Array<{ id: number; status: string; x: number; z: number; assignedFollowerIds: number[] }>;
   };
 };
+
+const browserErrors = new WeakMap<Page, string[]>();
 
 type TileInfo = {
   x: number;
@@ -104,6 +117,12 @@ async function createPage(baseUrl: string) {
     args: ['--use-gl=angle', '--use-angle=swiftshader'],
   });
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const errors: string[] = [];
+  browserErrors.set(page, errors);
+  page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(`console: ${msg.text()}`);
+  });
   if (process.env.AUDIT_CONSOLE) {
     page.on('console', (msg) => process.stdout.write(`[browser:${msg.type()}] ${msg.text()}\n`));
     page.on('pageerror', (err) => process.stdout.write(`[browser:error] ${err.message}\n`));
@@ -114,12 +133,76 @@ async function createPage(baseUrl: string) {
 }
 
 async function getState(page: Page): Promise<GameState> {
+  const errors = browserErrors.get(page) ?? [];
+  assert(errors.length === 0, `Browser errors detected:\n${errors.slice(0, 3).join('\n')}`);
   const state = await page.evaluate(() => window.__wildfireTestApi?.getState());
   assert(state, 'window.__wildfireTestApi.getState() is unavailable');
   return state as GameState;
 }
 
+async function trafficIntersectionScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    const setup = await page.evaluate(() => window.__wildfireTestApi?.setupTrafficScenario());
+    assert(setup, 'Failed to create the deterministic crossing-road traffic scenario');
+    const start = await getState(page);
+    assert(start.roads.pathCount === 2, `Expected 2 crossing roads, got ${start.roads.pathCount}`);
+    assert(start.roads.intersectionCount === 1, `Expected 1 controlled intersection, got ${start.roads.intersectionCount}`);
+    assert(start.vehicles.count === 4, `Expected 4 traffic vehicles, got ${start.vehicles.count}`);
+
+    const startingS = new Map(start.vehicles.followers.map((vehicle) => [vehicle.id, vehicle.s]));
+    const served = new Set<number>();
+    let sawQueue = false;
+    let contentionCaptured = false;
+    let minimumGap = Infinity;
+    let minimumWorldDistance = Infinity;
+
+    for (let tick = 0; tick < 100; tick++) {
+      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(250));
+      const state = await getState(page);
+      const intersection = state.roads.intersections[0];
+      assert(intersection, 'Controlled intersection disappeared during the traffic run');
+      if (intersection.queue.length > 0) sawQueue = true;
+      if (intersection.occupantId != null) served.add(intersection.occupantId);
+      if (state.vehicles.minimumFollowerGap != null) {
+        minimumGap = Math.min(minimumGap, state.vehicles.minimumFollowerGap);
+      }
+      for (let i = 0; i < state.vehicles.followers.length; i++) {
+        const a = state.vehicles.followers[i];
+        assert(Number.isFinite(a.x) && Number.isFinite(a.y) && Number.isFinite(a.z), `Vehicle ${a.id} has a non-finite transform`);
+        for (let j = i + 1; j < state.vehicles.followers.length; j++) {
+          const b = state.vehicles.followers[j];
+          minimumWorldDistance = Math.min(minimumWorldDistance, Math.hypot(a.x - b.x, a.z - b.z));
+        }
+      }
+      const visiblyQueued = state.vehicles.followers.filter((vehicle) => vehicle.trafficPhase === 'queued').length;
+      if (!contentionCaptured && visiblyQueued >= 2) {
+        await screenshot(page, artifactDir, 'traffic-contention');
+        contentionCaptured = true;
+      }
+    }
+
+    const end = await getState(page);
+    assert(sawQueue, 'No vehicle queue formed at the all-way stop');
+    assert(contentionCaptured, 'The scenario never reached visible multi-vehicle contention');
+    assert(served.size === 4, `FIFO fairness failed: only ${served.size}/4 vehicles received intersection occupancy`);
+    assert(minimumGap >= 1.9, `Same-path following gap fell below safety target (${minimumGap.toFixed(2)}m)`);
+    assert(minimumWorldDistance >= 0.75, `Vehicle transforms overlapped (${minimumWorldDistance.toFixed(2)}m minimum)`);
+    for (const vehicle of end.vehicles.followers) {
+      const initial = startingS.get(vehicle.id);
+      assert(initial != null && vehicle.s - initial > 8, `Vehicle ${vehicle.id} did not make progress through the intersection`);
+    }
+    assert(end.roads.intersections[0].queue.length === 0, 'Intersection queue did not drain');
+    assert(end.roads.intersections[0].occupantId == null, 'Intersection occupant did not clear');
+
+  } finally {
+    await browser.close();
+  }
+}
+
 async function screenshot(page: Page, dir: string, name: string) {
+  await page.evaluate(() => window.advanceTime?.(0));
+  await page.waitForTimeout(100);
   await page.screenshot({ path: path.join(dir, `${name}.png`) });
 }
 
@@ -881,9 +964,21 @@ async function main() {
       await waitForServer(baseUrl);
     }
 
+    if (process.env.GAME_AUDIT_SCENARIO === 'traffic-intersection') {
+      await scenario('traffic-intersection', artifacts, () => trafficIntersectionScenario(baseUrl, artifacts));
+      process.stdout.write('\n[game-audit] PASS\n');
+      return;
+    }
+    if (process.env.GAME_AUDIT_SCENARIO === 'manual-dispatch') {
+      await scenario('manual-dispatch', artifacts, () => manualDispatchScenario(baseUrl, artifacts));
+      process.stdout.write('\n[game-audit] PASS\n');
+      return;
+    }
+
     await scenario('baseline', artifacts, () => baselineScenario(baseUrl, artifacts));
     await scenario('roads', artifacts, () => roadScenario(baseUrl, artifacts));
     await scenario('vehicles', artifacts, () => vehicleScenario(baseUrl, artifacts));
+    await scenario('traffic-intersection', artifacts, () => trafficIntersectionScenario(baseUrl, artifacts));
     await scenario('suppression', artifacts, () => suppressionScenario(baseUrl, artifacts));
     await scenario('auto-dispatch', artifacts, () => autoDispatchScenario(baseUrl, artifacts));
     await scenario('manual-dispatch', artifacts, () => manualDispatchScenario(baseUrl, artifacts));

@@ -12,6 +12,13 @@ function makeFollower() {
 }
 
 describe('PathFollower.isYielding', () => {
+  it('rides above the raised road surface instead of being hidden underneath it', () => {
+    const f = makeFollower();
+    expect(f.object.matrix.elements[13]).toBeGreaterThan(0.3);
+    f.update(0.1);
+    expect(f.object.matrix.elements[13]).toBeGreaterThan(0.3);
+  });
+
   it('is false when no speed cap is active', () => {
     const f = makeFollower();
     expect(f.isYielding()).toBe(false);

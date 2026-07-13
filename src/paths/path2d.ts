@@ -80,6 +80,36 @@ export class Path2D {
     return { s: bestS, dist: Math.sqrt(bestD2), i: bestI, u: bestU } as const;
   }
 
+  /** Return every distinct arc-position projection within maxDistance. */
+  projectAll(q: V2, maxDistance: number) {
+    const hits: Array<{ s: number; dist: number; i: number; u: number }> = [];
+    const maxDistance2 = Math.max(0, maxDistance) ** 2;
+    const n = this.pts.length;
+    const segCount = this.closed ? n : n - 1;
+    let acc = 0;
+    for (let i = 0; i < segCount; i++) {
+      const a = this.pts[i];
+      const b = this.pts[(i + 1) % n];
+      const ab = v2.sub(b, a);
+      const abL2 = Math.max(1e-6, v2.dot(ab, ab));
+      const aq = v2.sub(q, a);
+      const u = Math.max(0, Math.min(1, v2.dot(aq, ab) / abL2));
+      const px = a.x + ab.x * u;
+      const pz = a.z + ab.z * u;
+      const dx = q.x - px;
+      const dz = q.z - pz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 <= maxDistance2) {
+        const s = acc + Math.sqrt(abL2) * u;
+        if (!hits.some((hit) => Math.abs(hit.s - s) <= 1e-4)) {
+          hits.push({ s, dist: Math.sqrt(d2), i, u });
+        }
+      }
+      acc += Math.sqrt(abL2);
+    }
+    return hits.sort((a, b) => a.s - b.s);
+  }
+
   curvature(s: number, ds = 2) {
     const A = this.sample(Math.max(0, s - ds)).p;
     const B = this.sample(s).p;

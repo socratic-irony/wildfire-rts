@@ -18,6 +18,19 @@ describe('createVehicleMesh', () => {
     const indicator = g.userData.yieldIndicator;
     expect(indicator).toBeTruthy();
     expect(indicator.visible).toBe(false);
+    expect(indicator.position.y).toBeGreaterThan(0);
+    expect(indicator.material.depthTest).toBe(false);
+    expect(indicator.renderOrder).toBeGreaterThan(20);
+  });
+
+  it('renders vehicle parts after raised road overlays', () => {
+    const g = createVehicleMesh(VehicleType.CAR, 1);
+    const renderedParts: Mesh[] = [];
+    g.traverse((child) => {
+      if ((child as Mesh).isMesh && child !== g.userData.yieldIndicator) renderedParts.push(child as Mesh);
+    });
+    expect(renderedParts.length).toBeGreaterThan(0);
+    expect(renderedParts.every((part) => part.renderOrder >= 20)).toBe(true);
   });
 
   it('firetruck includes a ladder detail', () => {
