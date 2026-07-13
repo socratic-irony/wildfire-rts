@@ -163,37 +163,38 @@ Document the shared deterministic scatter and coordinate conversion helpers.
 
 Commit: `refactor(core): share deterministic utility helpers`
 
-### Task 4: Consolidate suppression semantics and remove unused factory hooks
+### Task 4: Consolidate suppression semantics and characterize live factory hooks
+
+**Correction discovered during execution:** `main.ts` calls `updateTerrain` on the suppression decals, fire visualization, flipbook particles, and fire ribbon during terrain regeneration. These hooks are live integration points, so this compatibility-focused task preserves their implementations and lifecycle order. The surface tests characterize callable wiring only; complete functional rebinding remains separate outstanding work.
 
 **Files:**
 - Modify: `src/fire/grid.ts`
+- Modify: `src/main.ts`
 - Modify: `src/__tests__/hydrants.test.ts`
 - Create: `src/__tests__/visual_factory_surfaces.test.ts`
-- Modify: `src/fire/decals.ts`
-- Modify: `src/fire/viz.ts`
-- Modify: `src/particles/flipbook.ts`
 - Modify: `specs/fire_behavior.md`
 - Modify: `specs/particles.md`
+- Modify: `docs/plans/2026-07-12-repository-cleanup.md`
 
 **Step 1: Add suppression characterization coverage**
 
 Build two identical grids, apply `applyWaterAoE` to one and `applyWaterAoEWithHydrants(..., undefined)` to the other, and assert equal wetness, heat, and state for every tile. Cover an edge-clipped radius and burning/smoldering tiles.
 
-**Step 2: Add the failing public-surface test**
+**Step 2: Add public-surface characterization**
 
-Instantiate the suppression decal, fire visualization, and flipbook particle factories. Assert their supported method keys and omit the repository-unreferenced `updateTerrain` hooks.
+Instantiate the suppression decal, fire visualization, flipbook particle, and fire ribbon factories. Assert their current callable method keys, including the live `updateTerrain` hooks, and dispose the test-created Three.js resources. Do not claim this verifies functional terrain rebinding.
 
 Run: `npx vitest run src/__tests__/visual_factory_surfaces.test.ts`
 
-Expected: FAIL because the unused hooks are still present.
+Expected: PASS against the current supported factory surfaces.
 
 **Step 3: Extract the shared water application loop**
 
 Create one private radius iterator/application helper in `src/fire/grid.ts`. Keep both exported wrappers and their exact intensity semantics; the hydrant wrapper supplies the per-tile multiplier while the base wrapper supplies the original constant intensity.
 
-**Step 4: Remove unsupported factory hooks**
+**Step 4: Preserve live hooks and tighten the hydrant type boundary**
 
-Delete the two no-op visualization/decal hooks and the unused flipbook terrain reassignment hook. Preserve all active factory methods and runtime call order.
+Keep all four `updateTerrain` implementations and the `main.ts` terrain-regeneration call order unchanged. Type the water helper's hydrant input from `HydrantSystem['hydrants']` via `Pick`, then remove only the now-unnecessary `as any` casts at the two `main.ts` call sites after type-checking confirms compatibility.
 
 **Step 5: Verify focused and full behavior**
 
@@ -207,7 +208,7 @@ Expected: PASS.
 
 **Step 6: Update specs and commit**
 
-Document the shared suppression core and the supported factory surfaces.
+Document the shared suppression core, callable factory surfaces, limited current rebinding semantics, and outstanding terrain dimension/scale/capacity work.
 
 Commit: `refactor(fire): consolidate suppression helpers`
 

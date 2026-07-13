@@ -1061,7 +1061,7 @@ function updateFollowerSuppression(dt: number) {
         { x: inc.tile.x + 0.5, z: inc.tile.z + 0.5 },
         2.5,
         Math.min(0.55, 0.15 + drawn / 900),
-        hydrantSystem as any,
+        hydrantSystem,
       );
     }
   }
@@ -1417,7 +1417,7 @@ window.__wildfireTestApi = {
     applyWaterAoE(fireGrid, { x, z }, radius, intensity);
   },
   applyWaterFromHydrantAt: (x, z, radius = 2, intensity = 0.4) => {
-    applyWaterAoEWithHydrants(fireGrid, { x, z }, radius, intensity, hydrantSystem as any);
+    applyWaterAoEWithHydrants(fireGrid, { x, z }, radius, intensity, hydrantSystem);
   },
   exhaustFollowerWater: (id) => {
     const entry = followers.find((f) => f.id === id);

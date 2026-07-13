@@ -23,12 +23,13 @@ This spec captures the particle FX approach used to visualize wildfire combustio
 - Ribbon
   - Improve tangent/normal continuity and simplify contours before meshing (RDP or resample at even spacing) to reduce vertex count.
   - Intensity‑driven width/color from local heat.
+  - Correct terrain-scale rebinding: `updateTerrain` rebinds the heightmap, but its current width recalculation divides and multiplies by the new scale after assignment, leaving the existing world-space ribbon width unchanged when scale changes.
 - Embers (later)
   - GPU update path (WebGL2 Transform Feedback or texture ping‑pong) for 2–8k additive embers; render as points or tiny quads.
 - Hero plumes (later)
   - Cross‑card or blob meshes with slow vertex noise for rare, dramatic events.
 
-Tests: `src/__tests__/particles_flipbook.test.ts` covers basic capacity and update wiring; `src/__tests__/fire_particles.test.ts` sanity-checks the legacy instanced system setup.
+Tests: `src/__tests__/particles_flipbook.test.ts` covers basic capacity and update wiring; `src/__tests__/fire_particles.test.ts` sanity-checks the legacy instanced system setup; `src/__tests__/visual_factory_surfaces.test.ts` characterizes callable flipbook/ribbon factory wiring without claiming functional terrain rebinding.
 
 ## Goals
 
@@ -120,21 +121,23 @@ Per active tile we maintain an emitter accumulator to convert continuous rates t
 ## APIs (current)
 
 - Flipbook sprites — `src/particles/flipbook.ts`
-  - `createFlipbookParticles(hm)` → `{ group, update(grid, env, dt, camera), setQuality(q), setEnabled(part) }`.
+  - `createFlipbookParticles(hm)` → `{ group, update(grid, env, dt, camera), setQuality(q), setEnabled(part), updateTerrain(newHeightmap) }`.
+  - `updateTerrain` is a live integration hook called by `main.ts` during terrain regeneration so subsequent particle placement samples the replacement heightmap.
   - Attributes written each frame: `iOffset, iSize, iAngle, iF0, iRate, iFBase, iFCount, iAspect, iPhase, iRise, iColor`.
   - Uniforms: `uTime, uFrames, uAtlas, cameraRight, cameraUp`.
   - Atlas layout: vertical stack with flames frames first, then smoke frames; per‑instance `iFBase/iFCount` select the sub‑range.
   - Quality presets map to total cap (default 8k). One atlas/material keeps batching to one draw.
 
 - Ribbon — `src/particles/ribbon.ts`
-  - `createFireRibbon(hm, { width, yOffset, speed, opacity, visible })` → `{ mesh, update(grid,time), setVisible(on), setOpacity(o), setWidth(w), setSpeed(v) }`.
+  - `createFireRibbon(hm, { width, yOffset, speed, opacity, visible })` → `{ mesh, update(grid,time), setVisible(on), setOpacity(o), setWidth(w), setSpeed(v), updateTerrain(newHeightmap) }`.
   - Rebuilds geometry from `computePerimeter(grid)`; animated in `onBeforeCompile` via `uTime`/`uSpeed` uniforms.
+  - `updateTerrain` rebinds height sampling, but scale-dependent width correction is currently ineffective; see Outstanding Work.
 
 Integration (main.ts)
 
 - Construct once after fire viz: add `fireParticles.group` and `fireRibbon.mesh` to the scene.
 - Per frame: call `fireParticles.update(grid, env, dt, camera)` and `fireRibbon.update(grid, time)`.
-- On world regenerate: recreate both (already wired in `main.ts`).
+- On world regenerate: `main.ts` calls both factories' `updateTerrain` hooks in place. Flipbook particles rebind their captured heightmap; the ribbon rebinds height sampling but currently retains its previous world-space width when terrain scale changes.
 
 ## Suggested Defaults
 

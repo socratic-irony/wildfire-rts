@@ -1,6 +1,7 @@
 import { Heightmap } from '../terrain/heightmap';
 import { BiomeMask } from '../terrain/biomes';
 import { DEFAULT_FIRE_PARAMS, FireParams, FuelKey } from './params';
+import type { HydrantSystem } from './hydrants';
 
 export const enum FireState {
   Unburned = 0,
@@ -132,21 +133,49 @@ export function ignite(grid: FireGrid, cells: Array<{ x: number; z: number }>, i
   }
 }
 
-export function applyWaterAoE(grid: FireGrid, center: { x: number; z: number }, radius: number, intensity: number) {
+type WaterHydrantSystem = Pick<HydrantSystem, 'hydrants'>;
+
+function applyWaterInRadius(
+  grid: FireGrid,
+  center: { x: number; z: number },
+  radius: number,
+  intensity: number,
+  hydrantSystem?: WaterHydrantSystem,
+) {
   const r2 = radius * radius;
+
   for (let z = Math.max(0, Math.floor(center.z - radius)); z < Math.min(grid.height, Math.ceil(center.z + radius)); z++) {
     for (let x = Math.max(0, Math.floor(center.x - radius)); x < Math.min(grid.width, Math.ceil(center.x + radius)); x++) {
       const dx = x - center.x; const dz = z - center.z;
       if (dx * dx + dz * dz <= r2) {
         const i = coordToIndex(grid, x, z);
         const tile = grid.tiles[i];
-        tile.wetness = Math.min(1, tile.wetness + intensity);
-        
+
+        // Check if this position has hydrant coverage for enhanced effectiveness
+        let effectiveIntensity = intensity;
+        if (hydrantSystem) {
+          let hasHydrantCoverage = false;
+          for (const h of hydrantSystem.hydrants) {
+            if (!h.active) continue;
+            const hdx = h.gridPos.x - x;
+            const hdz = h.gridPos.z - z;
+            if ((hdx * hdx + hdz * hdz) <= (h.coverageRadius * h.coverageRadius)) {
+              hasHydrantCoverage = true;
+              break;
+            }
+          }
+          if (hasHydrantCoverage) {
+            effectiveIntensity *= 1.5; // 50% more effective with hydrant coverage
+          }
+        }
+
+        tile.wetness = Math.min(1, tile.wetness + effectiveIntensity);
+
         // Immediate heat knockdown effect as per spec
         if (tile.state === FireState.Burning || tile.state === FireState.Smoldering) {
-          const knockdown = 0.8 * intensity; // Increase from 0.4 to 0.8 for stronger suppression
+          const knockdown = 0.8 * effectiveIntensity;
           tile.heat = Math.max(0, tile.heat - knockdown);
-          
+
           // Check for early extinguish if heat drops below threshold
           if (tile.heat < grid.params.thresholds.extinguishHeat) {
             if (tile.state === FireState.Burning) {
@@ -159,54 +188,19 @@ export function applyWaterAoE(grid: FireGrid, center: { x: number; z: number }, 
   }
 }
 
+export function applyWaterAoE(grid: FireGrid, center: { x: number; z: number }, radius: number, intensity: number) {
+  applyWaterInRadius(grid, center, radius, intensity);
+}
+
 // Enhanced water application that considers hydrant coverage for improved effectiveness
 export function applyWaterAoEWithHydrants(
-  grid: FireGrid, 
-  center: { x: number; z: number }, 
-  radius: number, 
-  intensity: number, 
-  hydrantSystem?: { hydrants: Array<{ active: boolean; gridPos: { x: number; z: number }; coverageRadius: number }> }
+  grid: FireGrid,
+  center: { x: number; z: number },
+  radius: number,
+  intensity: number,
+  hydrantSystem?: WaterHydrantSystem,
 ) {
-  const r2 = radius * radius;
-  
-  for (let z = Math.max(0, Math.floor(center.z - radius)); z < Math.min(grid.height, Math.ceil(center.z + radius)); z++) {
-    for (let x = Math.max(0, Math.floor(center.x - radius)); x < Math.min(grid.width, Math.ceil(center.x + radius)); x++) {
-      const dx = x - center.x; const dz = z - center.z;
-      if (dx * dx + dz * dz <= r2) {
-        const i = coordToIndex(grid, x, z);
-        const tile = grid.tiles[i];
-        
-        // Check if this position has hydrant coverage for enhanced effectiveness
-        let effectiveIntensity = intensity;
-        if (hydrantSystem) {
-          const hasHydrantCoverage = hydrantSystem.hydrants.some(h => {
-            if (!h.active) return false;
-            const hdx = h.gridPos.x - x;
-            const hdz = h.gridPos.z - z;
-            return (hdx * hdx + hdz * hdz) <= (h.coverageRadius * h.coverageRadius);
-          });
-          if (hasHydrantCoverage) {
-            effectiveIntensity *= 1.5; // 50% more effective with hydrant coverage
-          }
-        }
-        
-        tile.wetness = Math.min(1, tile.wetness + effectiveIntensity);
-        
-        // Immediate heat knockdown effect as per spec
-        if (tile.state === FireState.Burning || tile.state === FireState.Smoldering) {
-          const knockdown = 0.8 * effectiveIntensity;
-          tile.heat = Math.max(0, tile.heat - knockdown);
-          
-          // Check for early extinguish if heat drops below threshold
-          if (tile.heat < grid.params.thresholds.extinguishHeat) {
-            if (tile.state === FireState.Burning) {
-              tile.state = FireState.Smoldering;
-            }
-          }
-        }
-      }
-    }
-  }
+  applyWaterInRadius(grid, center, radius, intensity, hydrantSystem);
 }
 
 export function applyRetardantLine(grid: FireGrid, polyline: Array<{ x: number; z: number }>, width: number, strength: number) {

@@ -8,6 +8,7 @@ import {
   isInHydrantCoverage,
   placeHydrant,
   removeHydrant,
+  type HydrantSystem,
   updateHydrantPlacement,
 } from '../fire/hydrants';
 import { generateHeightmap } from '../terrain/heightmap';
@@ -70,6 +71,42 @@ describe('fire hydrant placement', () => {
 });
 
 describe('hydrant-enhanced suppression', () => {
+  it('matches base suppression exactly when no hydrant system is provided', () => {
+    const hm = generateHeightmap(7, 6, 1, {
+      seed: 'water-characterization',
+      frequency: 0,
+      amplitude: 0,
+      octaves: 1,
+      persistence: 1,
+    });
+    const biomes = computeBiomes(hm);
+    const params = { cellSize: 1, spotting: { enabled: false, baseRate: 0, maxDistanceTiles: 0 } };
+    const baseGrid = buildFireGrid(hm, biomes, params);
+    const hydrantGrid = buildFireGrid(hm, biomes, params);
+
+    for (let i = 0; i < baseGrid.tiles.length; i++) {
+      const state = i % 5 as FireState;
+      const heat = ((i * 17) % 101) / 100;
+      const wetness = ((i * 13) % 97) / 100;
+      Object.assign(baseGrid.tiles[i], { state, heat, wetness });
+      Object.assign(hydrantGrid.tiles[i], { state, heat, wetness });
+    }
+
+    // Exercise burning and smoldering knockdown while the radius is clipped by
+    // the top and left map edges.
+    baseGrid.tiles[coordToIndex(baseGrid, 0, 0)].state = FireState.Burning;
+    hydrantGrid.tiles[coordToIndex(hydrantGrid, 0, 0)].state = FireState.Burning;
+    baseGrid.tiles[coordToIndex(baseGrid, 1, 1)].state = FireState.Smoldering;
+    hydrantGrid.tiles[coordToIndex(hydrantGrid, 1, 1)].state = FireState.Smoldering;
+
+    const center = { x: 0.25, z: 0.5 };
+    applyWaterAoE(baseGrid, center, 2.75, 0.37);
+    applyWaterAoEWithHydrants(hydrantGrid, center, 2.75, 0.37, undefined);
+
+    expect(hydrantGrid.tiles.map(({ wetness, heat, state }) => ({ wetness, heat, state })))
+      .toEqual(baseGrid.tiles.map(({ wetness, heat, state }) => ({ wetness, heat, state })));
+  });
+
   it('boosts water intensity only inside hydrant coverage', () => {
     const hm = generateHeightmap(12, 12, 1, {
       seed: 'flat',
@@ -103,12 +140,15 @@ describe('hydrant-enhanced suppression', () => {
     prep(baseGrid);
     prep(hydrantGrid);
 
-    const hydrantSystem = {
+    const hydrantSystem: Pick<HydrantSystem, 'hydrants'> = {
       hydrants: [
         {
+          id: 1,
           active: true,
           gridPos: { ...center },
+          worldPos: { ...center },
           coverageRadius: 1,
+          waterPressure: 1,
         },
       ],
     };

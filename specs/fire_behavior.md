@@ -5,9 +5,10 @@ specs/fire_behavior.md
 ### ✅ Implemented
 - FireGrid tile build with per-tile slope, downslope direction, and biome-driven fuels (`grass`, `chaparral`, `forest`, `rock`, `water`, `urban`)
 - Deterministic `FireSim` stepping at 4 Hz with humidity drift toward ambient conditions, moisture gating (`fuelMoisture` + `wetness` + retardant), and early extinguish when heat falls below `thresholds.extinguishHeat`
-- Suppression hooks: `applyWaterAoE`, `applyWaterAoEWithHydrants` (1.5× boost under coverage), `applyRetardantLine`, and tile-based `writeFirelineEdges`
+- Suppression hooks: `applyWaterAoE` and `applyWaterAoEWithHydrants` share one radius/application core, with exact base behavior when no hydrant system is supplied and a per-tile 1.5× boost under active coverage; `applyRetardantLine` and tile-based `writeFirelineEdges` remain available
 - Spotting pass (single-hop downwind), ignition queue promotion, burning→smoldering progression, and containment heuristic (`isContained`)
 - Visualization stack: overlay instancing, vertex tint mode, water/retardant decals, perimeter ribbon, and menubar stats powered by `computeFireStats`
+- Fire visualization and suppression decal factories expose live `updateTerrain` call points used by terrain regeneration, but current compatibility behavior is limited: decals perform a no-op, while fire visualization swaps only its chunk group and retains construction-time heightmap state in the overlay/perimeter paths
 - Player tooling: unified menubar actions plus paint system for ignition, water, and retardant applications directly on the fire grid
 - Helper queries (`sampleTile`, `isContained`) covered by unit tests to lock down API behavior
 
@@ -36,6 +37,7 @@ specs/fire_behavior.md
 - Visuals:
   - Particles (flames/smoke) and burned-ground decals.
   - Vegetation burn tint: trees and shrubs darken → brown → near-black based on tile state (Burning/Smoldering/Burned), updated ~2 Hz.
+  - Terrain regeneration: replace the compatibility-only visual hooks with complete rebinding or safe reconstruction. `suppressionDecals.updateTerrain` is currently a no-op, so decal sampling, scale, dimensions, and instance capacity remain tied to the construction-time heightmap. `fireViz.updateTerrain` swaps only `chunkGroup`; its vertex scale and overlay/perimeter heightmap references and capacities remain construction-time values. A complete fix must handle dimension, scale, and capacity changes without altering lifecycle order accidentally.
 - UI/Debug:
   - Wind controls (speed/direction sliders) and overlay toggles for slope, wetness, retardant.
   - Stats UI: containment badge and mean ROS display.
@@ -318,8 +320,19 @@ function simulate(grid: FireGrid, env: Env, dt: number): void;
 
 // Apply suppression effects (called by unit systems)
 function applyWaterAoE(grid: FireGrid, center:Vec2, radius:number, intensity:number): void;
+function applyWaterAoEWithHydrants(
+  grid: FireGrid,
+  center: Vec2,
+  radius: number,
+  intensity: number,
+  hydrantSystem?: HydrantSystem
+): void; // identical to applyWaterAoE without a system; 1.5× per covered tile with one
 function applyRetardantLine(grid: FireGrid, polyline: Vec2[], width:number, strength:number): void;
 function writeFirelineEdges(grid: FireGrid, edgePath: Edge[], strength:number): void;
+
+// Live terrain-regeneration integration
+createSuppressionDecals(hm).updateTerrain(newHeightmap): void; // compatibility no-op today
+createFireViz(hm, chunkGroup).updateTerrain(newHeightmap, newChunkGroup): void; // swaps chunkGroup only today
 
 // Perimeter & Stats
 function computePerimeter(grid: FireGrid): Polyline[]; // grid-space polyline(s) on half-integer edges
