@@ -8,7 +8,6 @@ import {
   isInHydrantCoverage,
   placeHydrant,
   removeHydrant,
-  type HydrantSystem,
   updateHydrantPlacement,
 } from '../fire/hydrants';
 import { generateHeightmap } from '../terrain/heightmap';
@@ -140,15 +139,12 @@ describe('hydrant-enhanced suppression', () => {
     prep(baseGrid);
     prep(hydrantGrid);
 
-    const hydrantSystem: Pick<HydrantSystem, 'hydrants'> = {
+    const hydrantSystem = {
       hydrants: [
         {
-          id: 1,
           active: true,
           gridPos: { ...center },
-          worldPos: { ...center },
           coverageRadius: 1,
-          waterPressure: 1,
         },
       ],
     };

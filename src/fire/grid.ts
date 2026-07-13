@@ -1,7 +1,7 @@
 import { Heightmap } from '../terrain/heightmap';
 import { BiomeMask } from '../terrain/biomes';
 import { DEFAULT_FIRE_PARAMS, FireParams, FuelKey } from './params';
-import type { HydrantSystem } from './hydrants';
+import type { FireHydrant } from './hydrants';
 
 export const enum FireState {
   Unburned = 0,
@@ -133,14 +133,16 @@ export function ignite(grid: FireGrid, cells: Array<{ x: number; z: number }>, i
   }
 }
 
-type WaterHydrantSystem = Pick<HydrantSystem, 'hydrants'>;
+export type WaterHydrantCoverageSource = {
+  readonly hydrants: ReadonlyArray<Pick<FireHydrant, 'active' | 'gridPos' | 'coverageRadius'>>;
+};
 
 function applyWaterInRadius(
   grid: FireGrid,
   center: { x: number; z: number },
   radius: number,
   intensity: number,
-  hydrantSystem?: WaterHydrantSystem,
+  hydrantSystem?: WaterHydrantCoverageSource,
 ) {
   const r2 = radius * radius;
 
@@ -198,7 +200,7 @@ export function applyWaterAoEWithHydrants(
   center: { x: number; z: number },
   radius: number,
   intensity: number,
-  hydrantSystem?: WaterHydrantSystem,
+  hydrantSystem?: WaterHydrantCoverageSource,
 ) {
   applyWaterInRadius(grid, center, radius, intensity, hydrantSystem);
 }

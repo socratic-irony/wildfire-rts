@@ -12,7 +12,7 @@ Strict TypeScript checking now rejects unused locals and parameters, and `npm ru
 
 Repeated deterministic actor random generation, nearest-cell world/grid conversion, and water-suppression tile traversal now use shared characterized helpers. The cleanup preserved all documented entry points and the live terrain-regeneration hook order; the fire/particle specs record where those hooks still provide only partial rebinding. Documentation now distinguishes runtime flags and logging (`src/config/features.ts`, `tools/logging/`) from the standalone schema/logger examples (`tools/config/`, `tools/logger.ts`), and correctly identifies Frenet `IntersectionManager` traffic as authoritative.
 
-Incidental barrier and terrain-regeneration test output was removed while strengthening the barrier setup checks. **Verification**: `npm run check` (60 files / 238 tests; 76-module Vite build), `npm run validate-assets` (9/9 valid, six advisory oversized-image warnings), and `npm run audit:game` (18/18 scenarios) all pass.
+Incidental barrier and terrain-regeneration test output was removed while strengthening the barrier setup checks. **Verification**: `npm run check` (60 files / 239 tests; 76-module Vite build), `npm run validate-assets` (9/9 valid, six advisory oversized-image warnings), and `npm run audit:game` (18/18 scenarios) all pass.
 
 ---
 

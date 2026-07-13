@@ -138,7 +138,7 @@ Testing Strategy
 - `npm run typecheck` enforces strict TypeScript compilation across application, tools, QA scripts, and Vite configuration, including zero unused locals and parameters.
 - `npm run check` is the canonical local gate: type-check, complete Vitest suite, then production build.
 - `npm run build` invokes Vite bundling only; it does not run `tsc` and is not a replacement for either gate above.
-- `src/__tests__/source_graph.test.ts` resolves relative TypeScript imports from documented application, testbed, script, test, configuration, and logging-demo roots, and fails when a maintained source module becomes unreachable. The abandoned, unreferenced dispatch station-registry prototype was removed when this gate was introduced.
+- `src/__tests__/source_graph.test.ts` resolves relative TypeScript imports from documented application, testbed, script, test, configuration, and logging-demo roots, and fails when a maintained source module becomes unreachable. Explicit protected roots also preserve documented test-only compatibility surfaces (`tools/logger.ts`, `terrain/mesh.ts`, and legacy `particles/fireParticles.ts`) if their paired tests move or disappear. The abandoned, unreferenced dispatch station-registry prototype was removed when this gate was introduced.
 - Unit tests around math-heavy pieces:
   - Heightmap sampling, normal estimation.
   - Pinned LCG sequences and independent generator state.

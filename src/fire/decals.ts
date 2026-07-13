@@ -166,9 +166,9 @@ export function createSuppressionDecals(hm: Heightmap, opts?: { offsetY?: number
     setOffsetY, 
     setDepthTest,
     updateTerrain: (_newHeightmap: Heightmap) => {
-      // The decals system doesn't store heightmap reference internally,
-      // it receives it through the grid parameter in update calls
-      // This is a no-op for compatibility
+      // Compatibility hook only: child decal closures still retain the
+      // construction-time heightmap and capacity. Full rebinding remains
+      // outstanding in specs/fire_behavior.md.
     }
   } as const;
 }

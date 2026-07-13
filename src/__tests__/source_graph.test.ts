@@ -13,6 +13,11 @@ const DOCUMENTED_ROOTS = [
   'vite.config.ts',
   'tools/config/index.ts',
   'tools/logging/demo.ts',
+  // Documented library/legacy compatibility surfaces that happen to be used
+  // only by tests today. Keep them rooted even if their paired tests move.
+  'tools/logger.ts',
+  'src/terrain/mesh.ts',
+  'src/particles/fireParticles.ts',
 ] as const;
 
 function collectTypeScriptFiles(directory: string): string[] {
@@ -50,6 +55,14 @@ function findMissingRoots(maintainedFiles: ReadonlySet<string>, roots: readonly 
 }
 
 describe('maintained TypeScript source graph', () => {
+  it('protects documented compatibility modules independently of their tests', () => {
+    expect(DOCUMENTED_ROOTS).toEqual(expect.arrayContaining([
+      'tools/logger.ts',
+      'src/terrain/mesh.ts',
+      'src/particles/fireParticles.ts',
+    ]));
+  });
+
   it('reports protected roots that are missing from the maintained graph', () => {
     const present = join(REPOSITORY_ROOT, 'src/main.ts');
     const missing = join(REPOSITORY_ROOT, 'src/missing-entry.ts');

@@ -325,7 +325,9 @@ function applyWaterAoEWithHydrants(
   center: Vec2,
   radius: number,
   intensity: number,
-  hydrantSystem?: HydrantSystem
+  hydrantCoverage?: {
+    readonly hydrants: ReadonlyArray<Pick<FireHydrant, 'active' | 'gridPos' | 'coverageRadius'>>
+  }
 ): void; // identical to applyWaterAoE without a system; 1.5× per covered tile with one
 function applyRetardantLine(grid: FireGrid, polyline: Vec2[], width:number, strength:number): void;
 function writeFirelineEdges(grid: FireGrid, edgePath: Edge[], strength:number): void;
