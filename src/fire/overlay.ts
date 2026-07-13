@@ -1,6 +1,6 @@
-import { AdditiveBlending, Color, DoubleSide, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Vector3 } from 'three';
+import { AdditiveBlending, Color, DoubleSide, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry } from 'three';
 import { Heightmap } from '../terrain/heightmap';
-import { FireGrid, FireState, indexToCoord } from './grid';
+import { FireGrid, indexToCoord } from './grid';
 
 export function createFireOverlay(hm: Heightmap, opts?: { offsetY?: number; depthTest?: boolean; renderOrder?: number }) {
   const plane = new PlaneGeometry(1, 1);
@@ -16,7 +16,6 @@ export function createFireOverlay(hm: Heightmap, opts?: { offsetY?: number; dept
 
   const tmp = new Object3D();
   const m = new Matrix4();
-  const up = new Vector3();
 
   let yOffset = opts?.offsetY ?? 0.05;
   const update = (grid: FireGrid) => {

@@ -121,7 +121,7 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
     addToScene, 
     getMode: () => mode, 
     removeFromScene,
-    updateTerrain: (newHeightmap: Heightmap, newChunkGroup: Group) => {
+    updateTerrain: (_newHeightmap: Heightmap, newChunkGroup: Group) => {
       // Update internal reference to chunk group for vertex mode
       chunkGroup = newChunkGroup;
     }

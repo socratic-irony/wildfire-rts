@@ -1,4 +1,4 @@
-import { Object3D, Raycaster, Vector2, Vector3, Mesh, BoxGeometry, MeshStandardMaterial, Color } from 'three';
+import { Object3D, Vector3 } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -6,7 +6,6 @@ import { Loop } from './core/loop';
 import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
 import { createTerrainMaterial } from './terrain/material';
-import { computeBiomes, applyBiomeVertexColors } from './terrain/biomes';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { buildTerrainCost } from './roads/cost';
 import { RoadsVisual } from './roads/visual';
@@ -32,7 +31,6 @@ const hm = generateHeightmap(16, 16, 1, {
   persistence: 0.5,
 });
 
-const biomes = computeBiomes(hm);
 const terrainMat = createTerrainMaterial() as any;
 const chunked = buildChunkedTerrain(hm, terrainMat, 16);
 scene.add(chunked.group);

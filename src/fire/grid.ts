@@ -40,14 +40,6 @@ export type FireGrid = {
   seed: number;
 };
 
-function seededRng(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (1664525 * s + 1013904223) >>> 0;
-    return s / 0xffffffff;
-  };
-}
-
 export function buildFireGrid(hm: Heightmap, biomes: BiomeMask, params: Partial<FireParams> = {}): FireGrid {
   const P: FireParams = { ...DEFAULT_FIRE_PARAMS, ...params, fuels: { ...DEFAULT_FIRE_PARAMS.fuels, ...(params as any)?.fuels } };
   const width = hm.width;

@@ -6,7 +6,7 @@ import { Loop } from './core/loop';
 import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
 import { createTerrainMaterial } from './terrain/material';
-import { computeBiomes, applyBiomeVertexColors } from './terrain/biomes';
+import { computeBiomes } from './terrain/biomes';
 import { buildChunkedTerrain } from './terrain/chunks';
 import { attachStats } from './ui/debug';
 import { buildTerrainCost } from './roads/cost';
@@ -161,7 +161,6 @@ let roadEndpoints: Array<{ x: number; z: number }> = [];
 const vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis);
 scene.add(vehicles.group);
 scene.add(vehicles.particleGroup); // Add particle group separately so it stays visible
-let vehiclesMoveEnabled = false;
 let yawDebugOn = false;
 let yawDiv: HTMLDivElement | null = null;
 
@@ -302,7 +301,7 @@ function spawnFollowerAtCamera() {
         // Always use Frenet vehicle spawning
         spawnFollowerAtCamera();
       },
-      moveModeToggle: (on) => { vehiclesMoveEnabled = on; },
+      moveModeToggle: () => {},
       clear: () => { vehicles.clear(); clearFollowers(); },
       toggleYawSmoothing: (on) => vehicles.setYawSmoothing(on),
       setSpacingMode: (m: 'hybrid' | 'gap' | 'time') => { spacingMode = m; },

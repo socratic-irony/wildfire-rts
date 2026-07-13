@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 describe('Vehicle Dropdown Spawn Logic', () => {
   // Mock the VehicleManager enum since we can't import from vehicles.ts in isolation

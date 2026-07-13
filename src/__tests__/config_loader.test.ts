@@ -24,7 +24,7 @@ describe('configuration loader', () => {
     // We can test validation using the validator directly since
     // environment variable mocking is complex in this test environment
     
-    const { config, errors } = await loadConfig({
+    const { errors } = await loadConfig({
       allowEnvironmentOverrides: false,
       throwOnValidationErrors: false
     });

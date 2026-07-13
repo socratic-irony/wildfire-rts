@@ -181,7 +181,7 @@ export function createFlipbookParticles(hm: Heightmap) {
 
   function rng(i: number) { let x = i * 1664525 + 1013904223; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 0xffffffff; }
 
-  function update(grid: FireGrid, env: { windDirRad: number; windSpeed: number }, dt: number, camera: Camera) {
+  function update(grid: FireGrid, _env: { windDirRad: number; windSpeed: number }, dt: number, camera: Camera) {
     // Update camera basis
     const m = (camera as any).matrixWorld.elements as number[];
     (mat.uniforms as any).cameraRight.value.set(m[0], m[1], m[2]);
@@ -190,7 +190,6 @@ export function createFlipbookParticles(hm: Heightmap) {
 
     let alive = 0;
     const width = grid.width;
-    const height = grid.height;
     const scale = hm.scale;
     // Distance LOD thresholds
     const near2 = 80 * 80, mid2 = 180 * 180, far2 = 300 * 300;

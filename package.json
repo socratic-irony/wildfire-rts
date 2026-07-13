@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test && npm run build",
     "audit:game": "tsx scripts/qa/playwright_audit.ts",
     "test:changed": "vitest run --changed=HEAD~1",
     "validate-assets": "tsx scripts/assets/validate.ts",

@@ -3,8 +3,8 @@
 // This file is kept for reference but is no longer used in the application.
 
 import { config } from '../config/features';
-import { computeFireStats, FireStats } from '../fire/stats';
-import { FireGrid } from '../fire/grid';
+import { computeFireStats } from '../fire/stats';
+import type { FireGrid } from '../fire/grid';
 
 type StatsHandle = {
   update: (dt: number, renderer: import('three').WebGLRenderer) => void;

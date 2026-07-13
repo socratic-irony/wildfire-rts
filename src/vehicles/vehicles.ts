@@ -30,9 +30,6 @@ type Agent = {
   pin?: { pathIndex: number; segIndex?: number };
   lastProj?: { normal: Vector3; tangent: Vector3 };
   prevTan?: Vector3;
-  waitingFor?: string; // intersection key queued at
-  intersection?: string; // intersection key being crossed
-  stopTimer?: number; // remaining stop time before entering intersection
   altitude?: number; // height offset for airborne vehicles
   debug?: {
     yawMode: string;
@@ -77,17 +74,11 @@ export class VehiclesManager {
   private fireGrid?: FireGrid;
   private landingZones: GridPoint[] = [];
   private yawMode: 'grid' | 'midline' | 'velocity' | 'lookahead' = 'midline';
-  private speedCurviness = 0.6; // weight for curvature speed reduction
-  private speedMinFactor = 0.45;
-  private spacingRadius = 0.7; // in world units (meters)
   private yawDebugOn = false;
   private yawDebugIndex = 0;
   private yawArrow?: ArrowHelper;
   private lastDt = 0;
   private smoothYaw = true;
-  private intersectionQueues = new Map<string, number[]>();
-  private intersectionOccupants = new Map<string, number>();
-  private stopDuration = 0.5; // seconds to wait at four-way stops
   private instRotor: InstancedMesh;
   private instHeadlight: InstancedMesh;
   private instSignal: InstancedMesh;
@@ -401,7 +392,6 @@ export class VehiclesManager {
       return;
     }
 
-    const pos = new Vector3(wx, y + 0.2, wz);
     // If roads exist, snap spawn to nearest road tile
     const spawnCell = this.findNearestRoad(gx, gz) ?? { x: gx, z: gz };
     const wx2 = (spawnCell.x + 0.5) * this.cellSize;
@@ -846,65 +836,6 @@ export class VehiclesManager {
     const n = new Vector3(-dhdx, 1, -dhdz);
     n.normalize();
     return n;
-  }
-
-  private cellKey(g: GridPoint): string {
-    return `${g.x},${g.z}`;
-  }
-
-  private isIntersection(g: GridPoint): boolean {
-    const W = this.terrain.width, H = this.terrain.height;
-    let count = 0;
-    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
-      if (!dx && !dz) continue;
-      const nx = g.x + dx, nz = g.z + dz;
-      if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
-      if (this.roadMask.mask[nz * W + nx] === 1) count++;
-    }
-    return count > 2;
-  }
-
-  private canEnterIntersection(i: number, next: GridPoint, dt: number): boolean {
-    const a = this.agents[i];
-    const key = this.cellKey(next);
-    if (a.intersection === key) return true;
-    let queue = this.intersectionQueues.get(key);
-    if (!queue) { queue = []; this.intersectionQueues.set(key, queue); }
-    const occupant = this.intersectionOccupants.get(key);
-    if (!a.waitingFor || a.waitingFor !== key) {
-      a.waitingFor = key;
-      a.stopTimer = this.stopDuration;
-      if (!queue.includes(i)) queue.push(i);
-      return false;
-    }
-    if (a.stopTimer != null && a.stopTimer > 0) {
-      a.stopTimer -= dt;
-      return false;
-    }
-    if (occupant != null && occupant !== i) {
-      if (!queue.includes(i)) queue.push(i);
-      return false;
-    }
-    if (queue.length && queue[0] !== i) {
-      if (!queue.includes(i)) queue.push(i);
-      return false;
-    }
-    if (queue.length && queue[0] === i) queue.shift();
-    this.intersectionOccupants.set(key, i);
-    a.intersection = key;
-    a.waitingFor = undefined;
-    return true;
-  }
-
-  private releaseIntersection(a: Agent) {
-    if (!a.intersection) return;
-    const [ix, iz] = a.intersection.split(',').map(Number);
-    if (a.grid.x !== ix || a.grid.z !== iz) {
-      this.intersectionOccupants.delete(a.intersection);
-      const q = this.intersectionQueues.get(a.intersection);
-      if (q && q.length === 0) this.intersectionQueues.delete(a.intersection);
-      a.intersection = undefined;
-    }
   }
 
   private chooseNextRoadNeighbor(cur: GridPoint, prev?: GridPoint, tangent?: Vector3): GridPoint | undefined {

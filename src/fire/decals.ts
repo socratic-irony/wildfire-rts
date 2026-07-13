@@ -1,6 +1,6 @@
-import { Color, DoubleSide, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Vector3 } from 'three';
+import { Color, DoubleSide, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry } from 'three';
 import { Heightmap } from '../terrain/heightmap';
-import { FireGrid, indexToCoord } from './grid';
+import { FireGrid } from './grid';
 
 function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; depthTest?: boolean; renderOrder?: number }) {
   const plane = new PlaneGeometry(1, 1);
@@ -165,7 +165,7 @@ export function createSuppressionDecals(hm: Heightmap, opts?: { offsetY?: number
     addToScene, 
     setOffsetY, 
     setDepthTest,
-    updateTerrain: (newHeightmap: Heightmap) => {
+    updateTerrain: (_newHeightmap: Heightmap) => {
       // The decals system doesn't store heightmap reference internally,
       // it receives it through the grid parameter in update calls
       // This is a no-op for compatibility

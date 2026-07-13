@@ -4,7 +4,7 @@
 
 ### ✅ Implemented
 - Dual vehicle architecture: Frenet `PathFollower` vehicles for player spawns plus instanced `VehiclesManager` agents for mass simulation, particles, and abilities
-- `VehiclesManager` four-way-stop intersection queues, particle/light FX, and water spray integration (`updateExternalFx`)
+- `VehiclesManager` particle/light FX and water spray integration (`updateExternalFx`); its disconnected private intersection-queue prototype has been removed
 - Menubar and debug tooling to spawn/clear followers, toggle move modes, and sync spacing parameters
 - Per-type instanced meshes, vehicle counts, and ability hooks (spray water, landing zones)
 - Procedural road loops (figure-8 by default) seeded at boot/regenerate; follower vehicles auto-spawn on seeded paths
@@ -39,7 +39,7 @@
 
 - Instanced vehicles with grid-follow fallback constrained to road tiles, terrain-aligned pose (pitch/roll from terrain normal, yaw from path direction)
 - Auto-seeded procedural road loops at startup/regenerate plus menubar hooks to spawn/clear vehicles; fewer default spawns (1 per road)
-- Four-way-stop intersection management to avoid collisions
+- Visible `PathFollower` four-way-stop intersection management to avoid collisions
 - Stable physical crossing metadata: duplicate segment hits merge into one intersection ID, self-crossings retain both arc occurrences, and simple endpoint joins are excluded
 - Road visuals: one depth-tested, terrain-hugging ribbon with dashed center stripe, dusty shoulders that blend into terrain, and polygon offset to avoid z-fighting
 - Road building: cost field includes aggressive slope/grade penalties with hard blocks for steep tiles; turn penalty biases A* to reduce sharp curves and favour straight, level alignments
@@ -144,7 +144,7 @@ Performance Targets
 ## Outstanding Focus Areas
 
 - Directed lane-graph routing and explicit left/through/right turn splines are not yet implemented; current followers stay on their assigned centerline.
-- The deprecated grid-agent `VehiclesManager` still has its own internal intersection fields; visible gameplay traffic uses `IntersectionManager` and should remain authoritative until the grid layer is retired.
+- The deprecated grid-agent `VehiclesManager` no longer carries disconnected intersection fields; visible gameplay traffic uses the authoritative `IntersectionManager` until the remaining grid layer is retired.
 - Reintroduce road-midline projection with spatial indexing to keep followers pinned to centerlines and smooth yaw through tight curves.
 - Expand the speed model to factor in grade, curvature, and road class, and add lane/offset support for wider roads.
 - Improve collision spacing for long convoys (lane-based offsets, platooning heuristics) beyond the current leader-follow spacing.

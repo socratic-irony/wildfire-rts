@@ -5,10 +5,9 @@ import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
 import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
-import { buildTerrainGeometry } from './terrain/mesh';
 import { createTerrainMaterial } from './terrain/material';
 import { RTSOrbitCamera } from './core/rtsOrbit';
-import { applyBiomeVertexColors, computeBiomes, computeBiomesTuned } from './terrain/biomes';
+import { computeBiomesTuned } from './terrain/biomes';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
 import { createRocks } from './actors/rocks';
@@ -53,7 +52,7 @@ import { DispatchPanel } from './ui/dispatchPanel';
 import { createVehicleHud } from './ui/vehicleHud';
 
 // Config and console system
-import { config, isFeatureEnabled } from './config/features';
+import { isFeatureEnabled } from './config/features';
 import { DebugConsole } from './ui/console';
 import { getLogger } from '../tools/logging/index.js';
 

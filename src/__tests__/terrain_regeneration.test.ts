@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { generateHeightmap } from '../terrain/heightmap';
 import { computeBiomesTuned } from '../terrain/biomes';
 import { RoadsVisual } from '../roads/visual';

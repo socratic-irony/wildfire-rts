@@ -1,4 +1,4 @@
-import { Color, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D, Vector3 } from 'three';
+import { Color, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 import type { BiomeMask } from '../terrain/biomes';
 
@@ -58,7 +58,6 @@ export function createRocks(hm: Heightmap, biomes: BiomeMask, opts: { density?: 
   inst.receiveShadow = true;
   const m = new Matrix4();
   const temp = new Object3D();
-  const up = new Vector3(0, 1, 0);
   for (let i = 0; i < instances.length; i++) {
     const it = instances[i];
     temp.position.set(it.x, it.y + it.sy * 0.5, it.z);

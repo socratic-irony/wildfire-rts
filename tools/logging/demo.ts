@@ -1,4 +1,4 @@
-import { createLogger, getLogger } from '../index.js';
+import { createLogger, getLogger } from './index.js';
 
 // Demo configuration with multiple sinks and structured logging
 const demoConfig = {

@@ -7,7 +7,7 @@
  * that back the "Assign selected" panel feature.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { generateHeightmap } from '../terrain/heightmap';
 import { computeBiomes } from '../terrain/biomes';
 import { buildFireGrid, FireState } from '../fire/grid';

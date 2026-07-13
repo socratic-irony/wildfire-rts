@@ -1,6 +1,6 @@
 import { BufferAttribute, BufferGeometry, Group, Material, Mesh } from 'three';
 import { Heightmap } from './heightmap';
-import { applyBiomeVertexColors, computeBiomes, type BiomeMask } from './biomes';
+import { computeBiomes, type BiomeMask } from './biomes';
 
 function buildChunkGeometry(
   hm: Heightmap,

@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import process from 'node:process';
 import { chromium, type Page } from 'playwright';
 
@@ -92,7 +92,7 @@ async function waitForServer(url: string, timeoutMs = 20_000) {
   throw new AuditError(`Timed out waiting for dev server at ${url}`);
 }
 
-async function startDevServer(url: URL): Promise<{ child: ChildProcessWithoutNullStreams; close: () => void }> {
+async function startDevServer(url: URL): Promise<{ close: () => void }> {
   const child = spawn('npm', ['run', 'dev', '--', '--host', url.hostname, '--port', url.port], {
     stdio: ['ignore', 'pipe', 'pipe'],
     cwd: process.cwd(),
@@ -104,7 +104,6 @@ async function startDevServer(url: URL): Promise<{ child: ChildProcessWithoutNul
   child.stderr.on('data', (chunk) => process.stderr.write(chunk));
   await waitForServer(url.toString());
   return {
-    child,
     close: () => {
       if (!child.killed) child.kill('SIGTERM');
     },
@@ -206,7 +205,7 @@ async function screenshot(page: Page, dir: string, name: string) {
   await page.screenshot({ path: path.join(dir, `${name}.png`) });
 }
 
-async function scenario(name: string, artifactDir: string, fn: () => Promise<void>) {
+async function scenario(name: string, _artifactDir: string, fn: () => Promise<void>) {
   process.stdout.write(`\n[game-audit] ${name}\n`);
   try {
     await fn();

@@ -55,7 +55,6 @@ export class RoadsVisual {
 
   // Spatial index for segments (uniform grid)
   private gridCellSize = 0; // set on first path add
-  private gridW = 0; private gridH = 0;
   private grid: number[][] = []; // cell -> segment indices
   private segs: Array<{ path: number; i: number; a: Vector2; b: Vector2; len: number }>=[];
 
@@ -246,13 +245,7 @@ export class RoadsVisual {
     this.grid = [];
     const W = Math.ceil(this.hm.width * scale / this.gridCellSize);
     const H = Math.ceil(this.hm.height * scale / this.gridCellSize);
-    this.gridW = W; this.gridH = H;
     for (let i = 0; i < W * H; i++) this.grid[i] = [];
-    const cellOf = (x: number, z: number) => {
-      const cx = Math.max(0, Math.min(W - 1, Math.floor(x / this.gridCellSize)));
-      const cz = Math.max(0, Math.min(H - 1, Math.floor(z / this.gridCellSize)));
-      return cz * W + cx;
-    };
     // Insert segments into grid cells
     for (let si = 0; si < this.segs.length; si++) {
       const s = this.segs[si];

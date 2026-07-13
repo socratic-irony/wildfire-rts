@@ -39,7 +39,6 @@ export class PathFollower {
   stopAtTarget = true;
   // leader coupling (optional)
   private leaderS: number | undefined;
-  private leaderV: number | undefined;
   // tuning
   Lmin = 3; Lmax = 14; kLook = 0.7;
   accel = 8; brake = 12;
@@ -70,9 +69,8 @@ export class PathFollower {
     this.targetS = null;
   }
 
-  setLeader(leaderS?: number, leaderV?: number) {
+  setLeader(leaderS?: number, _leaderV?: number) {
     this.leaderS = leaderS;
-    this.leaderV = leaderV;
   }
 
   setSpacingMode(mode: 'hybrid' | 'gap' | 'time') { this.spacingMode = mode; }

@@ -1,5 +1,4 @@
 import { FireGrid, FireState, coordToIndex, indexToCoord } from './grid';
-import { FireParams } from './params';
 import { getLogger } from '../../tools/logging/index.js';
 
 export type Env = {

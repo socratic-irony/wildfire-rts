@@ -130,8 +130,10 @@ Extensibility Hooks
 - Vehicles: water/retardant actions can call FireGrid APIs; per-type speed and handling implemented; laneing and advanced spacing remain future work.
 - Roads: attach metadata (class/type) and vary width/material; expose midline for more advanced AI.
 
-Testing Strategy (planned)
+Testing Strategy
 
+- `npm run typecheck` enforces strict TypeScript compilation across application, tools, QA scripts, and Vite configuration, including zero unused locals and parameters.
+- `npm run check` is the canonical local gate: type-check, complete Vitest suite, then production build.
 - Unit tests around math-heavy pieces:
   - Heightmap sampling, normal estimation.
   - FireSim tick transitions and ignition probabilities (deterministic seeds).
@@ -161,7 +163,7 @@ Open Opportunities / Next Items
 - Fire: edge-based line strength; crown behavior; UI paint tools; wire stats into UI.
 - Roads: directed lane graph, road-class metadata, turn splines, and cross-component intersection routing.
 - Vehicles: turn selection across the future lane graph; compatible conflict-zone tokens/signals; retirement of the deprecated grid traffic stack.
-- Repository maintenance: enforce unused-code type-checking and reduce oversized orchestration modules only behind characterization tests; preserve documented app and testbed behavior during cleanup. The approved implementation sequence is recorded in `docs/plans/2026-07-12-repository-cleanup.md`.
+- Repository maintenance: unused-code type-checking is enforced; continue reducing oversized orchestration modules only behind characterization tests while preserving documented app and testbed behavior. The approved implementation sequence is recorded in `docs/plans/2026-07-12-repository-cleanup.md`.
 - (v2.0+) Scenario persistence (save/load) – out of scope for current milestone.
 - Telemetry: per-subsystem timings in stats overlay; debug draws (normals, probability arrows).
 

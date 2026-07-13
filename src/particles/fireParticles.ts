@@ -1,7 +1,6 @@
-import { Camera, Color, Group, IcosahedronGeometry, MeshBasicMaterial, MeshStandardMaterial, Object3D, Vector3 } from 'three';
+import { Camera, Color, Group, IcosahedronGeometry, MeshBasicMaterial, Object3D } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
 import type { FireGrid } from '../fire/grid';
-import { FireState } from '../fire/grid';
 import { InstancedParticleSystem } from './system';
 
 type ParticleQuality = 'low' | 'med' | 'high';
@@ -164,8 +163,6 @@ export function createFireParticles(hm: Heightmap) {
 
   function addToScene(root: Object3D) { (root as any).add(group); }
   function removeFromScene(root: Object3D) { (root as any).remove(group); }
-
-  function dispose() { /* three handles freed by GC; keep for completeness */ }
 
   return { group, update, addToScene, removeFromScene, setQuality } as const;
 }

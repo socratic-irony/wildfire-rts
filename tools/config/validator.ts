@@ -1,4 +1,4 @@
-import { AppConfig, ConfigValidationError } from './types';
+import { ConfigValidationError } from './types';
 
 /**
  * Validate configuration against the schema
@@ -6,7 +6,7 @@ import { AppConfig, ConfigValidationError } from './types';
 export function validateConfig(config: any): ConfigValidationError[] {
   const errors: ConfigValidationError[] = [];
 
-  function validateSection(obj: any, path: string, schema: any): void {
+  function validateSection(obj: any, path: string): void {
     if (typeof obj !== 'object' || obj === null) {
       errors.push({ path, message: 'Expected object', value: obj });
       return;
@@ -52,7 +52,7 @@ export function validateConfig(config: any): ConfigValidationError[] {
   const expectedSections = ['logging', 'debug', 'rendering', 'features'];
   for (const section of expectedSections) {
     if (config[section]) {
-      validateSection(config[section], section, null);
+      validateSection(config[section], section);
     }
   }
 

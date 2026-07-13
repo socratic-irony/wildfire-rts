@@ -1,4 +1,4 @@
-import { AdditiveBlending, BufferAttribute, BufferGeometry, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, Vector3 } from 'three';
+import { AdditiveBlending, BufferGeometry, DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, Matrix4, MeshBasicMaterial, MeshStandardMaterial } from 'three';
 
 type ParticleSystemKind = 'flame' | 'smoke' | 'smolder';
 
@@ -141,7 +141,6 @@ export class InstancedParticleSystem {
   update(dt: number, wind: { wx: number; wz: number }, slopeLift = 0) {
     const N = this.capacity;
     const m = this.mesh;
-    const matArr = m.instanceMatrix.array as Float32Array;
     let anyChanged = false;
     for (let i = 0; i < N; i++) {
       if (!this.alive[i]) continue;

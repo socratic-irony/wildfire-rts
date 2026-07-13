@@ -1,8 +1,7 @@
 import { config } from '../config/features';
-import { computeFireStats, FireStats } from '../fire/stats';
+import { computeFireStats } from '../fire/stats';
 import { computeFleetStats } from '../vehicles/stats';
 import type { FollowerEntry } from '../vehicles/followerOrders';
-import { FireGrid } from '../fire/grid';
 
 // Simple icon system using Unicode/emoji and basic shapes
 const ICONS = {

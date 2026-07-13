@@ -1,14 +1,9 @@
-import { Object3D, PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three';
+import { Object3D, PerspectiveCamera, Vector3 } from 'three';
 
 type HeightSampler = (x: number, z: number) => number;
 
 export class RTSOrbitCamera {
-  private dom: HTMLElement;
   private camera: PerspectiveCamera;
-  private terrain: Object3D;
-  private sample: HeightSampler;
-  private ray = new Raycaster();
-  private mouse = new Vector2();
 
   // Orbit state
   private yaw = Math.PI * 0.25; // around Y
@@ -40,11 +35,8 @@ export class RTSOrbitCamera {
 
   public pivot = new Vector3();
 
-  constructor(dom: HTMLElement, camera: PerspectiveCamera, terrain: Object3D, sample: HeightSampler, initialPivot: Vector3) {
-    this.dom = dom;
+  constructor(dom: HTMLElement, camera: PerspectiveCamera, _terrain: Object3D, _sample: HeightSampler, initialPivot: Vector3) {
     this.camera = camera;
-    this.terrain = terrain;
-    this.sample = sample;
     this.setPivot(initialPivot.x, initialPivot.z);
 
     dom.addEventListener('pointerdown', this.onDown);
@@ -123,17 +115,6 @@ export class RTSOrbitCamera {
       e.preventDefault();
     }
   };
-
-  private getMouseNDC(ev: PointerEvent | WheelEvent) {
-    const rect = this.dom.getBoundingClientRect();
-    this.mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-    this.mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-  }
-  private raycastToTerrain(): Vector3 | null {
-    this.ray.setFromCamera(this.mouse, this.camera);
-    const hits = this.ray.intersectObject(this.terrain, true);
-    return hits.length ? hits[0].point : null;
-  }
 
   update(dt: number, move: { left:boolean; right:boolean; up:boolean; down:boolean }) {
     // Pan pivot along ground plane using yaw basis (Y unchanged)

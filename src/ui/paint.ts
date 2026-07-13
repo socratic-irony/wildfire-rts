@@ -1,4 +1,4 @@
-import { Vector2, Vector3, Raycaster, Camera, Object3D } from 'three';
+import { Vector2, Raycaster, Camera, Object3D } from 'three';
 import { FireGrid } from '../fire/grid';
 import { applyWaterAoE, applyRetardantLine } from '../fire/grid';
 import { Heightmap } from '../terrain/heightmap';
@@ -132,7 +132,7 @@ export function createPaintSystem(
     }
   };
 
-  const onMouseUp = (event: MouseEvent) => {
+  const onMouseUp = (_event: MouseEvent) => {
     if (!enabled) return;
     
     isMouseDown = false;
