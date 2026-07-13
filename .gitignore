@@ -4,6 +4,7 @@ dist
 screenshots/
 output/
 artifacts/
+.worktrees/
 
 # Local configuration overrides
 config/local.json

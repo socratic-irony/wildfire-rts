@@ -145,6 +145,7 @@ Contribution & Spec Hygiene
 
 - Before committing, update the relevant spec(s) in `specs/` (what works vs not yet; API changes). See AGENTS.md.
 - Keep runtime and data shapes consistent with docs; if you diverge, document the deviation and why.
+- Project-local implementation worktrees live under the ignored `.worktrees/` directory.
 
 LLM Orientation Checklist
 
