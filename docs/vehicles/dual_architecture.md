@@ -28,9 +28,9 @@ This project maintains two complementary vehicle controllers:
 
 ## Intersection Responsibilities
 
-- `IntersectionManager` is dedicated to PathFollower vehicles and provides queue bookkeeping, stop timers, and occupant tracking.
+- `IntersectionManager` is the authoritative controller for player-visible `PathFollower` traffic and provides deterministic batch arbitration, braking/approach caps, full-stop FIFO service, exclusive occupancy, and closed-loop-safe clearance.
 - A `canEnterProbe` callback (set in `main.ts`) applies a spillback check: a follower cannot enter an intersection if the exit space on its current path is occupied by another unit within `CLEAR_ZONE` (8 m).
-- VehiclesManager grid agents do not share these queues (see initiative 2 in ROADMAP).
+- `VehiclesManager` grid agents do not have an active intersection queue. The disconnected private queue prototype was removed; mixed grid/Frenet traffic is not a supported coordinated traffic model.
 
 ## Suppression Loop (as of 2026-04-18)
 
@@ -45,12 +45,12 @@ The suppression loop in `main.ts` closes the dispatch-to-resolve cycle:
 
 - PathFollower units follow their current road path to the nearest projected incident position; cross-path routing requires a road connectivity graph (post-MVP).
 - HUD bars (fuel %, water %) per vehicle are not yet rendered.
-- VehiclesManager instanced intersection queues are not shared with PathFollower.
-- Diagnostic overlays (queue depth, active emitters) exist only in the manager.
+- The legacy grid-agent layer in `VehiclesManager` is still present for focused tests/testbeds, but it has no intersection arbitration and should not be described as production traffic.
+- Frenet queue/phase telemetry is exposed through the browser test/debug surface; per-vehicle HUD instrumentation is still limited.
 
 ## Next Steps
 
 1. HUD bars per vehicle (fuel + water).
-2. Share intersection queue state with VehiclesManager so mixed fleets co-exist.
+2. Retire or sharply isolate the legacy grid-agent movement layer; add a single shared traffic model only if mixed fleets become a real requirement.
 3. Road connectivity graph for cross-path routing.
 4. Move hydrant/ability calls behind a common service so both systems can activate sprays.

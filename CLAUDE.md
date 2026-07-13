@@ -15,10 +15,12 @@ Entry-point for Claude Code sessions in this repo. General contribution rules li
 Run all three, in order. Any red = not done.
 
 ```bash
-npm test            # Vitest unit suite
-npm run build       # Production bundle must type-check + build
-npm run audit:game  # Deterministic Playwright audit against the live dev server
+npm run check            # Strict type-check, complete Vitest suite, then Vite build
+npm run validate-assets  # Repository asset rules
+npm run audit:game       # Deterministic Playwright audit against the live dev server
 ```
+
+For fast compiler-only feedback, run `npm run typecheck`. `npm run build` runs Vite bundling only; it does not invoke `tsc` and must not be used as evidence that the source graph type-checks.
 
 The audit launches its own dev server via [scripts/qa/playwright_audit.ts](scripts/qa/playwright_audit.ts) and writes screenshots to a temp dir (or `$GAME_AUDIT_ARTIFACTS` if set). Inspect the screenshots when a scenario fails — they catch visual regressions the assertions miss.
 

@@ -1,6 +1,8 @@
 # Logging System
 
-This document describes the logging and error reporting wrapper for the wildfire-rts project.
+This document describes the logging and error reporting wrapper in `tools/logging/`. It is the logger used by the live application (`src/main.ts`, the loop, fire simulation, and error overlay).
+
+Do not confuse it with `tools/logger.ts`. That separate `ConfigurableLogger` is a maintained example paired with the standalone camel-case schema in `tools/config/`; the application does not construct it. The source-graph gate deliberately keeps both documented surfaces reachable.
 
 ## Overview
 
@@ -41,7 +43,7 @@ logger.info('User action', {
 }, 'auth.service');
 ```
 
-### Configuration
+### Programmatic Configuration
 
 ```typescript
 import { createLogger } from './tools/logging/index.js';
@@ -64,9 +66,9 @@ const logger = createLogger({
 });
 ```
 
-## Configuration File
+## Configuration File Example
 
-The logging system can be configured via `config/logging.json`:
+`config/logging.json` documents a possible configuration shape, but the runtime does not load it automatically. `getLogger()` currently uses the defaults in `tools/logging/factory.ts` unless a caller supplies overrides programmatically:
 
 ```json
 {
@@ -104,10 +106,10 @@ Only logs at or above the configured level will be processed.
 Outputs logs to browser console using appropriate console methods (debug, info, warn, error).
 
 ### File Sink
-In browser environment, outputs to console with `[FILE]` prefix. In Node.js environment, would write to actual files.
+The current implementation outputs to console with a `[FILE]` prefix. It does not write files in either browser or Node.js environments.
 
 ### Third-Party Reporting (Sentry)
-Optional integration with Sentry for error reporting. **Disabled by default** as per requirements.
+This is a disabled placeholder. When enabled in the current implementation it writes a `[SENTRY]` console line; no Sentry SDK or network transport is connected.
 
 ## Log Rotation
 
@@ -148,7 +150,7 @@ LoggerFactory.createFromConfig(configData: any): Logger
 
 ## Demo and Testing
 
-Run the demo to see all features in action:
+The standalone demo is a maintained source-graph root, but there is no package script for it. It can be imported from tooling when needed:
 
 ```typescript
 import { runLoggingDemo } from './tools/logging/demo.js';
@@ -167,7 +169,7 @@ The test suite covers:
 - Log rotation
 - Configuration updates
 - Singleton pattern
-- Feature flag verification
+- A default error-logging smoke test that confirms the disabled Sentry placeholder does not throw
 
 ## Feature Flags
 
@@ -180,7 +182,7 @@ The test suite covers:
 ### File Logging
 - **Default**: Disabled
 - **Configuration**: `config.sinks.file.enabled`
-- **Purpose**: Persistent log storage (console-based in browser environment)
+- **Purpose**: Placeholder secondary sink that writes `[FILE]`-prefixed messages to the console; it provides no persistence in browser or Node.js environments
 
 ## Integration Guidelines
 

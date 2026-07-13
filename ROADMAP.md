@@ -20,7 +20,7 @@ A playthrough satisfies the MVP when, from a seeded boot, the audit can:
 3. Exhaust and refill vehicle payloads without the loop stalling.
 4. Run a multi-minute scenario to a deterministic win/loss outcome.
 
-Acceptance gate: `npm test`, `npm run build`, and `npm run audit:game` all green.
+Acceptance gate: `npm run check` and `npm run audit:game` both green.
 
 As of 2026-04-19 items 1–2 are covered by `audit:game`. Items 3–4 are the focus of Phase 1–2 below.
 
@@ -60,10 +60,10 @@ Make the strategy loop real: varied threats, every vehicle class with a working 
 Lower-risk once Phase 1 lands.
 
 - [x] **Road/hydrant render debug cleanup** (S) — hide the diagnostic road triangle lattice/midline and hydrant coverage rings by default, expose them through detailed debug controls, and centralize duplicated player-road planner logic in [src/roads/planner.ts](src/roads/planner.ts).
-- [ ] **Decompose `src/main.ts`** (M, 1027 LOC) — extract `src/input/handlers.ts` and `src/systems/fireLoop.ts`.
-- [ ] **Decompose `src/vehicles/vehicles.ts`** (M, 1010 LOC).
-- [ ] **Decompose `src/ui/menubar.ts`** (M, 901 LOC) — split per-section.
-- [ ] **Unify intersection control** (M) — share queue/token state from [src/vehicles/intersectionManager.ts](src/vehicles/intersectionManager.ts) with `VehiclesManager` grid agents. Needs a curvature/collision assertion added to the audit first.
+- [ ] **Decompose `src/main.ts`** (M) — extract `src/input/handlers.ts` and `src/systems/fireLoop.ts`.
+- [ ] **Decompose `src/vehicles/vehicles.ts`** (M).
+- [ ] **Decompose `src/ui/menubar.ts`** (M) — split per-section.
+- [ ] **Retire or isolate grid-agent traffic** (M) — keep Frenet `IntersectionManager` traffic authoritative while removing or sharply isolating the remaining `VehiclesManager` grid movement layer; preserve its instanced FX and ability bridge.
 - [ ] **Midline tangent yaw smoothing** (S) — use projected tangent from the `midlineIndex` for yaw in [src/vehicles/frenet.ts](src/vehicles/frenet.ts). Bench query latency vs previous brute-force.
 
 ## Deferred

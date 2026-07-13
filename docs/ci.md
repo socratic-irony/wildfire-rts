@@ -25,7 +25,7 @@ The wildfire-rts project uses GitHub Actions for continuous integration and depl
 1. **Checkout**: Gets the latest code
 2. **Setup Node.js**: Installs the specified Node.js version with npm caching
 3. **Install Dependencies**: Runs `npm ci` for clean, reproducible installs
-4. **Type Check**: Runs `tsc --noEmit --skipLibCheck` for TypeScript validation (non-blocking)
+4. **Type Check**: Runs `tsc --noEmit --skipLibCheck`, but the current workflow converts diagnostics to warnings and therefore does not enforce this step
 5. **Validate Assets**: Runs asset validation scripts
 6. **Generate Asset Manifest**: Creates asset manifest for build
 7. **Run Tests**: Executes the full test suite via `npm test`
@@ -71,24 +71,27 @@ The wildfire-rts project uses GitHub Actions for continuous integration and depl
 
 ### Running CI Checks Locally
 
-Before pushing, you can run the same checks locally:
+Before pushing, run the repository's stricter canonical local gate:
 
 ```bash
 # Install dependencies
 npm ci
 
-# Type checking (non-blocking, may show warnings)
-npx tsc --noEmit --skipLibCheck
+# Fast strict compiler-only gate
+npm run typecheck
 
-# Run tests
-npm test
+# Canonical gate: strict type-check, all tests, and Vite production build
+npm run check
+
+# Asset rules (also run by CI)
+npm run validate-assets
 
 # Run only tests for changed files (useful during development)
 npm run test:changed
 
-# Build project
-npm run build
 ```
+
+`npm run build` runs Vite bundling only and does not invoke the TypeScript compiler. `npm run check` intentionally runs `tsc --noEmit` first. The checked-in CI workflow still has a non-blocking legacy type-check command, so a green CI build is not a substitute for the stricter local gate until the workflow is aligned.
 
 ### Coverage and Test Results
 
@@ -123,7 +126,7 @@ While not configured automatically, the following branch protection rules are re
 ### Common CI Failures
 
 **TypeScript Errors:**
-- Check `tsc --noEmit --skipLibCheck` output
+- Run `npm run typecheck` and fix all diagnostics
 - Ensure all dependencies have proper type definitions
 - Fix type errors before pushing
 
@@ -154,7 +157,7 @@ While not configured automatically, the following branch protection rules are re
 ## Integration with Project Workflow
 
 This CI/CD setup integrates with the existing project structure:
-- Uses existing `package.json` scripts (`build`, `test`, `dev`, `preview`)
+- Uses existing `package.json` scripts; contributors use `typecheck` and `check` as the canonical local quality gates
 - Respects existing TypeScript configuration in `tsconfig.json`
 - Works with current Vite + Vitest setup
 - Maintains separation from vehicles and particles branches as requested

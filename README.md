@@ -9,7 +9,7 @@ A real-time strategy game prototype featuring procedural terrain, wildfire simul
 - **Procedural Terrain**: Rolling hills with biome-based vegetation (forest, chaparral, rock)
 - **Wildfire Simulation**: Physics-based fire spread with wind/slope influence, suppression mechanics
 - **Road System**: A*-based pathfinding with valley-preferring cost function and smooth ribbon rendering
-- **Vehicle Management**: Dual system with Frenet PathFollower vehicles for player spawns and instanced `VehiclesManager` agents with intersection handling and abilities
+- **Vehicle Management**: Player-facing Frenet `PathFollower` vehicles with deterministic intersection control, plus an instanced `VehiclesManager` retained for shared FX, abilities, tests, and testbeds
 - **Unified Menubar & Paint Tools**: Central toolbar for fire, road, hydrant, and vehicle actions plus water/retardant painting tied to the fire grid
 - **RTS Camera**: Pan, rotate, tilt, and zoom controls optimized for strategy gameplay
 - **Debug UI**: Comprehensive controls for all systems with performance stats
@@ -49,9 +49,18 @@ npm run preview
 ### Testing
 
 ```bash
-# Run test suite
-npm run test
+# Fast compiler-only feedback
+npm run typecheck
+
+# Canonical local gate: strict type-check, all Vitest tests, production build
+npm run check
+
+# Repository-specific asset and browser verification
+npm run validate-assets
+npm run audit:game
 ```
+
+`npm run build` invokes Vite and produces the bundle; Vite does not run the TypeScript compiler. Use `npm run typecheck` or the complete `npm run check` gate for type safety.
 
 ## Controls
 
@@ -84,7 +93,7 @@ The codebase follows a modular architecture:
 - **`src/terrain/`**: Procedural heightmap generation, chunked LOD terrain, biome system
 - **`src/fire/`**: Grid-based fire simulation, visualization, suppression mechanics  
 - **`src/roads/`**: A* pathfinding, cost fields, visual road rendering
-- **`src/vehicles/`**: Instanced vehicle management with road-following behavior
+- **`src/vehicles/`**: Authoritative Frenet traffic and intersection control, plus instanced `VehiclesManager` FX and ability support
 - **`src/ui/`**: Debug interface, console system, error handling
 - **`src/particles/`**: Fire particle effects using flipbook billboards
 
@@ -110,7 +119,7 @@ This project follows spec-first development:
 ## Current Limitations
 
 - **Fire System**: Crown fire behavior, edge-based firelines, and retardant gel knockback remain outstanding
-- **Vehicles**: Frenet PathFollower vehicles do not yet share the VehiclesManager intersection queues or advanced spacing logic
+- **Vehicles**: Player-visible Frenet traffic has the authoritative all-way-stop and spacing logic; the legacy grid-agent layer in `VehiclesManager` has no intersection queue and remains to be retired or more sharply isolated
 - **Hydrants**: Coverage tuning, damage states, and overlay polish are still planned
 - **Particles**: Using placeholder textures, soft particles not implemented
 - **Persistence**: Scenario save/load out of scope for v1
@@ -124,7 +133,7 @@ Live plan with phases, file pointers, and scope estimates: **[ROADMAP.md](ROADMA
 
 1. Read [`AGENTS.md`](AGENTS.md) for detailed contribution guidelines
 2. Follow the spec-first approach: update relevant specs with your changes
-3. Ensure `npm run build` and `npm run test` pass
+3. Ensure `npm run check` passes; run `npm run audit:game` for gameplay changes
 4. Include screenshots/video for visual changes
 5. Keep commits focused and reference the affected system/stage
 

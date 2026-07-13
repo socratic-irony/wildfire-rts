@@ -28,13 +28,10 @@ describe('Simple Barrier Test', () => {
     for (let x = 0; x < 8; x++) {
       applyRetardantLine(grid, [{ x, z: 4 }], 1, 1.0);
     }
-    
-    // Check retardant was applied
+
     const barrierTile = grid.tiles[4 * 8 + 4];
-    console.log('Barrier tile:', {
-      retardant: barrierTile.retardant,
-      lineStrength: barrierTile.lineStrength
-    });
+    expect(barrierTile.retardant).toBeGreaterThan(0.5);
+    expect(barrierTile.lineStrength).toBeGreaterThan(0);
     
     // Ignite south of barrier
     ignite(grid, [{ x: 4, z: 2 }]);
@@ -45,19 +42,6 @@ describe('Simple Barrier Test', () => {
     
     // Run for limited time
     for (let i = 0; i < 40; i++) sim.step(0.25); // 10 seconds
-    
-    // Print fire pattern
-    console.log('Fire pattern after 10 seconds:');
-    for (let z = 0; z < 8; z++) {
-      let row = '';
-      for (let x = 0; x < 8; x++) {
-        const tile = grid.tiles[z * 8 + x];
-        if (tile.retardant > 0.5) row += 'R';
-        else if (tile.state >= 2) row += 'F';
-        else row += '.';
-      }
-      console.log(`z${z}: ${row}`);
-    }
     
     // Check fire distribution
     let fireSouth = 0, fireNorth = 0;
@@ -71,8 +55,6 @@ describe('Simple Barrier Test', () => {
         if (grid.tiles[z * 8 + x].state >= 2) fireNorth++;
       }
     }
-    
-    console.log(`Fire south: ${fireSouth}, fire north: ${fireNorth}`);
     
     expect(fireSouth).toBeGreaterThan(0); // Should have fire on ignition side
     expect(fireNorth).toBe(0); // Should block fire crossing

@@ -103,7 +103,6 @@ describe('Terrain Regeneration', () => {
     const roadMaskValue = roadMask.mask[25 * roadMask.width + 25]; // Check where new road is
     expect(roadMaskValue).toBeGreaterThan(0); // Should have road mask value
     
-    console.log('✅ Terrain regeneration properly clears and recreates roads and vehicles');
   });
   
   it('should handle multiple regeneration cycles without memory leaks', () => {
@@ -149,6 +148,5 @@ describe('Terrain Regeneration', () => {
       expect(roadsVis.getMidlinesXZ().length).toBe(0);
     }
     
-    console.log('✅ Multiple regeneration cycles handled without issues');
   });
 });

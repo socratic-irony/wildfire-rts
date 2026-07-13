@@ -24,7 +24,7 @@ Original prompt: I've been having a hell of a time getting the roads to generate
 - Added `?scenario=traffic`, `setupTrafficScenario`, queue/occupant/phase/min-gap telemetry, and a four-car Playwright traffic audit.
 - Focused traffic audit passes: all four cars receive occupancy, queue drains, minimum same-path gap stays ≥1.9 m, transforms remain finite, and cars do not overlap.
 - Shared web-game client and headed Chromium runs visually inspected. One intermediate screenshot can show black vertical bands under software WebGL readback; adjacent frames and headed state are clean, confirming a capture artifact rather than scene corruption.
-- Current verification: 56 Vitest files / 225 tests pass; production build and `tsc --noEmit` pass.
+- Current verification: 60 Vitest files / 238 tests pass; `npm run check` covers strict `tsc --noEmit`, the full suite, and the production build.
 - Full 18-scenario Playwright audit passes, including the new traffic intersection scenario and all pre-existing dispatch/fire/vehicle regressions.
 - Full-audit review caught a stale manual-dispatch button after follower selection. Routeability was true; the dispatch DOM was waiting for its 5 Hz refresh. Test-API and real canvas selections now synchronously refresh dispatch actions, and the isolated plus full audits pass.
 - Final contention capture waits for two actual `queued` phases and visibly shows both gold stop rings. Clearance remains asserted from state because long SwiftShader fast-forward readbacks can show transient black bands that are absent from adjacent live frames.
@@ -37,3 +37,12 @@ Original prompt: I've been having a hell of a time getting the roads to generate
 - Added a regression test requiring exactly one named, depth-tested, depth-writing production road surface.
 - Headed interactive traffic captures in `artifacts/web-game/road-surface-fix/` confirm complete car bodies render above the asphalt and the false side thickness is gone; captured state shows intersection occupancy rotating between queued cars without console errors.
 - Final focused `traffic-intersection` Playwright audit passes and its contention capture was visually inspected after the surface fix.
+
+## 2026-07-12 Repository Maintenance Follow-up
+
+- Added strict unused-local/parameter enforcement and the canonical `npm run typecheck` / `npm run check` gates; Vite's production build remains a separate bundling step and does not type-check by itself.
+- Added a source-graph test that treats the documented app, testbeds, scripts, tests, and standalone config/logging examples as roots, then removed the unreachable dispatch station prototype it exposed.
+- Consolidated the repeated actor LCG, nearest-cell coordinate conversion, and water-suppression tile loop behind characterized helpers while preserving existing sequences, rounding, clamping, and suppression semantics.
+- Confirmed that the four terrain-regeneration `updateTerrain` methods are live call points. Flipbook particles fully swap their sampled heightmap; the ribbon, suppression decals, and fire visualization still have partial compatibility behavior documented as outstanding work in the fire/particle specs.
+- Removed incidental success/debug output from barrier and terrain-regeneration tests without weakening existing assertions, and added two barrier setup assertions for retardant and line strength. Intentional logger-sink and expected-warning tests still emit through their tested channels.
+- Final verification: `npm run check` passes 60 files / 238 tests and the 76-module production build; asset validation accepts 9/9 assets with six advisory oversized-image warnings; all 18 Playwright audit scenarios pass.

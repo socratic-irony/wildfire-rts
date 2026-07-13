@@ -137,6 +137,7 @@ Testing Strategy
 
 - `npm run typecheck` enforces strict TypeScript compilation across application, tools, QA scripts, and Vite configuration, including zero unused locals and parameters.
 - `npm run check` is the canonical local gate: type-check, complete Vitest suite, then production build.
+- `npm run build` invokes Vite bundling only; it does not run `tsc` and is not a replacement for either gate above.
 - `src/__tests__/source_graph.test.ts` resolves relative TypeScript imports from documented application, testbed, script, test, configuration, and logging-demo roots, and fails when a maintained source module becomes unreachable. The abandoned, unreferenced dispatch station-registry prototype was removed when this gate was introduced.
 - Unit tests around math-heavy pieces:
   - Heightmap sampling, normal estimation.
@@ -169,7 +170,7 @@ Open Opportunities / Next Items
 - Fire: edge-based line strength; crown behavior; UI paint tools; wire stats into UI.
 - Roads: directed lane graph, road-class metadata, turn splines, and cross-component intersection routing.
 - Vehicles: turn selection across the future lane graph; compatible conflict-zone tokens/signals; retirement of the deprecated grid traffic stack.
-- Repository maintenance: unused-code type-checking is enforced; continue reducing oversized orchestration modules only behind characterization tests while preserving documented app and testbed behavior. The approved implementation sequence is recorded in `docs/plans/2026-07-12-repository-cleanup.md`.
+- Repository maintenance: strict unused-code checking and the maintained-source graph are enforced. Shared deterministic random, coordinate conversion, and water-application helpers replace proven duplication. Continue reducing oversized orchestration modules only behind characterization tests while preserving documented app and testbed behavior. The approved implementation sequence is recorded in `docs/plans/2026-07-12-repository-cleanup.md`.
 - (v2.0+) Scenario persistence (save/load) – out of scope for current milestone.
 - Telemetry: per-subsystem timings in stats overlay; debug draws (normals, probability arrows).
 

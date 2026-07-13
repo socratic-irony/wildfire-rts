@@ -6,6 +6,16 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-07-12 — Repository hygiene and maintenance gates
+
+Strict TypeScript checking now rejects unused locals and parameters, and `npm run check` is the canonical type-check + unit-test + production-build gate. A maintained-source graph test covers the application, testbeds, scripts, tests, Vite configuration, and documented standalone config/logging examples; it exposed and enabled removal of an unreachable dispatch station prototype.
+
+Repeated deterministic actor random generation, nearest-cell world/grid conversion, and water-suppression tile traversal now use shared characterized helpers. The cleanup preserved all documented entry points and the live terrain-regeneration hook order; the fire/particle specs record where those hooks still provide only partial rebinding. Documentation now distinguishes runtime flags and logging (`src/config/features.ts`, `tools/logging/`) from the standalone schema/logger examples (`tools/config/`, `tools/logger.ts`), and correctly identifies Frenet `IntersectionManager` traffic as authoritative.
+
+Incidental barrier and terrain-regeneration test output was removed while strengthening the barrier setup checks. **Verification**: `npm run check` (60 files / 238 tests; 76-module Vite build), `npm run validate-assets` (9/9 valid, six advisory oversized-image warnings), and `npm run audit:game` (18/18 scenarios) all pass.
+
+---
+
 ## 2026-06-10 — Performance pass: ~2× faster sim step, lighter frames
 
 Measured with the new `npm run perf:probe` (times `advanceTime(30s)` plus 300 rendered frames under software GL): sim step cost dropped from 6.7 ms to 3.5 ms per 50 ms step (−47%), rendered frame time from 547 ms to 408 ms (−25% even under swiftshader; real GPUs benefit more from the CPU-side cuts).

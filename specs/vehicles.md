@@ -3,7 +3,7 @@
 ## Status
 
 ### ✅ Implemented
-- Dual vehicle architecture: Frenet `PathFollower` vehicles for player spawns plus instanced `VehiclesManager` agents for mass simulation, particles, and abilities
+- Dual vehicle architecture: authoritative Frenet `PathFollower` vehicles for player-visible traffic plus instanced `VehiclesManager` agents retained for legacy grid tests/testbeds, particles, and abilities
 - `VehiclesManager` particle/light FX and water spray integration (`updateExternalFx`); its disconnected private intersection-queue prototype has been removed
 - Menubar and debug tooling to spawn/clear followers, toggle move modes, and sync spacing parameters
 - Per-type instanced meshes, vehicle counts, and ability hooks (spray water, landing zones)
