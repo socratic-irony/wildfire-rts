@@ -30,6 +30,7 @@ import type { Env as FireEnv } from './fire/sim';
 import { createFireViz } from './fire/viz';
 import { createFireRibbon } from './particles/ribbon';
 import { createFlipbookParticles } from './particles/flipbook';
+import { createEmbers } from './particles/embers';
 import { createSuppressionDecals } from './fire/decals';
 import { createHydrantSystem, updateHydrantPlacement, clearHydrants } from './fire/hydrants';
 import { HydrantVisual } from './fire/hydrantVisual';
@@ -287,6 +288,8 @@ loop.add((dt) => {
   fireRibbon.update(fireGrid as any, performance.now() / 1000);
   // Update flipbook particles with real wind from simEnv
   fireParticles.update(fireGrid as any, simEnv, dt, rig.camera);
+  // Additive embers drift off the burning frontier (same wind env)
+  embers.update(fireGrid as any, simEnv, dt, rig.camera);
   
   // Always update Frenet followers with intersection-aware speed control
   const groups = new Map<Path2D, number[]>();
@@ -602,6 +605,9 @@ scene.add(firelineOverlay.inst);
 // Flipbook billboard particles (flame/smoke)
 let fireParticles = createFlipbookParticles(hm);
 scene.add((fireParticles as any).group);
+// Additive ember sparks lifted from the burning frontier
+let embers = createEmbers(hm);
+scene.add(embers.group);
 // Perimeter ribbon (animated strip)
 let fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 });
 scene.add(fireRibbon.mesh);
@@ -1759,6 +1765,7 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         fireViz.updateTerrain?.(hm, chunked.group);
         suppressionDecals.updateTerrain?.(hm);
         fireParticles.updateTerrain?.(hm);
+        embers.updateTerrain?.(hm);
         fireRibbon.updateTerrain?.(hm);
         
         // Update vehicle manager with new terrain references

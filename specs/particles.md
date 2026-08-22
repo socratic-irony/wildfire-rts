@@ -24,12 +24,16 @@ This spec captures the particle FX approach used to visualize wildfire combustio
   - Improve tangent/normal continuity and simplify contours before meshing (RDP or resample at even spacing) to reduce vertex count.
   - Intensity‑driven width/color from local heat.
   - Correct terrain-scale rebinding: `updateTerrain` rebinds the heightmap, but its current width recalculation divides and multiplies by the new scale after assignment, leaving the existing world-space ribbon width unchanged when scale changes.
-- Embers (later)
-  - GPU update path (WebGL2 Transform Feedback or texture ping‑pong) for 2–8k additive embers; render as points or tiny quads.
+- Embers (implemented, CPU-spawned + shader-animated):
+  - `src/particles/embers.ts`: one instanced quad mesh (`EMBER_CAP` = 1500), additive `ShaderMaterial`, `depthWrite=false`, `renderOrder 9`, `frustumCulled=false`.
+  - Pure spawn selection `selectEmberSources(bCount, seed, cap)` — deterministic jittered-stride sampling of the `burning[]` frontier slots in `[0,bCount)`; no duplicates; identity mapping when `bCount <= cap`. Covered by unit tests (determinism, bounds, uniqueness, coverage).
+  - Per-instance attributes: `iOffset(vec3)`, `iPack(vec4: size 0.05–0.12 world units, phase/seed, spiral amplitude, loop rate)`. All motion is shader-side via `uTime` (buoyant rise, downwind drift from `uWindDir/uWindSpeed` using the fire-sim convention 0 = +Z / π/2 = +X, per-seed spiral wander).
+  - Color ramp: HDR-bright warm orange at birth (feeds the bloom threshold) → deep red over life, alpha fades out.
+  - API: `createEmbers(hm)` → `{ group, update(grid, env{windDirRad,windSpeed}, dt, camera), setEnabled(on), updateTerrain(newHm) }`; wired in `main.ts` next to the flipbook update and rebound on terrain regeneration. GPU transform-feedback update path remains future work.
 - Hero plumes (later)
   - Cross‑card or blob meshes with slow vertex noise for rare, dramatic events.
 
-Tests: `src/__tests__/particles_flipbook.test.ts` covers basic capacity and update wiring; `src/__tests__/fire_particles.test.ts` sanity-checks the legacy instanced system setup; `src/__tests__/visual_factory_surfaces.test.ts` characterizes callable flipbook/ribbon factory wiring without claiming functional terrain rebinding.
+Tests: `src/__tests__/particles_flipbook.test.ts` covers basic capacity and update wiring; `src/__tests__/embers.test.ts` covers ember spawn-selection determinism/bounds and system wiring; `src/__tests__/fire_particles.test.ts` sanity-checks the legacy instanced system setup; `src/__tests__/visual_factory_surfaces.test.ts` characterizes callable flipbook/ribbon factory wiring without claiming functional terrain rebinding.
 
 ## Goals
 
