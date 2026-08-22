@@ -92,8 +92,9 @@ export class FireSim {
       this.stepCount++;
     }
     
-    // Log fire simulation state periodically (every 30 steps = ~1 second)
-    if (this.stepCount % 30 === 0) {
+    // Log fire simulation state periodically (every 30 steps = ~1 second).
+    // Skip formatting entirely unless debug output is actually enabled.
+    if (this.stepCount % 30 === 0 && this.logger.isEnabled('debug')) {
       this.logger.debug('Fire simulation state', {
         igniting: this.grid.iCount,
         burning: this.grid.bCount,

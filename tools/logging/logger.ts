@@ -62,6 +62,14 @@ export class Logger {
     return LOG_LEVELS[level] >= LOG_LEVELS[this.config.level];
   }
 
+  /**
+   * Cheap synchronous level check so hot paths can skip building log payloads
+   * entirely when the configured level would filter them out anyway.
+   */
+  isEnabled(level: LogLevel): boolean {
+    return this.shouldLog(level);
+  }
+
   private formatMessage(entry: LogEntry): string {
     if (this.config.structured.enabled) {
       const formatted: Record<string, any> = { message: entry.message };

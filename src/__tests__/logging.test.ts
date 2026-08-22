@@ -104,12 +104,34 @@ describe('Logging System', () => {
   it('should support configuration updates', () => {
     logger = createLogger({ level: 'error' });
     logger.clearHistory();
-    
+
     logger.info('Should not log');
     expect(logger.getLogHistory()).toHaveLength(0);
-    
+
     logger.updateConfig({ level: 'info' });
     logger.info('Should log now');
     expect(logger.getLogHistory()).toHaveLength(1);
+  });
+
+  it('should report enabled levels via isEnabled without recording entries', () => {
+    logger = createLogger({
+      level: 'info',
+      sinks: {
+        console: { enabled: false, format: 'simple' },
+        file: { enabled: false, path: '', format: 'json' }
+      }
+    });
+
+    // Hot-path gate: debug is filtered, info/warn/error pass.
+    expect(logger.isEnabled('debug')).toBe(false);
+    expect(logger.isEnabled('info')).toBe(true);
+    expect(logger.isEnabled('warn')).toBe(true);
+    expect(logger.isEnabled('error')).toBe(true);
+
+    logger.debug('gated out');
+    expect(logger.getLogHistory()).toHaveLength(0);
+
+    logger.updateConfig({ level: 'debug' });
+    expect(logger.isEnabled('debug')).toBe(true);
   });
 });

@@ -22,7 +22,7 @@ Repository Topology
   - `scene.ts`: Three.js scene creation; hemisphere fill + shadow-casting directional sun. `createScene({ worldCenter?, shadowExtent? })` positions the sun relative to the world center (default `{64,64}`), adds the sun target to the scene, and sizes the ortho shadow box to ±`shadowExtent` around it (default 96; `main.ts` passes half the play area × 0.75) so shadows cover the whole map instead of the ±5-unit default.
   - `camera.ts`: camera rig (node hierarchy for tilt/yaw/zoom) and resize.
   - `rtsOrbit.ts`: RTS-style orbit/pan controller (input handling inside class). Camera stays at a fixed world Y; scroll zoom adjusts horizontal radius (not altitude); WASD pans along XZ without height sensitivity; left-drag yaws and adjusts pitch within a narrow clamp; rotation does not snap pivot to cursor (no initial jump).
-  - `loop.ts`: frame loop with callback list; provides `dt` to subsystems.
+  - `loop.ts`: frame loop with callback list; provides `dt` to subsystems. Periodic perf metrics log every 300 frames but are only formatted when `Logger.isEnabled('debug')` passes, so the default `info` level skips payload construction entirely.
   - `input.ts`: lightweight keyboard/pointer state tracker shared by `main.ts`, the vehicle testbed, and the particle test page (normalizes keys to lowercase and exposes a `Set`).
   - `random.ts`: shared deterministic 32-bit linear-congruential generator used by actor scattering; preserves the established per-seed sequences.
 - Terrain: `src/terrain/`
@@ -34,7 +34,7 @@ Repository Topology
 - Fire System: `src/fire/`
   - `grid.ts`: grid state (tiles, indices), ignition helpers, suppression hooks, containment heuristic.
   - `params.ts`: tuning constants and fuel tables.
-  - `sim.ts`: fixed-step fire simulation with accumulator; slope/wind ROS; ignition/wetness/retardant; smoldering.
+  - `sim.ts`: fixed-step fire simulation with accumulator; slope/wind ROS; ignition/wetness/retardant; smoldering. Its every-30-steps state log is gated behind `Logger.isEnabled('debug')` (startup `info` lines are unaffected).
   - `viz.ts`, `overlay.ts`, `perimeter.ts`: visualization (overlay quads, vertex tint; thin perimeter outline). Also exports `computePerimeter(grid)` for analytics/UI.
   - `stats.ts`: compute active counts, burned tiles/area, and perimeter length (`computeFireStats`).
 - Events: `src/events/events.ts`: seeded random-event system (lightning ignitions via exponential inter-arrival, wind shifts eased into the live sim env). Disabled by default; opted in via the menubar fire-section checkbox or `__wildfireTestApi.setRandomEvents(on, seed)`. Deterministic per seed — covered by the `random-events` audit scenario.
