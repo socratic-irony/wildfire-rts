@@ -93,8 +93,8 @@ export function createPaintSystem(
           // Single point application
           applyWaterAoE(grid, pos, PAINT_SETTINGS.retardant.radius, 0); // Use water function for circular area
           const i = Math.floor(pos.z) * grid.width + Math.floor(pos.x);
-          if (i >= 0 && i < grid.tiles.length) {
-            grid.tiles[i].retardant = Math.max(grid.tiles[i].retardant, PAINT_SETTINGS.retardant.intensity);
+          if (i >= 0 && i < grid.retardant.length) {
+            grid.retardant[i] = Math.max(grid.retardant[i], PAINT_SETTINGS.retardant.intensity);
             console.log(`Applied retardant at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)}) radius=${PAINT_SETTINGS.retardant.radius}`);
           }
         }

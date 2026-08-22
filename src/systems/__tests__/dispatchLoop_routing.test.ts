@@ -54,7 +54,7 @@ function mockRef(id: number, path: Path2D, pos: { x: number; z: number }): Follo
 describe('dispatch_loop_does_not_teleport_path_on_assignment', () => {
   it('follower.path is unchanged after auto-assignment', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: true });
@@ -76,7 +76,7 @@ describe('dispatch_loop_does_not_teleport_path_on_assignment', () => {
 
   it('follower on a path not in the list is not given a goal', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: true });

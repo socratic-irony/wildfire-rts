@@ -201,7 +201,7 @@ export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts 
       for (let i = 0; i < list.length; i++) {
         const it = list[i];
         const idx = it.gz * grid.width + it.gx;
-        const state = grid.tiles[idx]?.state ?? FireState.Unburned;
+        const state = grid.state[idx] ?? FireState.Unburned;
         const f = factorForState(state);
         for (const lm of leafMeshes) {
           lm.setColorAt(i, f ? tmpOut.copy(it.leafCol).multiply(f) : it.leafCol);

@@ -1,6 +1,6 @@
 import { Camera, Color, Group, IcosahedronGeometry, MeshBasicMaterial, Object3D } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
-import type { FireGrid } from '../fire/grid';
+import { fuelKeyOf, type FireGrid } from '../fire/grid';
 import { InstancedParticleSystem } from './system';
 
 type ParticleQuality = 'low' | 'med' | 'high';
@@ -115,8 +115,7 @@ export function createFireParticles(hm: Heightmap) {
     for (let bi = 0; bi < grid.bCount; bi++) {
       const idx = grid.burning[bi] | 0;
       const x = idx % grid.width; const z = (idx / grid.width) | 0;
-      const t = grid.tiles[idx];
-      const heat = t.heat;
+      const heat = grid.heat[idx];
       if (heat <= 0) continue;
       // LOD by distance
       const wxz = (x + 0.5) * hm.scale; const wzx = (z + 0.5) * hm.scale;
@@ -124,34 +123,32 @@ export function createFireParticles(hm: Heightmap) {
       const d2 = dx * dx + dz * dz;
       let lod = 1.0; if (d2 > 300 * 300) lod = 0.0; else if (d2 > 180 * 180) lod = 0.2; else if (d2 > 80 * 80) lod = 0.6;
       if (lod <= 0) continue;
-      spawnFromTile('flame', x, z, baseFlame * (0.3 + 0.9 * heat) * lod, heat, t.fuel);
-      spawnFromTile('smoke', x, z, baseSmoke * (0.4 + 1.1 * heat) * lod, heat, t.fuel);
+      spawnFromTile('flame', x, z, baseFlame * (0.3 + 0.9 * heat) * lod, heat, fuelKeyOf(grid, idx));
+      spawnFromTile('smoke', x, z, baseSmoke * (0.4 + 1.1 * heat) * lod, heat, fuelKeyOf(grid, idx));
     }
     // Spawn from Smoldering
     for (let si = 0; si < grid.sCount; si++) {
       const idx = grid.smoldering[si] | 0;
       const x = idx % grid.width; const z = (idx / grid.width) | 0;
-      const t = grid.tiles[idx];
-      const invHeat = 1 - t.heat;
+      const invHeat = 1 - grid.heat[idx];
       const wxz = (x + 0.5) * hm.scale; const wzx = (z + 0.5) * hm.scale;
       const dx = (camera.position.x - wxz); const dz = (camera.position.z - wzx);
       const d2 = dx * dx + dz * dz;
       let lod = 1.0; if (d2 > 300 * 300) lod = 0.0; else if (d2 > 180 * 180) lod = 0.3; else if (d2 > 80 * 80) lod = 0.6;
       if (lod <= 0) continue;
-      spawnFromTile('smolder', x, z, baseSmold * Math.max(0.3, invHeat) * lod, t.heat, t.fuel);
+      spawnFromTile('smolder', x, z, baseSmold * Math.max(0.3, invHeat) * lod, grid.heat[idx], fuelKeyOf(grid, idx));
     }
 
     // Light flames from Igniting tiles (small pop at the head/front)
     for (let ii = 0; ii < grid.iCount; ii++) {
       const idx = grid.igniting[ii] | 0;
       const x = idx % grid.width; const z = (idx / grid.width) | 0;
-      const t = grid.tiles[idx];
       const wxz = (x + 0.5) * hm.scale; const wzx = (z + 0.5) * hm.scale;
       const dx = (camera.position.x - wxz); const dz = (camera.position.z - wzx);
       const d2 = dx * dx + dz * dz;
       let lod = 1.0; if (d2 > 300 * 300) lod = 0.0; else if (d2 > 180 * 180) lod = 0.2; else if (d2 > 80 * 80) lod = 0.5;
       if (lod <= 0) continue;
-      spawnFromTile('flame', x, z, (0.4 * baseFlame) * lod, Math.max(0.4, t.heat), t.fuel);
+      spawnFromTile('flame', x, z, (0.4 * baseFlame) * lod, Math.max(0.4, grid.heat[idx]), fuelKeyOf(grid, idx));
     }
 
     // Integrate particles

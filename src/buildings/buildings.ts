@@ -1,4 +1,4 @@
-import { FireState, type FireGrid } from '../fire/grid';
+import { FireState, fuelKeyOf, type FireGrid } from '../fire/grid';
 import type { Heightmap } from '../terrain/heightmap';
 import type { RoadMask } from '../roads/state';
 import { isRoad } from '../roads/state';
@@ -86,7 +86,7 @@ export function generateBuildings(
     if (x < margin || z < margin || x >= cols - margin || z >= rows - margin) return false;
     if (used.has(z * cols + x)) return false;
     if (isRoad(roadMask, x, z)) return false;
-    const fuel = grid.tiles[z * grid.width + x]?.fuel;
+    const fuel = fuelKeyOf(grid, z * grid.width + x);
     if (fuel === 'rock' || fuel === 'water') return false;
     if (slopeAt(hm, x, z) > maxSlope) return false;
     if (roadTiles.length) {
@@ -128,7 +128,7 @@ export function generateBuildings(
     if (!usable(x, z, 0, Infinity)) continue;
     // Prefer forest fuel: accept non-forest only occasionally so cabins read
     // as "in the woods" without making generation fail on sparse maps.
-    const inForest = grid.tiles[z * grid.width + x]?.fuel === 'forest';
+const inForest = fuelKeyOf(grid, z * grid.width + x) === 'forest';
     if (!inForest && rng() > 0.25) continue;
     place(x, z, 'cabin');
     placed++;
@@ -145,20 +145,21 @@ export function generateBuildings(
 export function updateBuildingStates(buildings: Building[], grid: FireGrid): void {
   for (const b of buildings) {
     if (b.state === 'destroyed') continue;
-    const tile = grid.tiles[b.tile.z * grid.width + b.tile.x];
-    if (!tile) continue;
+    const idx = b.tile.z * grid.width + b.tile.x;
+    if (idx < 0 || idx >= grid.state.length) continue;
+    const st = grid.state[idx];
     if (b.state === 'intact') {
       if (
-        tile.state === FireState.Igniting ||
-        tile.state === FireState.Burning ||
-        tile.state === FireState.Smoldering
+        st === FireState.Igniting ||
+        st === FireState.Burning ||
+        st === FireState.Smoldering
       ) {
         b.state = 'burning';
       }
     } else if (b.state === 'burning') {
-      if (tile.state === FireState.Burned) {
+      if (st === FireState.Burned) {
         b.state = 'destroyed';
-      } else if (tile.state === FireState.Unburned) {
+      } else if (st === FireState.Unburned) {
         // Fire was suppressed before burning through — the structure survives.
         b.state = 'intact';
       }

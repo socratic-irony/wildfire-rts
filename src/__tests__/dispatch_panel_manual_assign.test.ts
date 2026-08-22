@@ -24,7 +24,7 @@ function flatGrid(size = 8) {
 describe('dispatch_panel_manual_assign_selected', () => {
   it('manualDispatch marks incident assigned and returns true', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const [inc] = registry.detectFromFireGrid(grid, 0);
@@ -49,7 +49,7 @@ describe('dispatch_panel_manual_assign_selected', () => {
 
   it('manualDispatch returns false for already resolved incident', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const [inc] = registry.detectFromFireGrid(grid, 0);
@@ -90,7 +90,7 @@ describe('dispatch_panel_manual_assign_selected', () => {
 
   it('reopen() allows re-dispatch of a unit that left to refill', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const [inc] = registry.detectFromFireGrid(grid, 0);

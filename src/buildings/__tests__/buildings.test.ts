@@ -75,12 +75,12 @@ describe('updateBuildingStates', () => {
     updateBuildingStates(buildings, grid);
     expect(b.state).toBe('burning');
 
-    grid.tiles[b.tile.z * grid.width + b.tile.x].state = FireState.Burned;
+    grid.state[b.tile.z * grid.width + b.tile.x] = FireState.Burned;
     updateBuildingStates(buildings, grid);
     expect(b.state).toBe('destroyed');
 
     // Destroyed latches even if the tile is reset.
-    grid.tiles[b.tile.z * grid.width + b.tile.x].state = FireState.Unburned;
+    grid.state[b.tile.z * grid.width + b.tile.x] = FireState.Unburned;
     updateBuildingStates(buildings, grid);
     expect(b.state).toBe('destroyed');
   });
@@ -92,7 +92,7 @@ describe('updateBuildingStates', () => {
     ignite(grid, [b.tile], 0.9);
     updateBuildingStates(buildings, grid);
     expect(b.state).toBe('burning');
-    grid.tiles[b.tile.z * grid.width + b.tile.x].state = FireState.Unburned;
+    grid.state[b.tile.z * grid.width + b.tile.x] = FireState.Unburned;
     updateBuildingStates(buildings, grid);
     expect(b.state).toBe('intact');
   });

@@ -1,3 +1,5 @@
+import { fuelIndex } from '../fire/grid';
+
 export type RoadMask = {
   width: number;
   height: number;
@@ -62,13 +64,15 @@ export function applyRoadMaskToFireGrid(grid: import('../fire/grid').FireGrid, r
   const { width, height } = rm;
   const w = grid.width, h = grid.height;
   if (w !== width || h !== height) return; // dimension mismatch safeguard
+  const ROCK = fuelIndex('rock');
+  const WATER = fuelIndex('water');
+  const URBAN = fuelIndex('urban');
   for (let z = 0; z < h; z++) {
     for (let x = 0; x < w; x++) {
       const i = z * w + x;
       if (rm.mask[i]) {
-        const t = grid.tiles[i];
-        if (t.fuel !== 'rock' && t.fuel !== 'water') {
-          t.fuel = 'urban';
+        if (grid.fuel[i] !== ROCK && grid.fuel[i] !== WATER) {
+          grid.fuel[i] = URBAN;
         }
       }
     }

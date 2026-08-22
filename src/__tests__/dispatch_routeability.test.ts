@@ -97,7 +97,7 @@ describe('dispatch_routeability', () => {
     const grid = flatGrid();
 
     // Fire at tile (2, 2) — world pos (2.5, 2.5) with cellSize=1
-    grid.tiles[2 * 16 + 2].state = FireState.Burning;
+    grid.state[2 * 16 + 2] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     registry.detectFromFireGrid(grid, 0);
@@ -124,7 +124,7 @@ describe('dispatch_routeability', () => {
     const grid = flatGrid();
 
     // Fire at tile (2, 0)
-    grid.tiles[0 * 16 + 2].state = FireState.Burning;
+    grid.state[0 * 16 + 2] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     registry.detectFromFireGrid(grid, 0);
@@ -144,7 +144,7 @@ describe('dispatch_routeability', () => {
 
   it('auto-dispatch does not mark busy when follower is not on any known path', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     registry.detectFromFireGrid(grid, 0);
@@ -165,7 +165,7 @@ describe('dispatch_routeability', () => {
 
   it('reopened incident can be assigned to a second unit after original leaves to refill', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     registry.detectFromFireGrid(grid, 0);

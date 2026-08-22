@@ -1,4 +1,4 @@
-import { FireState, type FireGrid } from '../fire/grid';
+import { FireState, fuelIndex, type FireGrid } from '../fire/grid';
 import type { Env } from '../fire/sim';
 
 /**
@@ -65,13 +65,18 @@ function nextInterval(rng: () => number, meanSec: number): number {
 }
 
 /** Fuels that lightning can plausibly ignite. */
+const ROCK_I = fuelIndex('rock');
+const WATER_I = fuelIndex('water');
+const URBAN_I = fuelIndex('urban');
+
 function isIgnitable(grid: FireGrid, x: number, z: number): boolean {
-  const t = grid.tiles[z * grid.width + x];
+  const i = z * grid.width + x;
+  const f = grid.fuel[i];
   return (
-    t.state === FireState.Unburned &&
-    t.fuel !== 'rock' &&
-    t.fuel !== 'water' &&
-    t.fuel !== 'urban'
+    grid.state[i] === FireState.Unburned &&
+    f !== ROCK_I &&
+    f !== WATER_I &&
+    f !== URBAN_I
   );
 }
 
