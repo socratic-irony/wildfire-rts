@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { generateHeightmap } from '../terrain/heightmap';
 import { computeBiomes } from '../terrain/biomes';
-import { buildFireGrid, ignite, applyWaterAoE, applyRetardantLine, writeFirelineEdges } from '../fire/grid';
+import { buildFireGrid, ignite, applyWaterAoE, applyRetardantLine, writeFirelineEdges, fuelIndex } from '../fire/grid';
 import { FireSim } from '../fire/sim';
 import { createRoadMask, rasterizePolyline, applyRoadMaskToFireGrid } from '../roads/state';
+
+function countState(grid: any, state: number): number {
+  let n = 0;
+  for (let i = 0; i < grid.state.length; i++) if (grid.state[i] === state) n++;
+  return n;
+}
 
 // Helper to create a simple flat heightmap for controlled testing
 function createFlatHeightmap(width: number, height: number) {
@@ -57,8 +63,7 @@ function runSimulationAndMeasureSpread(grid: any, env: any, timeSeconds: number)
   
   for (let z = 0; z < grid.height; z++) {
     for (let x = 0; x < grid.width; x++) {
-      const tile = grid.tiles[z * grid.width + x];
-      if (tile.state >= 2) { // Burning, Smoldering, or Burned
+      if (grid.state[z * grid.width + x] >= 2) { // Burning, Smoldering, or Burned
         if (z < centerZ) south++;
         if (z > centerZ) north++;
         if (x > centerX) east++;
@@ -172,11 +177,9 @@ describe('Fire Mechanics Implementation', () => {
       const forestGrid = buildFireGrid(hm, biomes, { cellSize: 1 });
       
       // Manually set fuel types (override biome-based assignment)
-      for (let i = 0; i < grassGrid.tiles.length; i++) {
-        grassGrid.tiles[i].fuel = 'grass';
-        chaparralGrid.tiles[i].fuel = 'chaparral'; 
-        forestGrid.tiles[i].fuel = 'forest';
-      }
+      grassGrid.fuel.fill(fuelIndex('grass'));
+      chaparralGrid.fuel.fill(fuelIndex('chaparral'));
+      forestGrid.fuel.fill(fuelIndex('forest'));
       
       const centerX = Math.floor(hm.width / 2);
       const centerZ = Math.floor(hm.height / 2);
@@ -213,7 +216,7 @@ describe('Fire Mechanics Implementation', () => {
       
       // Create a complete rock wall from top to bottom (no gaps)
       for (let z = 0; z < grid.height; z++) {
-        grid.tiles[z * grid.width + 8].fuel = 'rock';
+        grid.fuel[z * grid.width + 8] = fuelIndex('rock');
       }
       
       // Ignite west side of rock barrier  
@@ -230,13 +233,13 @@ describe('Fire Mechanics Implementation', () => {
       
       for (let x = 0; x < 8; x++) { // West of barrier
         for (let z = 0; z < grid.height; z++) {
-          if (grid.tiles[z * grid.width + x].state >= 2) fireOnWestSide = true;
+          if (grid.state[z * grid.width + x] >= 2) fireOnWestSide = true;
         }
       }
       
       for (let x = 9; x < grid.width; x++) { // East of barrier  
         for (let z = 0; z < grid.height; z++) {
-          if (grid.tiles[z * grid.width + x].state >= 2) fireOnEastSide = true;
+          if (grid.state[z * grid.width + x] >= 2) fireOnEastSide = true;
         }
       }
       
@@ -326,10 +329,10 @@ describe('Fire Mechanics Implementation', () => {
       let fireSouth = false, fireNorth = false;
       for (let x = 0; x < grid.width; x++) {
         for (let z = 0; z < 5; z++) { // Well south of barrier
-          if (grid.tiles[z * grid.width + x].state >= 2) fireSouth = true;
+          if (grid.state[z * grid.width + x] >= 2) fireSouth = true;
         }
         for (let z = 8; z < grid.height; z++) { // Well north of barrier  
-          if (grid.tiles[z * grid.width + x].state >= 2) fireNorth = true;
+          if (grid.state[z * grid.width + x] >= 2) fireNorth = true;
         }
       }
       
@@ -365,10 +368,10 @@ describe('Fire Mechanics Implementation', () => {
       let fireSouth = false, fireNorth = false;
       for (let x = 0; x < grid.width; x++) {
         for (let z = 0; z < 5; z++) {
-          if (grid.tiles[z * grid.width + x].state >= 2) fireSouth = true;
+          if (grid.state[z * grid.width + x] >= 2) fireSouth = true;
         }
         for (let z = 8; z < grid.height; z++) {
-          if (grid.tiles[z * grid.width + x].state >= 2) fireNorth = true;
+          if (grid.state[z * grid.width + x] >= 2) fireNorth = true;
         }
       }
       
@@ -391,7 +394,7 @@ describe('Fire Mechanics Implementation', () => {
       const sim = new FireSim(grid, { windDirRad: 0, windSpeed: 0 });
       for (let i = 0; i < 20; i++) sim.step(0.25); // 5 seconds
       
-      const burningBefore = grid.tiles.filter(t => t.state === 2).length;
+      const burningBefore = countState(grid, 2);
       
       // Apply water heavily
       applyWaterAoE(grid, { x: 5, z: 4.5 }, 3, 0.8);
@@ -400,12 +403,11 @@ describe('Fire Mechanics Implementation', () => {
       for (let i = 0; i < 12; i++) sim.step(0.25); // 3 more seconds
       
       // The fire should be suppressed - significantly fewer burning tiles
-      const burningAfter = grid.tiles.filter(t => t.state === 2).length;
+      const burningAfter = countState(grid, 2);
       expect(burningAfter).toBeLessThan(burningBefore); // Should suppress some burning tiles
       
       // Check that wetness was applied
-      const centerTile = grid.tiles[4 * grid.width + 5];
-      expect(centerTile.wetness).toBeGreaterThan(0.5);
+      expect(grid.wetness[4 * grid.width + 5]).toBeGreaterThan(0.5);
     });
   });
 });

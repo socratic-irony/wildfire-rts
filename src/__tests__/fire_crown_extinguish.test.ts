@@ -31,8 +31,7 @@ describe('Early extinguish behavior', () => {
 
     const sim = new FireSim(grid);
     sim.step(0.25);
-    const center = grid.tiles[1 * grid.width + 1];
-    expect(center.state).toBe(FireState.Smoldering);
+    expect(grid.state[1 * grid.width + 1]).toBe(FireState.Smoldering);
   });
 
 });
