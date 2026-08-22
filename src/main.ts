@@ -1,5 +1,6 @@
 import { Object3D, Vector3, Quaternion, Raycaster, Vector2 } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
+import { createEnvironment } from './core/environment';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
@@ -116,6 +117,16 @@ scene.add(rig.root);
 const renderer = createRenderer(app);
 const input = attachInput(renderer.domElement);
 installGlobalErrorOverlay(app);
+
+// Visual overhaul: sky dome + fog/light retuning. The dome half extent must
+// stay inside the camera far plane, so raise the rig camera's far first.
+rig.camera.far = Math.max(rig.camera.far, 2000);
+rig.camera.updateProjectionMatrix();
+createEnvironment(scene, {
+  worldRadius: Math.min(900, rig.camera.far * 0.45),
+  sunLight: (scene.children.find((c) => (c as any).isDirectionalLight) as any) ?? undefined,
+  hemiLight: (scene.children.find((c) => (c as any).isHemisphereLight) as any) ?? undefined,
+});
 // Hover tile debug overlay state (sample at ~10 Hz)
 let _hoverAcc = 0;
 let _hoverMouseX = 0, _hoverMouseY = 0;
