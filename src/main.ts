@@ -1,13 +1,12 @@
-import { Object3D, Vector3, Quaternion, Raycaster, Vector2 } from 'three';
+import { Object3D, PerspectiveCamera, Vector3, Quaternion, Raycaster, Vector2 } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
-import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
 import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
 import { worldToGridCell } from './terrain/coordinates';
 import { createTerrainMaterial } from './terrain/material';
-import { RTSOrbitCamera } from './core/rtsOrbit';
+import { CameraController } from './core/cameraController';
 import { computeBiomesTuned } from './terrain/biomes';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
@@ -110,8 +109,6 @@ logger.info('Wildfire RTS application starting');
 
 const app = document.getElementById('app')!;
 const scene = createScene();
-const rig = createCameraRig(app);
-scene.add(rig.root);
 
 const renderer = createRenderer(app);
 const input = attachInput(renderer.domElement);
@@ -150,15 +147,20 @@ const terrainMat = createTerrainMaterial() as any;
 let chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
 scene.add(chunked.group);
 
-// Stage C: RTS camera controller (replaces Orbit)
-const terrainObj = chunked.group as Object3D;
-const orbit = new RTSOrbitCamera(
-  renderer.domElement,
-  rig.camera,
-  terrainObj,
-  (x, z) => hm.sample(x, z),
-  new Vector3((hm.width * hm.scale) / 2, 0, (hm.height * hm.scale) / 2)
-);
+// Stage C: RTS camera controller (true spherical orbit, damped)
+const camera = new PerspectiveCamera(60, app.clientWidth / app.clientHeight, 0.1, 1000);
+const _groundRay = new Raycaster();
+const _groundNdc = new Vector2();
+const cam = new CameraController(renderer.domElement, camera, {
+  bounds: { minX: 0, maxX: hm.width * hm.scale, minZ: 0, maxZ: hm.height * hm.scale },
+  sampleHeight: (x, z) => hm.sample(x, z),
+  projectGround: (nx, ny) => {
+    _groundRay.setFromCamera(_groundNdc.set(nx, ny), cam.camera);
+    const hit = _groundRay.intersectObject(chunked.group, true)[0];
+    return hit ? { x: hit.point.x, z: hit.point.z } : null;
+  },
+  initialTarget: { x: (hm.width * hm.scale) / 2, z: (hm.height * hm.scale) / 2 },
+});
 
 const loop = new Loop();
 let suppressRenderDuringAdvance = false;
@@ -175,7 +177,7 @@ loop.add((dt) => {
     tiltD: input.keys.has('f'),
   };
 
-  orbit.update(dt, move);
+  cam.update(dt, move);
   // Wind sway updates (Stage F)
   const t = performance.now() / 1000;
   forest?.update(t);
@@ -189,7 +191,7 @@ loop.add((dt) => {
   }
   selection.update();
   // Update LOD for terrain chunks
-  const camPos = rig.camera.getWorldPosition(tmpCamWorld);
+  const camPos = cam.camera.getWorldPosition(tmpCamWorld);
   chunked.updateLOD(camPos.x, camPos.z);
   // Random events (lightning, wind shifts) mutate simEnv before the fire step.
   eventSystem.tick(dt, fireGrid, simEnv, (tile, heat) => igniteTiles(fireGrid, [tile], heat));
@@ -245,7 +247,7 @@ loop.add((dt) => {
     const nx = ((_hoverMouseX - rect.left) / rect.width) * 2 - 1;
     const ny = -((_hoverMouseY - rect.top) / rect.height) * 2 + 1;
     _hoverMouse.set(nx, ny);
-    _hoverRay.setFromCamera(_hoverMouse as any, rig.camera);
+    _hoverRay.setFromCamera(_hoverMouse as any, cam.camera);
     const hits = _hoverRay.intersectObject(chunked.group, true);
     if (hits.length) {
       const p = hits[0].point;
@@ -269,7 +271,7 @@ loop.add((dt) => {
   // Update perimeter ribbon
   fireRibbon.update(fireGrid as any, performance.now() / 1000);
   // Update flipbook particles with real wind from simEnv
-  fireParticles.update(fireGrid as any, simEnv, dt, rig.camera);
+  fireParticles.update(fireGrid as any, simEnv, dt, cam.camera);
   
   // Always update Frenet followers with intersection-aware speed control
   const groups = new Map<Path2D, number[]>();
@@ -353,7 +355,7 @@ loop.add((dt) => {
   vehicles.updateExternalFx(dt, followerFxStates);
 
   if (!suppressRenderDuringAdvance) {
-    renderer.render(scene, rig.camera);
+    renderer.render(scene, cam.camera);
   }
   
   // Update paint system
@@ -544,7 +546,7 @@ let vegTintAcc = 0;
 
 function onResize() {
   resizeRenderer(renderer, app);
-  resizeCamera(rig, app);
+  cam.resize(app.clientWidth, app.clientHeight);
 }
 
 window.addEventListener('resize', onResize);
@@ -565,10 +567,10 @@ let buildingStateAcc = 0;
 let overlayScanAcc = 0;
 
 // Initialize paint system now that fire grid is available
-paintSystem = createPaintSystem(renderer.domElement, rig.camera, chunked.group, hm, fireGrid);
+paintSystem = createPaintSystem(renderer.domElement, cam.camera, chunked.group, hm, fireGrid);
 
 // Connect paint system to camera to lock camera movement during painting operations
-orbit.setInputLockCheck(() => paintSystem?.isActivePainting() || false);
+cam.setInputLockCheck(() => paintSystem?.isActivePainting() || false);
 
 // Fire visualization controller
 let fireViz = createFireViz(hm, chunked.group);
@@ -871,7 +873,7 @@ function setupTrafficScenario() {
       followers[followers.length - 1].follower.v = 6;
     }
   }
-  orbit.focus(64.5, 64.5, 18, 24);
+  cam.focus(64.5, 64.5, 18, 24);
   return true;
 }
 function reseedRoadsAndVehicles(count = 2) {
@@ -899,7 +901,7 @@ function clearFollowers() {
  */
 function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
   if (!path2ds.length) return;
-  const camPos = rig.camera.getWorldPosition(new Vector3());
+  const camPos = cam.camera.getWorldPosition(new Vector3());
   const start = { x: camPos.x, z: camPos.z };
   let bestIdx = 0, bestDist = Infinity, bestS = 0;
   for (let i = 0; i < path2ds.length; i++) {
@@ -1528,7 +1530,7 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
   }
   function igniteFromNDC(nx: number, ny: number) {
     mouse.set(nx, ny);
-    ray.setFromCamera(mouse as any, rig.camera);
+    ray.setFromCamera(mouse as any, cam.camera);
     const hits = ray.intersectObject(chunked.group, true);
     if (!hits.length) return false;
     const p = hits[0].point;
@@ -1566,7 +1568,7 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
     // Roads placement when enabled or in roads mode
     if (roadsEnabled || currentTool === 'roads') {
       mouse.set(mouse.x, mouse.y);
-      ray.setFromCamera(mouse as any, rig.camera);
+      ray.setFromCamera(mouse as any, cam.camera);
       const hits = ray.intersectObject(chunked.group, true);
       if (hits.length) {
         const p = hits[0].point;
@@ -1582,7 +1584,7 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
     // Vehicle selection / move order
     {
       mouse.set(mouse.x, mouse.y);
-      ray.setFromCamera(mouse as any, rig.camera);
+      ray.setFromCamera(mouse as any, cam.camera);
       const hitFollower = findFollowerHit(ray, followers as FollowerEntry[]);
       if (hitFollower) {
         selection.select(hitFollower);

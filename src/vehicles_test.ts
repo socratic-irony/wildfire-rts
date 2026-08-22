@@ -1,7 +1,6 @@
-import { Object3D, Raycaster, Vector2, Vector3, Mesh, BoxGeometry, MeshStandardMaterial, Color } from 'three';
+import { Object3D, Raycaster, Vector2, Vector3, Mesh, BoxGeometry, MeshStandardMaterial, Color, PerspectiveCamera } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
-import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
 import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
@@ -19,14 +18,12 @@ import { VehiclesManager } from './vehicles/vehicles';
 import { Path2D } from './paths/path2d';
 import { PathFollower } from './vehicles/frenet';
 import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
-import { RTSOrbitCamera } from './core/rtsOrbit';
+import { CameraController } from './core/cameraController';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
 
 const app = document.getElementById('app')!;
 const scene = createScene();
-const rig = createCameraRig(app);
-scene.add(rig.root);
 
 const renderer = createRenderer(app);
 const input = attachInput(renderer.domElement);
@@ -45,14 +42,12 @@ const terrainMat = createTerrainMaterial() as any;
 const chunked = buildChunkedTerrain(hm, terrainMat, 32);
 scene.add(chunked.group);
 
-const terrainObj = chunked.group as Object3D;
-const orbit = new RTSOrbitCamera(
-  renderer.domElement,
-  rig.camera,
-  terrainObj,
-  (x, z) => hm.sample(x, z),
-  new Vector3((hm.width * hm.scale) / 2, 0, (hm.height * hm.scale) / 2)
-);
+const camera = new PerspectiveCamera(60, app.clientWidth / app.clientHeight, 0.1, 1000);
+const cam = new CameraController(renderer.domElement, camera, {
+  bounds: { minX: 0, maxX: hm.width * hm.scale, minZ: 0, maxZ: hm.height * hm.scale },
+  sampleHeight: (x, z) => hm.sample(x, z),
+  initialTarget: { x: (hm.width * hm.scale) / 2, z: (hm.height * hm.scale) / 2 },
+});
 
 const loop = new Loop();
 loop.add((dt) => {
@@ -68,11 +63,11 @@ loop.add((dt) => {
     tiltD: input.keys.has('f'),
   };
 
-  orbit.update(dt, move);
+  cam.update(dt, move);
   const t = performance.now() / 1000;
   forest?.update(t);
   shrubs?.update(t);
-  const camPos = rig.camera.getWorldPosition(new Vector3());
+  const camPos = cam.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
   
   // Always update Frenet followers per path, with intersection control layered on top
@@ -98,7 +93,7 @@ loop.add((dt) => {
       intersectionManager.postUpdateFollower(followers[i], path);
     }
   }
-  renderer.render(scene, rig.camera);
+  renderer.render(scene, cam.camera);
   stats.update(dt, renderer);
 });
 
@@ -146,7 +141,7 @@ loop.start();
 
 function onResize() {
   resizeRenderer(renderer, app);
-  resizeCamera(rig, app);
+  cam.resize(app.clientWidth, app.clientHeight);
 }
 window.addEventListener('resize', onResize);
 onResize();
@@ -237,7 +232,7 @@ function clearFollowers() {
 
 function spawnFollowerAtCamera() {
   if (!path2ds.length) return;
-  const camPos = rig.camera.getWorldPosition(new Vector3());
+  const camPos = cam.camera.getWorldPosition(new Vector3());
   const start = { x: camPos.x, z: camPos.z };
   let bestIdx = 0, bestDist = Infinity, bestS = 0;
   for (let i = 0; i < path2ds.length; i++) {
@@ -269,7 +264,7 @@ function spawnFollowerAtCamera() {
   dom.addEventListener('click', (e) => {
     ndcFromClient(e.clientX, e.clientY);
     mouse.set(mouse.x, mouse.y);
-    ray.setFromCamera(mouse as any, rig.camera);
+    ray.setFromCamera(mouse as any, cam.camera);
     const hits = ray.intersectObject(chunked.group, true);
     if (!hits.length) return;
     const p = hits[0].point;

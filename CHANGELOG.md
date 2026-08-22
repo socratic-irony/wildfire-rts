@@ -6,6 +6,12 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-08-21 — Clean-room RTS camera controller
+
+`src/core/cameraController.ts` replaces the legacy `rtsOrbit.ts` fake-orbit controller and `core/camera.ts` rig hierarchy (both deleted) with a damped spherical-orbit `CameraController`: true orbit around a terrain-sampled ground target, framerate-independent exponential damping on yaw/pitch/dist/target, zoom-to-cursor, hard bounds/pitch/dist clamps, terrain clearance enforcement, follow mode, instant-snap `focus()` for deterministic audit framing, and fully wired keyboard controls (WASD/arrows pan with zoom-scaled speed, Q/E yaw, R/F tilt — previously dead — Space resets the view). Pointer drag (left rotate / middle-right pan), wheel zoom, and two-finger pinch are handled by an optional DOM adapter; headless construction (`dom = null`) enables the new unit suite in `src/core/__tests__/cameraController.test.ts`. `main.ts`, `vehicles_test.ts`, and `particle_testbed.ts` are rewired; `specs/architecture.md` camera sections rewritten. **Verification**: `npm run check` (typecheck + 61 files / 251 tests + build) green.
+
+---
+
 ## 2026-07-12 — Repository hygiene and maintenance gates
 
 Strict TypeScript checking now rejects unused locals and parameters, and `npm run check` is the canonical type-check + unit-test + production-build gate. A maintained-source graph test covers the application, testbeds, scripts, tests, Vite configuration, and documented standalone config/logging examples; it exposed and enabled removal of an unreachable dispatch station prototype.

@@ -1,7 +1,6 @@
-import { Object3D, Vector3 } from 'three';
+import { PerspectiveCamera, Vector3 } from 'three';
 import { createRenderer, resizeRenderer } from './core/renderer';
 import { createScene } from './core/scene';
-import { createCameraRig, resizeCamera } from './core/camera';
 import { Loop } from './core/loop';
 import { attachInput } from './core/input';
 import { generateHeightmap } from './terrain/heightmap';
@@ -12,12 +11,10 @@ import { RoadsVisual } from './roads/visual';
 import { createRoadMask, rasterizePolyline } from './roads/state';
 import { makeAngularPath } from './roads/path';
 import { VehiclesManager, VehicleType } from './vehicles/vehicles';
-import { RTSOrbitCamera } from './core/rtsOrbit';
+import { CameraController } from './core/cameraController';
 
 const app = document.body;
 const scene = createScene();
-const rig = createCameraRig(app);
-scene.add(rig.root);
 
 const renderer = createRenderer(app);
 const input = attachInput(renderer.domElement);
@@ -35,14 +32,11 @@ const terrainMat = createTerrainMaterial() as any;
 const chunked = buildChunkedTerrain(hm, terrainMat, 16);
 scene.add(chunked.group);
 
-const terrainObj = chunked.group as Object3D;
-const orbit = new RTSOrbitCamera(
-  renderer.domElement,
-  rig.camera,
-  terrainObj,
-  (x, z) => hm.sample(x, z),
-  new Vector3((hm.width * hm.scale) / 2, 5, (hm.height * hm.scale) / 2) // Start elevated for better view
-);
+const camera = new PerspectiveCamera(60, app.clientWidth / app.clientHeight, 0.1, 1000);
+const cam = new CameraController(renderer.domElement, camera, {
+  sampleHeight: (x, z) => hm.sample(x, z),
+  initialTarget: { x: (hm.width * hm.scale) / 2, z: (hm.height * hm.scale) / 2 },
+});
 
 // Create a simple road network for vehicles
 const roadCost = buildTerrainCost(hm);
@@ -236,8 +230,8 @@ loop.add((dt) => {
     tiltD: input.keys.has('f'),
   };
 
-  orbit.update(dt, move);
-  const camPos = rig.camera.getWorldPosition(new Vector3());
+  cam.update(dt, move);
+  const camPos = cam.camera.getWorldPosition(new Vector3());
   chunked.updateLOD(camPos.x, camPos.z);
   
   // Update vehicles and particles
@@ -249,13 +243,13 @@ loop.add((dt) => {
                        (vehicles as any).waterParticles.aliveCount;
   statsDiv.textContent = `FPS: ${Math.round(1/dt)} | Particles: ${particleCount} | Scale: ${particleScale.toFixed(1)} | Rate: ${particleRate.toFixed(1)}`;
   
-  renderer.render(scene, rig.camera);
+  renderer.render(scene, cam.camera);
 });
 
 // Handle window resize
 window.addEventListener('resize', () => {
   resizeRenderer(renderer, app);
-  resizeCamera(rig, app);
+  cam.resize(app.clientWidth, app.clientHeight);
 });
 
 loop.start();
