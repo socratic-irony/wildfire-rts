@@ -16,9 +16,9 @@ This spec captures the particle FX approach used to visualize wildfire combustio
 ## Outstanding Work
 
 - Flipbook
-  - Replace placeholder DataTexture with a packed atlas (flames + smoke rows); keep single material/atlas to preserve batching.
+  - Replace placeholder DataTexture with a packed atlas (flames + smoke rows); keep single material/atlas to preserve batching. (Partially done: procedural vertical-stack DataTexture with softened smoke alpha falloff, exponent 1.7.)
   - Soft particles (depth‑fade) to hide terrain intersections; evaluate cost with depth texture.
-  - Wind/slope drift directly in shader or via per‑instance offsets; currently only spawn placement considers heightmap.
+  - Slope drift directly in shader or via per‑instance offsets; wind drift is implemented (`uWindDir`/`uWindSpeed` uniforms + per-instance `iDrift` shear multiplier — smoke 1.0, flames 0.15), slope response is not.
   - Optional: separate FPS by distance (near 12–16, far 4–8) to reduce perceived repetition.
 - Ribbon
   - Improve tangent/normal continuity and simplify contours before meshing (RDP or resample at even spacing) to reduce vertex count.
@@ -127,9 +127,9 @@ Per active tile we maintain an emitter accumulator to convert continuous rates t
 - Flipbook sprites — `src/particles/flipbook.ts`
   - `createFlipbookParticles(hm)` → `{ group, update(grid, env, dt, camera), setQuality(q), setEnabled(part), updateTerrain(newHeightmap) }`.
   - `updateTerrain` is a live integration hook called by `main.ts` during terrain regeneration so subsequent particle placement samples the replacement heightmap.
-  - Attributes written each frame: `iOffset, iSize, iAngle, iF0, iRate, iFBase, iFCount, iAspect, iPhase, iRise, iColor`.
-  - Uniforms: `uTime, uFrames, uAtlas, cameraRight, cameraUp`.
-  - Atlas layout: vertical stack with flames frames first, then smoke frames; per‑instance `iFBase/iFCount` select the sub‑range.
+  - Attributes written each frame: `iOffset, iSize, iAngle, iF0, iRate, iFBase, iFCount, iAspect, iPhase, iRise, iColor, iDrift`.
+  - Uniforms: `uTime, uFrames, uAtlas, cameraRight, cameraUp, uWindDir, uWindSpeed`. Wind shear offsets smoke world positions downwind in the vertex shader (`offset ∝ lifeT * windSpeed * 0.22 * iDrift`); smolder smoke color is lightened (0.87 gray) and the atlas smoke alpha falloff softened (pow exponent 1.7) for a hazier read.
+  - Atlas layout: vertical stack with flames frames first, then smoke frames; per-instance `iFBase/iFCount` select the sub‑range.
   - Quality presets map to total cap (default 8k). One atlas/material keeps batching to one draw.
 
 - Ribbon — `src/particles/ribbon.ts`
