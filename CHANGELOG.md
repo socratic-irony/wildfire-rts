@@ -6,6 +6,16 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-08-21 — Track B performance & hardening pass
+
+The sun's shadow ortho frustum was never sized, so it defaulted to ±5 units around the origin and ~99% of the map rendered shadowless; `createScene` now accepts `{ worldCenter, shadowExtent }` (main passes half the play area × 0.75), parents the sun target at the world center, and applies bias tuning ([src/core/scene.ts](src/core/scene.ts)). The main loop stopped rebuilding its dispatch/follower view objects every frame — the ref array now rebuilds only on spawn/clear membership changes with per-frame field syncs, intersection-manager input uses pooled slots plus a reused leader scratch array, and the dispatch panel + selection HUD share a single fleet pass for busy count and selected unit ([src/main.ts](src/main.ts)).
+
+Fixed a regeneration leak where replacing `VehiclesManager` removed the NEW (never-added) group while the old manager's groups stayed orphaned in the scene forever; regenerate now captures old refs, removes + disposes them first. Chunked terrain (both LOD geometries per chunk — not the shared material), forest, shrubs, rocks, roads visual, hydrant coverage rings, and `VehiclesManager` all gained proper `dispose()` calls wired into every replacement path ([src/terrain/chunks.ts](src/terrain/chunks.ts), [src/actors/](src/actors/), [src/roads/visual.ts](src/roads/visual.ts), [src/fire/hydrantCoverage.ts](src/fire/hydrantCoverage.ts), [src/vehicles/vehicles.ts](src/vehicles/vehicles.ts)). Periodic debug metrics in the frame loop (every 300 frames) and fire sim (every 30 steps) skip payload formatting unless `Logger.isEnabled('debug')` passes; startup `info` lines are untouched ([tools/logging/logger.ts](tools/logging/logger.ts)).
+
+Vehicle draw calls drop via build-time merging of unreferenced voxel parts (`collapseParts` in [src/vehicles/voxelMeshes.ts](src/vehicles/voxelMeshes.ts)): transforms bake into cloned geometries, colors ride a per-vertex attribute, same-material parts fuse into geometry groups behind material arrays. Civilians shrink to body+wheel+yield ring (was 7–8 meshes); named hook parts (`ladder`, `blade`, `rotor`, `skid`, `wings`, `tailFin`, `helmet`, `lightbar`, `userData.mainRotor/yieldIndicator`) remain separate per the extended mesh contract tests. **Verification**: `npm run typecheck`, `npx vitest run` (62 files / 249 tests), and `npm run build` all green at f7fe943.
+
+---
+
 ## 2026-07-12 — Repository hygiene and maintenance gates
 
 Strict TypeScript checking now rejects unused locals and parameters, and `npm run check` is the canonical type-check + unit-test + production-build gate. A maintained-source graph test covers the application, testbeds, scripts, tests, Vite configuration, and documented standalone config/logging examples; it exposed and enabled removal of an unreachable dispatch station prototype.
