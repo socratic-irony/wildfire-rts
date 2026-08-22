@@ -6,6 +6,18 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-08-21 — Visual overhaul: sky dome, bloom post-processing, embers, wind-sheared smoke
+
+Track C visual pass. A procedural Sky dome (`src/core/environment.ts`) now provides a warm late-afternoon atmosphere tuned to match the directional light's normalized position; the boot FogExp2 is retuned in place to density 0.0045 with a horizon-matched warm tint, and sun/hemisphere intensities are nudged (1.25 / 0.5) through the passed light refs — `scene.ts` itself is untouched.
+
+Post-processing arrives as RenderPass → UnrealBloomPass (half internal res, strength 0.45, radius 0.4, threshold 0.85) → OutputPass, matching the r155+ rule that tone mapping and sRGB conversion live in OutputPass; ACESFilmic stays on the renderer and exposure stays at 1.0. `?nofx=1` (perf probes / software-GL audits) and missing WebGL2 both fall back to plain `renderer.render`, resize keeps the composer in sync, and the menubar's new 🎨 Graphics section exposes a live Bloom toggle (`graphics-bloom-toggle`).
+
+Fire gains a deterministic additive ember system (`src/particles/embers.ts`): ≤1500 instanced quads sampled from the burning frontier via a pure hash-seeded selection (unit-tested for determinism, bounds, uniqueness), animated entirely in-shader with buoyancy, per-seed spiral wander, downwind drift from the live wind env, and an HDR orange→deep-red ramp that feeds the bloom threshold. Flipbook smoke is polished in place: wind shear offsets smoke downwind (∝ lifeT · windSpeed · iDrift, negligible on flames), the atlas smoke alpha falloff softens (pow exponent 2.2 → 1.7), and smolder puffs lighten to 0.87 gray. No flipbook API keys changed.
+
+**Verification**: `npm run typecheck`, `npx vitest run src` (61 files / 254 tests), and `npm run build` all green on `feat/visual-overhaul`.
+
+---
+
 ## 2026-07-12 — Repository hygiene and maintenance gates
 
 Strict TypeScript checking now rejects unused locals and parameters, and `npm run check` is the canonical type-check + unit-test + production-build gate. A maintained-source graph test covers the application, testbeds, scripts, tests, Vite configuration, and documented standalone config/logging examples; it exposed and enabled removal of an unreachable dispatch station prototype.
