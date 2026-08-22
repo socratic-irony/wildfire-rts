@@ -109,20 +109,6 @@ const logger = getLogger();
 logger.info('Wildfire RTS application starting');
 
 const app = document.getElementById('app')!;
-const scene = createScene();
-const rig = createCameraRig(app);
-scene.add(rig.root);
-
-const renderer = createRenderer(app);
-const input = attachInput(renderer.domElement);
-installGlobalErrorOverlay(app);
-// Hover tile debug overlay state (sample at ~10 Hz)
-let _hoverAcc = 0;
-let _hoverMouseX = 0, _hoverMouseY = 0;
-let _hoverHasMouse = false;
-let _hoverTileDiv: HTMLDivElement | null = null;
-const _hoverRay = new Raycaster();
-const _hoverMouse = new Vector2();
 
 // World config used by Debug UI
 type WorldCfg = {
@@ -141,7 +127,28 @@ let worldCfg: WorldCfg = {
 };
 
 // Stage B: Terrain heightmap + mesh (temporary orbit controls)
+// Generated before the scene so the sun's shadow frustum can be sized to the
+// actual play area.
 let hm = generateHeightmap(worldCfg.width, worldCfg.height, 1, worldCfg.noise);
+
+const worldCenterX = (hm.width * hm.scale) / 2;
+const worldCenterZ = (hm.height * hm.scale) / 2;
+const shadowExtent = Math.max(hm.width, hm.height) * hm.scale * 0.75;
+const scene = createScene({ worldCenter: { x: worldCenterX, z: worldCenterZ }, shadowExtent });
+const rig = createCameraRig(app);
+scene.add(rig.root);
+
+const renderer = createRenderer(app);
+const input = attachInput(renderer.domElement);
+installGlobalErrorOverlay(app);
+// Hover tile debug overlay state (sample at ~10 Hz)
+let _hoverAcc = 0;
+let _hoverMouseX = 0, _hoverMouseY = 0;
+let _hoverHasMouse = false;
+let _hoverTileDiv: HTMLDivElement | null = null;
+const _hoverRay = new Raycaster();
+const _hoverMouse = new Vector2();
+
 // Biomes and material
 let biomes = computeBiomesTuned(hm, { forestMoistureMin: worldCfg.biomes.forestMoistureMin }, { seed: worldCfg.moisture.seed as any });
 const terrainMat = createTerrainMaterial() as any;

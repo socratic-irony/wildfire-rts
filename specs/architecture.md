@@ -19,7 +19,7 @@ Repository Topology
 - Testbed: `vehicles-test.html` + `src/vehicles_test.ts` — a minimal, isolated page for vehicle/road experiments on a small flat map with preset road layouts (loop / figure-8). Does not affect the main app.
 - Core: `src/core/`
   - `renderer.ts`: WebGL renderer factory and resize logic.
-  - `scene.ts`: Three.js scene creation; minimal global lights.
+  - `scene.ts`: Three.js scene creation; hemisphere fill + shadow-casting directional sun. `createScene({ worldCenter?, shadowExtent? })` positions the sun relative to the world center (default `{64,64}`), adds the sun target to the scene, and sizes the ortho shadow box to ±`shadowExtent` around it (default 96; `main.ts` passes half the play area × 0.75) so shadows cover the whole map instead of the ±5-unit default.
   - `camera.ts`: camera rig (node hierarchy for tilt/yaw/zoom) and resize.
   - `rtsOrbit.ts`: RTS-style orbit/pan controller (input handling inside class). Camera stays at a fixed world Y; scroll zoom adjusts horizontal radius (not altitude); WASD pans along XZ without height sensitivity; left-drag yaws and adjusts pitch within a narrow clamp; rotation does not snap pivot to cursor (no initial jump).
   - `loop.ts`: frame loop with callback list; provides `dt` to subsystems.
