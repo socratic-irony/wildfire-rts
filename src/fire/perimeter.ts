@@ -26,8 +26,8 @@ export function createFirePerimeter(hm: Heightmap, opts?: { offsetY?: number; wi
 
   function isActive(grid: FireGrid, x: number, z: number) {
     if (x < 0 || z < 0 || x >= grid.width || z >= grid.height) return false;
-    const t = grid.tiles[coordToIndex(grid, x, z)];
-    return t.state === FireState.Burning || t.state === FireState.Smoldering;
+    const s = grid.state[coordToIndex(grid, x, z)];
+    return s === FireState.Burning || s === FireState.Smoldering;
   }
 
   const update = (grid: FireGrid) => {
@@ -136,8 +136,8 @@ export function computePerimeter(grid: FireGrid): Polyline[] {
   // Helper: active tile predicate
   function isActive(x: number, z: number) {
     if (x < 0 || z < 0 || x >= W || z >= H) return false;
-    const t = grid.tiles[coordToIndex(grid, x, z)];
-    return t.state === FireState.Burning || t.state === FireState.Smoldering;
+    const st = grid.state[coordToIndex(grid, x, z)];
+    return st === FireState.Burning || st === FireState.Smoldering;
   }
 
   // Represent edge endpoints as integer coordinates in a 2x grid to avoid float keys.

@@ -36,16 +36,15 @@ function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; depthTest?:
     for (let z = 0; z < grid.height; z++) {
       for (let x = 0; x < grid.width; x++) {
         const i = z * grid.width + x;
-        const tile = grid.tiles[i];
-        
+
         // Only render if tile has significant wetness
-        if (tile.wetness > 0.05) {
+        if (grid.wetness[i] > 0.05) {
           const wx = x * hm.scale + half;
           const wz = z * hm.scale + half;
           const wy = hm.sample(wx, wz) + yOffset;
           
           // Scale and opacity based on wetness level
-          const intensity = Math.min(tile.wetness, 1.0);
+          const intensity = Math.min(grid.wetness[i], 1.0);
           const scale = baseScale * (0.6 + intensity * 0.4); // Scale from 60% to 100% of base
           
           tmp.position.set(wx, wy, wz);
@@ -102,16 +101,15 @@ function createRetardantDecals(hm: Heightmap, opts?: { offsetY?: number; depthTe
     for (let z = 0; z < grid.height; z++) {
       for (let x = 0; x < grid.width; x++) {
         const i = z * grid.width + x;
-        const tile = grid.tiles[i];
-        
+
         // Only render if tile has significant retardant
-        if (tile.retardant > 0.05) {
+        if (grid.retardant[i] > 0.05) {
           const wx = x * hm.scale + half;
           const wz = z * hm.scale + half;
           const wy = hm.sample(wx, wz) + yOffset;
           
           // Scale and opacity based on retardant level
-          const intensity = Math.min(tile.retardant, 1.0);
+          const intensity = Math.min(grid.retardant[i], 1.0);
           const scale = baseScale * (0.5 + intensity * 0.5); // Scale from 50% to 100% of base
           
           tmp.position.set(wx, wy, wz);
