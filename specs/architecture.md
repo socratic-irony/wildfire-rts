@@ -18,7 +18,7 @@ Repository Topology
 - Entry: `src/main.ts` wires all systems (terrain, camera, fire, roads, vehicles, UI) and owns the frame loop.
 - Testbed: `vehicles-test.html` + `src/vehicles_test.ts` — a minimal, isolated page for vehicle/road experiments on a small flat map with preset road layouts (loop / figure-8). Does not affect the main app.
 - Core: `src/core/`
-  - `renderer.ts`: WebGL renderer factory and resize logic.
+  - `renderer.ts`: WebGL renderer factory and resize logic; `createComposer(renderer, scene, camera)` builds the r160 post chain RenderPass → UnrealBloomPass(half internal res, strength 0.45, radius 0.4, threshold 0.85) → OutputPass (tone mapping + sRGB conversion live inside OutputPass since r155; ACESFilmic stays on the renderer). Returns null on missing WebGL2 or construction failure so callers fall back to plain `renderer.render`; `?nofx=1` skips composer creation for perf probes/software-GL audits. The menubar 🎨 Graphics section exposes a Bloom toggle that flips `bloomPass.enabled` live.
   - `environment.ts`: procedural Sky dome (`three/examples/jsm/objects/Sky.js`) plus fog/light retuning applied through the live scene — never edits `scene.ts`. Exports pure `computeSunVector(elevDeg, azDeg)` (unit vector toward the sun; elevation 90 → +Y, azimuth 0 → +Z) used to keep the dome's sun uniform aligned with the directional light's normalized position. `createEnvironment(scene, { sunLight?, hemiLight?, worldRadius?, retuneLights? })` replaces the boot FogExp2 with a horizon-matched color at density 0.0045, tints `scene.background` to the same warm haze, and nudges passed light intensities (sun 1.25, hemi 0.5) for a late-afternoon look. Dome half extent defaults to 900 world units and must stay inside the camera far plane (wiring raises camera.far to ≥2000). Covered by headless unit tests around `computeSunVector` and fog/uniform wiring.
   - `scene.ts`: Three.js scene creation; minimal global lights.
   - `camera.ts`: camera rig (node hierarchy for tilt/yaw/zoom) and resize.
@@ -74,7 +74,7 @@ Runtime Model
   8) Install input handlers for ignite, road draw, and vehicle modes.
   - Branch `features/vehicles`: after wiring, seed a rectangular road loop on a small (32×32) mostly-flat test map and auto-spawn a few vehicles on the loop for immediate interaction.
 - Frame loop (`Loop`):
-  - Per-frame: update camera controller; LOD updates; `FireSim.step(dt)` with fixed sub-steps; `fireViz.update(grid, dt)`; `vehicles.update(dt)`; render; stats (including memory metrics if enabled).
+  - Per-frame: update camera controller; LOD updates; `FireSim.step(dt)` with fixed sub-steps; `fireViz.update(grid, dt)`; `vehicles.update(dt)`; render (via EffectComposer when available, else plain renderer); stats (including memory metrics if enabled).
   - Fixed fire dt: 0.25 s with 6-step cap per frame.
 
 Key Abstractions & Data

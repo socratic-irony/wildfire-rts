@@ -1,5 +1,5 @@
 import { Object3D, Vector3, Quaternion, Raycaster, Vector2 } from 'three';
-import { createRenderer, resizeRenderer } from './core/renderer';
+import { createRenderer, resizeRenderer, createComposer, resizeComposer, type ComposerRig } from './core/renderer';
 import { createEnvironment } from './core/environment';
 import { createScene } from './core/scene';
 import { createCameraRig, resizeCamera } from './core/camera';
@@ -127,6 +127,12 @@ createEnvironment(scene, {
   sunLight: (scene.children.find((c) => (c as any).isDirectionalLight) as any) ?? undefined,
   hemiLight: (scene.children.find((c) => (c as any).isHemisphereLight) as any) ?? undefined,
 });
+
+// Post-processing: RenderPass -> subtle bloom -> OutputPass. ?nofx=1 (perf
+// probes / software-GL audits) or a missing WebGL2 context falls back to the
+// plain renderer.render path.
+const nofx = new URLSearchParams(window.location.search).get('nofx') === '1';
+let post: ComposerRig | null = nofx ? null : createComposer(renderer, scene, rig.camera);
 // Hover tile debug overlay state (sample at ~10 Hz)
 let _hoverAcc = 0;
 let _hoverMouseX = 0, _hoverMouseY = 0;
@@ -364,7 +370,8 @@ loop.add((dt) => {
   vehicles.updateExternalFx(dt, followerFxStates);
 
   if (!suppressRenderDuringAdvance) {
-    renderer.render(scene, rig.camera);
+    if (post) post.composer.render();
+    else renderer.render(scene, rig.camera);
   }
   
   // Update paint system
@@ -556,6 +563,7 @@ let vegTintAcc = 0;
 function onResize() {
   resizeRenderer(renderer, app);
   resizeCamera(rig, app);
+  resizeComposer(post, app.clientWidth, app.clientHeight);
 }
 
 window.addEventListener('resize', onResize);
@@ -1639,6 +1647,11 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
       },
       toggleRandomEvents: (on) => {
         eventSystem.setEnabled(on);
+      }
+    },
+    graphics: {
+      toggleBloom: (on) => {
+        if (post) post.bloomPass.enabled = on;
       }
     },
     roads: {
