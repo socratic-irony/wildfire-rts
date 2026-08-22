@@ -24,6 +24,10 @@ export default defineConfig({
     }
   },
   test: {
+    // Keep test discovery inside this checkout; sibling git worktrees under
+    // .worktrees/ carry their own copies of the suite and must not be collected
+    // (cross-tree /tmp fixture collisions otherwise fail unrelated gates).
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.worktrees/**'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts', 'tools/**/*.ts'],
