@@ -182,6 +182,16 @@ export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts 
     }
   };
 
+  // Release per-instance GPU resources (geometries/materials are created per
+  // forest, so disposing them is safe on regeneration).
+  const dispose = () => {
+    for (const mesh of allMeshes) {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      mesh.dispose();
+    }
+  };
+
   // Burn tinting per instance: multiply each tree's base color by the fire
   // state factor so unburned trees keep their per-instance variety.
   const tmpFactor = new Color();
@@ -216,5 +226,5 @@ export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts 
     }
   };
 
-  return { group, leaves, leavesUpper, trunks, broadLeaves, broadTrunks, update, applyFireTint };
+  return { group, leaves, leavesUpper, trunks, broadLeaves, broadTrunks, update, applyFireTint, dispose };
 }

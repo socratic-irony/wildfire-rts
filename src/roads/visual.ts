@@ -109,6 +109,27 @@ export class RoadsVisual {
     this.diagnosticsGroup.visible = visible;
   }
 
+  /**
+   * Release all GPU resources owned by this visual (per-instance geometries
+   * and materials). The instance must not be rendered again afterwards.
+   */
+  dispose() {
+    const geometries = new Set<BufferGeometry>();
+    this.group.traverse((child) => {
+      const geo = (child as Mesh | Line).geometry as BufferGeometry | undefined;
+      if (geo) geometries.add(geo);
+    });
+    if (this.intersectionGeo) geometries.add(this.intersectionGeo);
+    for (const geo of geometries) geo.dispose();
+    this.clear();
+    this.mat.dispose();
+    this.shoulderMat.dispose();
+    this.stripeMat.dispose();
+    this.debugLineMat.dispose();
+    this.debugRibbonMat.dispose();
+    this.intersectionMat.dispose();
+  }
+
   // Expose smoothed midlines as world XZ arrays for controllers
   getMidlinesXZ(): Array<Array<{ x: number; z: number }>> {
     return this.paths.map(path => path.map(p => ({ x: p.x, z: p.y })));

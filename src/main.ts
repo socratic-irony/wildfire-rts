@@ -108,18 +108,6 @@ const logger = getLogger();
 logger.info('Wildfire RTS application starting');
 
 const app = document.getElementById('app')!;
-const scene = createScene();
-
-const renderer = createRenderer(app);
-const input = attachInput(renderer.domElement);
-installGlobalErrorOverlay(app);
-// Hover tile debug overlay state (sample at ~10 Hz)
-let _hoverAcc = 0;
-let _hoverMouseX = 0, _hoverMouseY = 0;
-let _hoverHasMouse = false;
-let _hoverTileDiv: HTMLDivElement | null = null;
-const _hoverRay = new Raycaster();
-const _hoverMouse = new Vector2();
 
 // World config used by Debug UI
 type WorldCfg = {
@@ -138,7 +126,26 @@ let worldCfg: WorldCfg = {
 };
 
 // Stage B: Terrain heightmap + mesh (temporary orbit controls)
+// Generated before the scene so the sun's shadow frustum can be sized to the
+// actual play area.
 let hm = generateHeightmap(worldCfg.width, worldCfg.height, 1, worldCfg.noise);
+
+const worldCenterX = (hm.width * hm.scale) / 2;
+const worldCenterZ = (hm.height * hm.scale) / 2;
+const shadowExtent = Math.max(hm.width, hm.height) * hm.scale * 0.75;
+const scene = createScene({ worldCenter: { x: worldCenterX, z: worldCenterZ }, shadowExtent });
+
+const renderer = createRenderer(app);
+const input = attachInput(renderer.domElement);
+installGlobalErrorOverlay(app);
+// Hover tile debug overlay state (sample at ~10 Hz)
+let _hoverAcc = 0;
+let _hoverMouseX = 0, _hoverMouseY = 0;
+let _hoverHasMouse = false;
+let _hoverTileDiv: HTMLDivElement | null = null;
+const _hoverRay = new Raycaster();
+const _hoverMouse = new Vector2();
+
 // Biomes and material
 let biomes = computeBiomesTuned(hm, { forestMoistureMin: worldCfg.biomes.forestMoistureMin }, { seed: worldCfg.moisture.seed as any });
 const terrainMat = createTerrainMaterial() as any;
@@ -220,20 +227,19 @@ loop.add((dt) => {
 
   // Dispatch loop — detect incidents, auto-assign, promote/resolve
   {
-    const followerRefs: FollowerRef[] = followers.map(f => ({
-      id: f.id,
-      type: f.type,
-      follower: f.follower,
-      busy: f.busy,
-      waterRemaining: f.payload.water,
-      route: (pos) => setTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
-      canRoute: (pos) => canSetTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
-    }));
-    dispatchLoop.tick(dt, fireGrid.time, fireGrid, followerRefs, path2ds);
+    if (followerRefsDirty) rebuildFollowerRefs();
+    // Sync mutable per-frame fields into the pooled refs (index-aligned).
+    for (let i = 0; i < followerRefPool.length; i++) {
+      const f = followers[i];
+      const ref = followerRefPool[i];
+      ref.busy = f.busy;
+      ref.waterRemaining = f.payload.water;
+    }
+    dispatchLoop.tick(dt, fireGrid.time, fireGrid, followerRefPool, path2ds);
     // Sync busy flag back from followerRefs (dispatch loop may have updated it)
-    for (const ref of followerRefs) {
-      const f = followers.find(x => x.id === ref.id);
-      if (f) f.busy = ref.busy;
+    for (let i = 0; i < followerRefPool.length; i++) {
+      const f = followers[i];
+      if (f.busy !== followerRefPool[i].busy) f.busy = followerRefPool[i].busy;
     }
     syncFollowerAssignments();
     updateFollowerSuppression(dt);
@@ -297,13 +303,29 @@ loop.add((dt) => {
     groups.get(p)!.push(i);
   }
   for (const [path, idxs] of groups) {
-    assignPathLeaders(path, idxs.map((idx) => followers[idx].follower));
+    leaderScratch.length = 0;
+    for (const idx of idxs) leaderScratch.push(followers[idx].follower);
+    assignPathLeaders(path, leaderScratch);
     for (const idx of idxs) followers[idx].follower.setSpacingMode(spacingMode);
   }
-  const controlledFollowers = [...groups.entries()].flatMap(([path, idxs]) =>
-    idxs.map((idx) => ({ id: followers[idx].id, follower: followers[idx].follower, path })),
-  );
-  intersectionManager.updateBeforeMovement(controlledFollowers, dt);
+  controlledView.length = 0;
+  let nControlled = 0;
+  for (const [path, idxs] of groups) {
+    for (const idx of idxs) {
+      const f = followers[idx];
+      let slot = controlledStorage[nControlled];
+      if (!slot) {
+        slot = { id: f.id, follower: f.follower, path };
+        controlledStorage.push(slot);
+      }
+      slot.id = f.id;
+      slot.follower = f.follower;
+      slot.path = path;
+      controlledView.push(slot);
+      nControlled++;
+    }
+  }
+  intersectionManager.updateBeforeMovement(controlledView, dt);
   for (const [path, idxs] of groups) {
     for (const idx of idxs) {
       const current = followers[idx].follower;
@@ -370,20 +392,26 @@ loop.add((dt) => {
   
   // Update unified menubar/debug interface
   menubar.update(dt, renderer, { chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid, followers });
-  // Update dispatch panel (refresh at 5 Hz to keep DOM updates cheap)
-  dispatchPanel.update(followers.length, followers.filter(f => f.busy).length);
+  // Single fleet pass: busy count for the dispatch panel and the selected
+  // follower for the unit HUD (previously separate filter/find scans per frame).
+  const selId = (selection.getSelected() as (FollowerEntry & { id?: number }) | null)?.id ?? null;
+  selectedFollower = null;
+  busyFollowerCount = 0;
+  for (const f of followers) {
+    if (f.busy) busyFollowerCount++;
+    if (selId != null && f.id === selId) selectedFollower = f;
+  }
+  dispatchPanel.update(followers.length, busyFollowerCount);
   // Update selected-unit HUD (fuel, water, assignment status)
   {
-    const sel = selection.getSelected() as (FollowerEntry & { id?: number }) | null;
-    const active = sel?.id != null ? followers.find(f => f.id === sel.id) ?? null : null;
-    if (!active) {
+    if (!selectedFollower) {
       vehicleHud.render(null);
     } else {
       vehicleHud.render({
-        type: String(active.type),
-        payload: active.payload,
-        returningToBase: active.returningToBase,
-        assignedIncidentId: active.assignedIncidentId,
+        type: String(selectedFollower.type),
+        payload: selectedFollower.payload,
+        returningToBase: selectedFollower.returningToBase,
+        assignedIncidentId: selectedFollower.assignedIncidentId,
       });
     }
   }
@@ -644,6 +672,41 @@ type ActiveFollower = {
 let followers: ActiveFollower[] = [];
 let followerIdCounter = 0;
 const followerFxStates: VehicleFxState[] = [];
+
+// ── Per-frame scratch state (allocated once, reused every tick) ──────────────
+// Dispatch-loop view over `followers`. Rebuilt only when fleet membership
+// changes (spawn/clear); busy/water fields are synced per frame without
+// reallocating the route closures. Index-aligned with `followers`.
+const followerRefPool: FollowerRef[] = [];
+let followerRefsDirty = true;
+function markFollowerMembershipChanged() {
+  followerRefsDirty = true;
+}
+function rebuildFollowerRefs() {
+  followerRefPool.length = 0;
+  for (const f of followers) {
+    followerRefPool.push({
+      id: f.id,
+      type: f.type,
+      follower: f.follower,
+      busy: f.busy,
+      waterRemaining: f.payload.water,
+      route: (pos) => setTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
+      canRoute: (pos) => canSetTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
+    });
+  }
+  followerRefsDirty = false;
+}
+// Intersection-manager input, pooled per slot so steady-state frames allocate
+// nothing; `controlledView` is the length-clamped array handed to the manager.
+const controlledStorage: Array<{ id: number; follower: PathFollower; path: Path2D }> = [];
+const controlledView: Array<{ id: number; follower: PathFollower; path: Path2D }> = [];
+// Leader list passed to assignPathLeaders (consumed immediately per path).
+const leaderScratch: PathFollower[] = [];
+// Hoisted per-frame results for the dispatch panel and selection HUD.
+let busyFollowerCount = 0;
+let selectedFollower: ActiveFollower | null = null;
+
 const tmpFollowerPos = new Vector3();
 const tmpFollowerQuat = new Quaternion();
 const tmpFollowerScale = new Vector3();
@@ -836,6 +899,7 @@ function spawnFollowerOnPath(p: Path2D, startS: number, vehicleType: VManagerVeh
     returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null,
     refillTarget: null, style: look?.style ?? null, color: look?.color ?? null,
   });
+  markFollowerMembershipChanged();
 }
 
 /**
@@ -889,6 +953,7 @@ function clearFollowers() {
   followers = [];
   followerFxStates.length = 0;
   followerIdCounter = 0;
+  markFollowerMembershipChanged();
   vehicles.updateExternalFx(0, followerFxStates);
   intersectionManager.clearFollowers();
   selection.clear();
@@ -1678,28 +1743,32 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         hm = generateHeightmap(worldCfg.width, worldCfg.height, 1, worldCfg.noise);
         biomes = computeBiomesTuned(hm, { forestMoistureMin: worldCfg.biomes.forestMoistureMin }, { seed: worldCfg.moisture.seed as any });
         
-        // Remove old terrain and rebuild
+        // Remove old terrain and rebuild (dispose both LOD geometries per chunk;
+        // the shared terrain material stays alive for the new chunks)
         scene.remove(chunked.group);
+        chunked.dispose();
         chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
         scene.add(chunked.group);
-        
-        // Rebuild vegetation
+
+        // Rebuild vegetation — free the old instances' GPU resources first
         if (forest.group.parent) scene.remove(forest.group);
-        if (shrubs.group.parent) scene.remove(shrubs.group);
-        if (rocks.inst.parent) scene.remove(rocks.inst);
-        
+        forest.dispose();
         forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
         scene.add(forest.group);
 
+        if (shrubs.group.parent) scene.remove(shrubs.group);
+        shrubs.dispose();
         shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub });
         scene.add(shrubs.group);
-        
+
+        if (rocks.inst.parent) scene.remove(rocks.inst);
+        rocks.dispose();
         rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
         scene.add(rocks.inst);
-        
+
         // Clear existing roads, vehicles, and hydrants from old terrain
         scene.remove(roadsVis.group);
-        roadsVis.clear();
+        roadsVis.dispose();
         vehicles.clear();
         clearFollowers();
         clearHydrants(hydrantSystem);
@@ -1724,6 +1793,7 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         hydrantVisual.setVisible(hydrantsVisible);
         scene.add(hydrantVisual.group);
         scene.remove(hydrantCoverageRings.inst);
+        hydrantCoverageRings.dispose();
         hydrantCoverageRings = createHydrantCoverageRings(hm);
         hydrantCoverageRings.setVisible(hydrantCoverageVisible);
         scene.add(hydrantCoverageRings.inst);
@@ -1739,10 +1809,14 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         fireParticles.updateTerrain?.(hm);
         fireRibbon.updateTerrain?.(hm);
         
-        // Update vehicle manager with new terrain references
+        // Update vehicle manager with new terrain references. Capture the OLD
+        // manager first — its group/particleGroup are the ones actually in the
+        // scene, so they must be removed and disposed before the replacement.
+        const oldVehicles = vehicles;
+        scene.remove(oldVehicles.group);
+        scene.remove(oldVehicles.particleGroup);
+        oldVehicles.dispose();
         vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
-        scene.remove(vehicles.group);
-        scene.remove(vehicles.particleGroup);
         scene.add(vehicles.group);
         scene.add(vehicles.particleGroup);
         

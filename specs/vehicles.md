@@ -144,6 +144,7 @@ Performance Targets
 ## Outstanding Focus Areas
 
 - Directed lane-graph routing and explicit left/through/right turn splines are not yet implemented; current followers stay on their assigned centerline.
+- Voxel part merging (2026-08): unreferenced decorative boxes now merge at build time into a few multi-material meshes per vehicle (`collapseParts` in `voxelMeshes.ts` — civilians drop to body+wheel+yield ring; service vehicles keep their named hooks). Remaining draw-call work is limited to the hook parts themselves.
 - The deprecated grid-agent `VehiclesManager` no longer carries disconnected intersection fields; visible gameplay traffic uses the authoritative `IntersectionManager` until the remaining grid layer is retired.
 - Reintroduce road-midline projection with spatial indexing to keep followers pinned to centerlines and smooth yaw through tight curves.
 - Expand the speed model to factor in grade, curvature, and road class, and add lane/offset support for wider roads.

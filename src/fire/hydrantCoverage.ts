@@ -48,5 +48,12 @@ export function createHydrantCoverageRings(hm: Heightmap, maxHydrants = 500) {
 
   const setVisible = (v: boolean) => { inst.visible = v; };
 
-  return { inst, update, setVisible } as const;
+  // Ring geometry + material are per-instance; safe to free on regeneration.
+  const dispose = () => {
+    ring.dispose();
+    mat.dispose();
+    inst.dispose();
+  };
+
+  return { inst, update, setVisible, dispose } as const;
 }

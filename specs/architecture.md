@@ -19,9 +19,9 @@ Repository Topology
 - Testbed: `vehicles-test.html` + `src/vehicles_test.ts` — a minimal, isolated page for vehicle/road experiments on a small flat map with preset road layouts (loop / figure-8). Does not affect the main app.
 - Core: `src/core/`
   - `renderer.ts`: WebGL renderer factory and resize logic.
-  - `scene.ts`: Three.js scene creation; minimal global lights.
+  - `scene.ts`: Three.js scene creation; hemisphere fill + shadow-casting directional sun. `createScene({ worldCenter?, shadowExtent? })` positions the sun relative to the world center (default `{64,64}`), adds the sun target to the scene, and sizes the ortho shadow box to ±`shadowExtent` around it (default 96; `main.ts` passes half the play area × 0.75) so shadows cover the whole map instead of the ±5-unit default.
   - `cameraController.ts`: clean-room damped RTS camera controller (`CameraController`) owning a `PerspectiveCamera` directly. True spherical orbit around a ground target (`pos = target + (sin(yaw)·dist·cos(pitch), dist·sin(pitch), cos(yaw)·dist·cos(pitch))`, look-at at sampled ground height). All channels (yaw/pitch/dist/target-x/z) converge to goals via framerate-independent exponential damping (`v += (goal−v)·(1−exp(−λ·dt))`). Direct intent APIs (`rotate/panPixels/zoom`) are shared by the DOM adapter (pointer drag/wheel/two-finger pinch, bound only when `dom !== null` so headless unit tests construct it without DOM) and unit tests; zoom-to-cursor lerps the target goal toward the projected cursor point by the zoom fraction. Keyboard intents flow through `update(dt, move)` — WASD/arrows pan on the yaw basis with speed scaled by `clamp(dist/refDist, 0.25, 4)`; Q/E yaw; R/F pitch (all wired); Space resets yaw/pitch/dist goals. Hard clamps: target X/Z to bounds, pitch/dist to min/max; terrain clearance keeps the camera ≥2 units above sampled ground without moving the look-at target. `focus()` snaps goals AND currents instantly (deterministic framing for audits); `follow(provider)` snaps the target to a position provider each update while orbit angles stay user-controlled; `setInputLockCheck` suppresses rotate/pan/zoom during painting. Covered by headless unit tests in `src/core/__tests__/cameraController.test.ts`.
-  - `loop.ts`: frame loop with callback list; provides `dt` to subsystems.
+  - `loop.ts`: frame loop with callback list; provides `dt` to subsystems. Periodic perf metrics log every 300 frames but are only formatted when `Logger.isEnabled('debug')` passes, so the default `info` level skips payload construction entirely.
   - `input.ts`: lightweight keyboard/pointer state tracker shared by `main.ts`, the vehicle testbed, and the particle test page (normalizes keys to lowercase and exposes a `Set`).
   - `random.ts`: shared deterministic 32-bit linear-congruential generator used by actor scattering; preserves the established per-seed sequences.
 - Terrain: `src/terrain/`
@@ -29,11 +29,11 @@ Repository Topology
   - `coordinates.ts`: nearest-cell world-to-grid conversion with map-bound clamping, shared by interaction and actor-placement call sites.
   - `mesh.ts`, `material.ts`: low-poly tri mesh + flat-shaded material with grid overlay support.
   - `biomes.ts`: biome masks (rock/forest/chaparral) + vertex tinting.
-  - `chunks.ts`: chunked LOD terrain with visibility toggle and base/hi geometry; per-chunk edge skirts to hide LOD cracks; bounding spheres for distance tests.
+  - `chunks.ts`: chunked LOD terrain with visibility toggle and base/hi geometry; per-chunk edge skirts to hide LOD cracks; bounding spheres for distance tests. `dispose()` frees both LOD geometries (`geoHi`/`geoLo`) of every chunk; the shared terrain material intentionally stays alive across rebuilds.
 - Fire System: `src/fire/`
   - `grid.ts`: grid state (tiles, indices), ignition helpers, suppression hooks, containment heuristic.
   - `params.ts`: tuning constants and fuel tables.
-  - `sim.ts`: fixed-step fire simulation with accumulator; slope/wind ROS; ignition/wetness/retardant; smoldering.
+  - `sim.ts`: fixed-step fire simulation with accumulator; slope/wind ROS; ignition/wetness/retardant; smoldering. Its every-30-steps state log is gated behind `Logger.isEnabled('debug')` (startup `info` lines are unaffected).
   - `viz.ts`, `overlay.ts`, `perimeter.ts`: visualization (overlay quads, vertex tint; thin perimeter outline). Also exports `computePerimeter(grid)` for analytics/UI.
   - `stats.ts`: compute active counts, burned tiles/area, and perimeter length (`computeFireStats`).
 - Events: `src/events/events.ts`: seeded random-event system (lightning ignitions via exponential inter-arrival, wind shifts eased into the live sim env). Disabled by default; opted in via the menubar fire-section checkbox or `__wildfireTestApi.setRandomEvents(on, seed)`. Deterministic per seed — covered by the `random-events` audit scenario.
@@ -45,13 +45,14 @@ Repository Topology
   - `visual.ts`: one depth-tested smoothed asphalt ribbon (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe, and stable physical-intersection metadata. Duplicate segment hits merge by position, self-crossings retain both path arc occurrences under one intersection ID, and simple endpoint joins are excluded. Triangle lattice/midline diagnostics are hidden by default and exposed only through debug controls.
   - `procedural.ts`: procedural loop generator (oval/figure-8/rectangle) for boot/regenerate seeding.
   - `state.ts`: rasterization of road paths to a road mask; integration hooks (e.g., fire grid fuel adjustments).
-- Vehicles: `src/vehicles/vehicles.ts`: instanced agents with road and air pathing, terrain-aligned pose, and fire-suppression hooks.
+- Vehicles: `src/vehicles/vehicles.ts`: instanced agents with road and air pathing, terrain-aligned pose, and fire-suppression hooks. `dispose()` releases the manager's geometries/materials/instanced attributes across `group` and `particleGroup`; regeneration in `main.ts` removes + disposes the OLD manager's groups before creating the replacement (the old group is the one actually parented to the scene).
   - `src/vehicles/types.ts`: shared vehicle enums + FX state types.
   - `src/vehicles/vehicleFx.ts`: particle/light FX helpers for vehicles and external emitters.
   - `src/vehicles/followerOrders.ts`: selection + order utilities for Frenet followers (including off-road bulldozer orders).
   - `src/vehicles/intersectionManager.ts`: authoritative all-way-stop controller for visible Frenet followers; batch approach/queue/grant arbitration, full-stop timing, exclusive occupancy, closed-loop-safe clearance, spillback probe, and telemetry.
   - `src/vehicles/trafficSpacing.ts`: assigns same-path leaders including the virtual closed-loop seam leader.
   - `src/vehicles/menubarMapping.ts`: UI type mapping for spawn commands.
+  - `src/vehicles/voxelMeshes.ts`: voxel vehicle builders; unreferenced decorative parts are merged at build time into a few multi-material meshes (transforms baked into cloned geometries, per-vertex color attribute, geometry groups per material bucket) while named hook parts (`ladder`, `blade`, `rotor`, `skid`, `wings`, `tailFin`, `helmet`, `lightbar`, `userData.mainRotor/yieldIndicator`) stay as separate meshes/groups per the `meshes.test.ts` contract.
 - **Fire Hydrants (HIGH PRIORITY)**: `src/fire/hydrants.ts`: automatic placement along roads (50m spacing, 100+ tiles min), coverage areas (~10m), integration with suppression system to enable firefighter deployment from road tiles within coverage.
 - UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/menubar.ts` owns the primary toolbar and detailed debug controls, including road lattice diagnostics and optional hydrant coverage rings. `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
 - Browser automation: `src/main.ts` exposes `window.render_game_to_text()`, `window.advanceTime(ms)`, and `window.__wildfireTestApi` so Playwright/browser audits can inspect live game state, fast-forward the loop, and exercise fire/road/vehicle flows deterministically without brittle pixel-only input. `advanceTime` keeps 50 ms simulation chunks but suppresses intermediate renders so software-WebGL audit runs stay bounded.
@@ -78,7 +79,7 @@ Runtime Model
 Key Abstractions & Data
 
 - Heightmap: `{ width,height,scale,data[], sample(wx,wz) }` — source of truth for elevation. `worldToGridCell(heightmap, worldX, worldZ)` is the shared nearest-cell conversion for world points; callers that intentionally use floor-based occupancy or already-grid coordinates retain their distinct semantics.
-- Terrain chunks: Mesh nodes grouped; each chunk stores `baseColors` for quick vertex recolor.
+- Terrain chunks: Mesh nodes grouped; each chunk stores `baseColors` for quick vertex recolor plus `geoHi`/`geoLo` LOD geometries released by `dispose()`. Regeneration paths in `main.ts` remove + dispose every replaced system (chunked terrain, forest, shrubs, rocks, roads visual, hydrant coverage rings, vehicles manager, buildings/hydrant visuals) so GPU resources do not leak across reseeds.
 - Fire
   - FireGrid: `{ width,height,params,tiles[], burning[], smoldering[], bCount,sCount,time,seed }`.
   - Tile: AoS object including `state,heat,progress,wetness,retardant,lineStrength,fuel,slopeTan,downX,downZ` (fuelMoisture early adoption planned).
@@ -114,6 +115,7 @@ Performance Principles
 
 - Prefer InstancedMesh for repeated quads (fire overlays) and agents.
 - Avoid per-frame allocations where possible; reuse Vectors/Matrix4 in hot loops.
+- The main loop in `main.ts` keeps persistent views over the follower fleet: the dispatch-loop ref array (`followerRefPool`, route/canRoute closures baked once) rebuilds only on membership change (spawn/clear set a dirty flag), mutable `busy`/`waterRemaining` fields sync per frame, and the intersection-manager input uses pooled slot objects plus a reused leader scratch array. Busy-count/selected-follower HUD lookups run in a single fleet pass.
 - Restrict fixed-step sub-steps; clamp to avoid spiraling on stalls.
 - Minimize per-frame scanning over large arrays (e.g., keep frontier lists for fire; in vehicles, use grid-path interpolation, not dense projections).
 - For visuals that must hug terrain, sample normal + normal-offset and use polygon offset for z-ordering.

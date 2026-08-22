@@ -42,9 +42,10 @@ export class Loop {
   private tick(dt: number) {
     this.elapsed += dt;
     
-    // Log performance metrics periodically (every 5 seconds)
+    // Log performance metrics periodically (every 5 seconds). Skip building
+    // the payload entirely unless debug output is actually enabled.
     this.frameCount++;
-    if (this.frameCount % 300 === 0 && dt > 0) {
+    if (this.frameCount % 300 === 0 && dt > 0 && this.logger.isEnabled('debug')) {
       const fps = Math.round(1 / dt);
       this.logger.debug('Performance metrics', {
         fps,

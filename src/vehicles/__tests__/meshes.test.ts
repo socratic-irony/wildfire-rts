@@ -1,16 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { Mesh } from 'three';
+import { Mesh, Object3D } from 'three';
 import { VehicleType } from '../types';
-import { createVehicleMesh } from '../meshes';
+import { createVehicleMesh, CIVILIAN_STYLES } from '../meshes';
+
+function countMeshes(root: Object3D): number {
+  let count = 0;
+  root.traverse((child) => {
+    if ((child as Mesh).isMesh) count++;
+  });
+  return count;
+}
 
 describe('createVehicleMesh', () => {
-  it('returns a group with body + four wheels for each vehicle type', () => {
-    for (const t of [VehicleType.FIRETRUCK, VehicleType.BULLDOZER, VehicleType.CAR]) {
-      const g = createVehicleMesh(t, 1);
-      const meshChildren = g.children.filter((c) => (c as Mesh).isMesh);
-      // body (1) + 4 wheels + at least one type-specific detail
-      expect(meshChildren.length).toBeGreaterThanOrEqual(6);
+  it('merges decorative parts into few meshes per style/type', () => {
+    // Civilians: merged body + merged wheel + yield indicator.
+    for (const style of CIVILIAN_STYLES) {
+      const g = createVehicleMesh(VehicleType.CAR, 1, { civilianStyle: style });
+      expect(countMeshes(g)).toBeLessThanOrEqual(3);
     }
+    expect(countMeshes(createVehicleMesh(VehicleType.FIRETRUCK, 1))).toBeLessThanOrEqual(6);
+    expect(countMeshes(createVehicleMesh(VehicleType.BULLDOZER, 1))).toBeLessThanOrEqual(3);
+    expect(countMeshes(createVehicleMesh(VehicleType.HELICOPTER, 1))).toBeLessThanOrEqual(4);
+    expect(countMeshes(createVehicleMesh(VehicleType.AIRPLANE, 1))).toBeLessThanOrEqual(4);
+    expect(countMeshes(createVehicleMesh(VehicleType.FIREFIGHTER, 1))).toBeLessThanOrEqual(3);
   });
 
   it('exposes a yield indicator via userData', () => {
@@ -61,5 +73,44 @@ describe('createVehicleMesh', () => {
     const g = createVehicleMesh(VehicleType.FIREFIGHTER, 1);
     expect(g.getObjectByName('helmet')).toBeTruthy();
     expect(g.getObjectByName('wheel')).toBeFalsy();
+  });
+
+  it('keeps runtime FX hooks: mainRotor group and flashable lightbar pair', () => {
+    const heli = createVehicleMesh(VehicleType.HELICOPTER, 1);
+    const rotorGroup = heli.userData.mainRotor as Object3D;
+    expect(rotorGroup).toBeTruthy();
+    // Spinning the group must move the (merged) rotor mesh inside it.
+    expect(rotorGroup.children.some((c) => (c as Mesh).isMesh)).toBe(true);
+
+    const truck = createVehicleMesh(VehicleType.FIRETRUCK, 1);
+    const lightbar = truck.userData.lightbar as Object3D;
+    expect(lightbar).toBeTruthy();
+    // The flash animation reads children[0]/children[1] emissive materials.
+    expect(lightbar.children.length).toBe(2);
+    const redMat = ((lightbar.children[0] as Mesh).material as unknown as { emissiveIntensity: number });
+    const blueMat = ((lightbar.children[1] as Mesh).material as unknown as { emissiveIntensity: number });
+    expect(redMat.emissiveIntensity).toBeDefined();
+    expect(blueMat.emissiveIntensity).toBeDefined();
+  });
+
+  it('merged bodies cast shadows and carry per-vertex colors', () => {
+    for (const t of [VehicleType.CAR, VehicleType.FIRETRUCK, VehicleType.BULLDOZER]) {
+      const g = createVehicleMesh(t, 1);
+      const body = g.getObjectByName('body') as Mesh;
+      expect(body).toBeTruthy();
+      expect(body.castShadow).toBe(true);
+      expect(body.geometry.getAttribute('color')).toBeTruthy();
+    }
+  });
+
+  it('merged ground vehicles keep a wheel mesh with baked transforms', () => {
+    for (const style of CIVILIAN_STYLES) {
+      const g = createVehicleMesh(VehicleType.CAR, 1, { civilianStyle: style });
+      const wheel = g.getObjectByName('wheel') as Mesh;
+      expect(wheel).toBeTruthy();
+      // Wheels sit above the ground plane after their transforms are baked in.
+      wheel.geometry.computeBoundingBox();
+      expect(wheel.geometry.boundingBox!.max.y).toBeGreaterThan(0);
+    }
   });
 });
