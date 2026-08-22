@@ -1,5 +1,7 @@
 import {
   BoxGeometry,
+  BufferAttribute,
+  BufferGeometry,
   Color,
   CylinderGeometry,
   DoubleSide,
@@ -10,6 +12,7 @@ import {
   Object3D,
   RingGeometry,
 } from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { VehicleType } from './types';
 
 /**
@@ -17,8 +20,13 @@ import { VehicleType } from './types';
  * cylinders) with flat colors — readable at RTS zoom, more silhouette detail
  * than the original single-box bodies.
  *
- * Named parts the rest of the game relies on:
- *  - 'wheel'        ground-vehicle wheels
+ * Draw calls: unreferenced decorative parts are merged at build time
+ * (`collapseParts`) into a few multi-material meshes per vehicle; transforms
+ * are baked into cloned geometries and colors carried on a per-vertex 'color'
+ * attribute while bucket materials stay authoritative.
+ *
+ * Named parts the rest of the game relies on (kept as separate meshes/groups):
+ *  - 'wheel'        ground-vehicle wheels (one merged mesh)
  *  - 'ladder'       firetruck test hook
  *  - 'blade'        bulldozer test hook
  *  - 'rotor'        helicopter main rotor blades (spun by the FX loop)
@@ -82,6 +90,95 @@ function box(w: number, h: number, d: number, mat: MeshStandardMaterial, name?: 
   m.castShadow = true;
   if (name) m.name = name;
   return m;
+}
+
+// ── Static part merging ──────────────────────────────────────────────────────
+// Decorative boxes are merged into a handful of multi-material meshes to cut
+// draw calls. Named hook parts (ladder/blade/wings/…) and animatable groups
+// (lightbar/mainRotor) stay untouched; see the contract list at the top of
+// this file and src/vehicles/__tests__/meshes.test.ts.
+
+/**
+ * Bake the part's paint color into a per-vertex 'color' attribute so merged
+ * geometry carries its color even though bucket materials stay authoritative.
+ */
+function bakePartColor(geo: BufferGeometry, mat: MeshStandardMaterial): void {
+  const count = geo.getAttribute('position').count;
+  const colors = new Float32Array(count * 3);
+  const r = mat.color.r;
+  const g = mat.color.g;
+  const b = mat.color.b;
+  for (let i = 0; i < count; i++) {
+    colors[i * 3 + 0] = r;
+    colors[i * 3 + 1] = g;
+    colors[i * 3 + 2] = b;
+  }
+  geo.setAttribute('color', new BufferAttribute(colors, 3));
+}
+
+/**
+ * Merge direct-child meshes of `parent` into one mesh per returned bucket
+ * name. `classify` returns the bucket for parts that should be merged or null
+ * to keep the part as-is. Transforms are baked into cloned geometries, parts
+ * sharing a material instance fuse into a single group, and the merged mesh
+ * gets a material array with geometry groups so it renders identically to the
+ * original separate parts.
+ */
+function collapseParts(
+  parent: Object3D,
+  classify: (mesh: Mesh) => string | null,
+): void {
+  const children = parent.children.filter((c): c is Mesh => (c as Mesh).isMesh);
+  type Bucket = { mats: MeshStandardMaterial[]; geos: BufferGeometry[] };
+  const buckets = new Map<string, Bucket>();
+  const kept = new Set<Mesh>();
+  for (const m of children) {
+    const bucketName = classify(m);
+    if (bucketName == null) {
+      kept.add(m);
+      continue;
+    }
+    // Bake the local transform into an owned copy — cached geometries are
+    // shared across vehicles and must never be mutated.
+    m.updateMatrix();
+    const geo = m.geometry.clone();
+    geo.applyMatrix4(m.matrix);
+    bakePartColor(geo, m.material as MeshStandardMaterial);
+    let bucket = buckets.get(bucketName);
+    if (!bucket) {
+      bucket = { mats: [], geos: [] };
+      buckets.set(bucketName, bucket);
+    }
+    bucket.geos.push(geo);
+    bucket.mats.push(m.material as MeshStandardMaterial);
+  }
+  if (buckets.size === 0) return;
+
+  for (const m of children) {
+    if (!kept.has(m)) parent.remove(m);
+  }
+  for (const [name, bucket] of buckets) {
+    // Fuse consecutive same-material parts so each material becomes exactly
+    // one draw call inside the merged mesh.
+    const byMat = new Map<MeshStandardMaterial, BufferGeometry[]>();
+    for (let i = 0; i < bucket.geos.length; i++) {
+      const list = byMat.get(bucket.mats[i]);
+      if (list) list.push(bucket.geos[i]);
+      else byMat.set(bucket.mats[i], [bucket.geos[i]]);
+    }
+    const geos: BufferGeometry[] = [];
+    const mats: MeshStandardMaterial[] = [];
+    for (const [mat, list] of byMat) {
+      geos.push(list.length > 1 ? mergeGeometries(list, false)! : list[0]);
+      mats.push(mat);
+    }
+    const useGroups = geos.length > 1;
+    const geo = useGroups ? mergeGeometries(geos, true)! : geos[0];
+    const mesh = new Mesh(geo, useGroups ? mats : mats[0]);
+    mesh.name = name;
+    mesh.castShadow = true;
+    parent.add(mesh);
+  }
 }
 
 function makeYieldIndicator(scale: number): Mesh {
@@ -215,6 +312,15 @@ function buildCivilian(group: Group, scale: number, style: CivilianStyle, color:
       break;
     }
   }
+
+  // Merge decorative panels into one body mesh (paint/glass/dark become
+  // material groups) and the four tires into a single 'wheel' mesh.
+  const civilianBody = new Set(['body', 'cabin', 'windows', 'bed']);
+  collapseParts(group, (m) => {
+    if (m.name === 'wheel') return 'wheel';
+    if (civilianBody.has(m.name)) return 'body';
+    return null;
+  });
 }
 
 // ── Service vehicles ─────────────────────────────────────────────────────────
@@ -257,6 +363,7 @@ function buildFiretruck(group: Group, scale: number) {
   }
   ladder.position.set(0, s * 0.93, -s * 0.25);
   group.add(ladder);
+  collapseParts(ladder, () => 'rails');
   addLightbar(group, s, s * 0.88, s * 0.55);
   // Bumper
   const bumper = box(s * 0.8, s * 0.12, s * 0.08, silver, 'bumper');
@@ -267,6 +374,13 @@ function buildFiretruck(group: Group, scale: number) {
     [s * 0.45, s * 0.16, -s * 0.1], [-s * 0.45, s * 0.16, -s * 0.1],
     [s * 0.45, s * 0.16, -s * 0.6], [-s * 0.45, s * 0.16, -s * 0.6],
   ], 0.18);
+
+  const firetruckBody = new Set(['body', 'cab', 'windows', 'equipment', 'stripe', 'bumper']);
+  collapseParts(group, (m) => {
+    if (m.name === 'wheel') return 'wheel';
+    if (firetruckBody.has(m.name)) return 'body';
+    return null;
+  });
 }
 
 function buildBulldozer(group: Group, scale: number) {
@@ -304,6 +418,10 @@ function buildBulldozer(group: Group, scale: number) {
   const stack = box(s * 0.08, s * 0.3, s * 0.08, dark, 'exhaust');
   stack.position.set(s * 0.15, s * 0.66, s * 0.25);
   group.add(stack);
+
+  // Merge everything except the named 'blade' hook.
+  const dozerBody = new Set(['body', 'cab', 'windows', 'track', 'arm', 'exhaust']);
+  collapseParts(group, (m) => (dozerBody.has(m.name) ? 'body' : null));
 }
 
 function buildHelicopter(group: Group, scale: number) {
@@ -344,6 +462,8 @@ function buildHelicopter(group: Group, scale: number) {
   rotor.position.set(0, s * 0.85, 0);
   group.add(rotor);
   group.userData.mainRotor = rotor;
+  // Blades spin together — merge them into one mesh inside the spun group.
+  collapseParts(rotor, () => 'rotor');
   // Skids
   for (const side of [-1, 1]) {
     const skid = box(s * 0.06, s * 0.05, s * 1.0, dark, 'skid');
@@ -355,6 +475,14 @@ function buildHelicopter(group: Group, scale: number) {
       group.add(strut);
     }
   }
+
+  const heliBody = new Set(['body', 'nose', 'tank', 'tailBoom', 'tailFinH']);
+  const heliUndercarriage = new Set(['skid', 'strut', 'tailRotor']);
+  collapseParts(group, (m) => {
+    if (heliBody.has(m.name)) return 'body';
+    if (heliUndercarriage.has(m.name)) return 'skid';
+    return null;
+  });
 }
 
 function buildAirplane(group: Group, scale: number) {
@@ -392,6 +520,10 @@ function buildAirplane(group: Group, scale: number) {
   const fin = box(s * 0.06, s * 0.5, s * 0.35, red, 'tailFin');
   fin.position.set(0, s * 0.85, -s * 0.78);
   group.add(fin);
+
+  // Merge everything except the named 'wings'/'tailFin' hooks.
+  const planeBody = new Set(['body', 'nose', 'retardantTank', 'engine', 'prop', 'tailPlane']);
+  collapseParts(group, (m) => (planeBody.has(m.name) ? 'body' : null));
 }
 
 function buildFirefighter(group: Group, scale: number) {
@@ -422,6 +554,10 @@ function buildFirefighter(group: Group, scale: number) {
   const helmet = box(s * 0.2, s * 0.07, s * 0.2, std(0xffdd00, 0.5, 0.1), 'helmet');
   helmet.position.y = s * 0.65;
   group.add(helmet);
+
+  // Merge everything except the named 'helmet' hook.
+  const firefighterBody = new Set(['leg', 'body', 'arm', 'airTank', 'head']);
+  collapseParts(group, (m) => (firefighterBody.has(m.name) ? 'body' : null));
 }
 
 // ── Entry point ──────────────────────────────────────────────────────────────
