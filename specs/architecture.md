@@ -149,7 +149,11 @@ Testing Strategy
   - A* path validity and slope/turn costs.
 - Browser audits use `render_game_to_text`, `advanceTime`, and `__wildfireTestApi` to verify live feature claims such as road placement, hydrant regeneration, vehicle spawning/dispatch, and suppression outcomes against the rendered scene.
 - The `traffic-intersection` browser scenario creates two crossing roads and four cars, then verifies queue formation, deterministic all-way-stop service, exclusive occupancy, minimum spacing, non-overlap, progress, drained queues, and error-free WebGL rendering while capturing visible stopped-car contention.
-- `npm run audit:game` is the current end-to-end browser verification entry point and should be rerun after changes that touch movement, UI actions, dispatch, or fire suppression flows.
+- `npm run audit:game` is the current end-to-end browser verification entry point and should be rerun after changes that touch movement, UI actions, dispatch, or fire suppression flows. Audit hardening rules (enforced in the harness):
+  - Audit pages load with `?nofx=1` so the post-processing composer is skipped — assertions read state, not pixels, and software-GL (SwiftShader) rendering makes bloom pure CPU cost.
+  - The dev server spawns with `--strictPort`; a busy port fails loudly instead of silently auditing whatever stale server owns it.
+  - Timing-sensitive scenarios pump simulated time via `window.advanceTime(ms)` instead of sleeping wall-clock: under SwiftShader the rAF loop advances only ~0.1 sim-s per wall second, so wall-clock deadlines race resolution nondeterministically (auto-dispatch and manual-dispatch use this; payload-round-trip drains and reads back inside a single evaluate for the same reason).
+  - Wall-clock deadlines remain only as generous backstops.
 - Headless update tests to validate determinism (e.g., same perimeter length after N ticks).
 
 Contribution & Spec Hygiene

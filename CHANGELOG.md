@@ -6,6 +6,12 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-08-22 — Audit harness hardening: deterministic sim-time pumping
+
+The Playwright suite's timing-sensitive scenarios coupled assertions to wall-clock × fps: under SwiftShader the rAF loop advances only ~0.1 sim-s per wall second, leaving auto-dispatch's 18 s deadline racing incident resolution (it resolved at fireT ≈ 2.0 — sometimes inside the wire, sometimes not) and letting payload-round-trip's strict `water === 0` assert race the hydrant-refill loop across evaluate roundtrips. Fixes in [scripts/qa/playwright_audit.ts](scripts/qa/playwright_audit.ts): timing-sensitive polls now pump simulated time via `window.advanceTime(ms)` (rendering suppressed) with wall deadlines as backstops only; the payload drain and its readback happen inside a single evaluate; audit pages load with `?nofx=1` to skip the composer under software GL; and the dev server spawns with `--strictPort` so a zombie server squatting the port fails loudly instead of silently auditing stale code (the failure mode that muddied this investigation). **Verification**: `npm run check` green (66 files / 280 tests) and two consecutive full `audit:game` runs pass 18/18.
+
+---
+
 ## 2026-08-21 — Clean-room RTS camera controller
 
 `src/core/cameraController.ts` replaces the legacy `rtsOrbit.ts` fake-orbit controller and `core/camera.ts` rig hierarchy (both deleted) with a damped spherical-orbit `CameraController`: true orbit around a terrain-sampled ground target, framerate-independent exponential damping on yaw/pitch/dist/target, zoom-to-cursor, hard bounds/pitch/dist clamps, terrain clearance enforcement, follow mode, instant-snap `focus()` for deterministic audit framing, and fully wired keyboard controls (WASD/arrows pan with zoom-scaled speed, Q/E yaw, R/F tilt — previously dead — Space resets the view). Pointer drag (left rotate / middle-right pan), wheel zoom, and two-finger pinch are handled by an optional DOM adapter; headless construction (`dom = null`) enables the new unit suite in `src/core/__tests__/cameraController.test.ts`. `main.ts`, `vehicles_test.ts`, and `particle_testbed.ts` are rewired; `specs/architecture.md` camera sections rewritten. **Verification**: `npm run check` (typecheck + 61 files / 251 tests + build) green.

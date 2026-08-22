@@ -93,7 +93,7 @@ async function waitForServer(url: string, timeoutMs = 20_000) {
 }
 
 async function startDevServer(url: URL): Promise<{ close: () => void }> {
-  const child = spawn('npm', ['run', 'dev', '--', '--host', url.hostname, '--port', url.port], {
+  const child = spawn('npm', ['run', 'dev', '--', '--host', url.hostname, '--port', url.port, '--strictPort'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     cwd: process.cwd(),
     env: process.env,
@@ -126,9 +126,19 @@ async function createPage(baseUrl: string) {
     page.on('console', (msg) => process.stdout.write(`[browser:${msg.type()}] ${msg.text()}\n`));
     page.on('pageerror', (err) => process.stdout.write(`[browser:error] ${err.message}\n`));
   }
-  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await page.goto(withNoFx(baseUrl), { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(900);
   return { browser, page };
+}
+
+/**
+ * Audits assert game state, not rendered pixels, so they skip the
+ * post-processing composer entirely (?nofx=1). Software-GL (SwiftShader)
+ * rendering makes the bloom chain pure CPU cost with zero assertion value.
+ */
+function withNoFx(url: string): string {
+  if (url.includes('nofx=')) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}nofx=1`;
 }
 
 async function getState(page: Page): Promise<GameState> {
@@ -335,11 +345,15 @@ async function autoDispatchScenario(baseUrl: string, artifactDir: string) {
       z: Math.round(firetruck.z),
     });
 
-    const deadline = Date.now() + 18_000;
+    // Deterministic: pump simulated time instead of racing wall-clock×fps.
+    // Under software GL the rAF loop advances only ~0.1 sim-s per wall second,
+    // which left the old 18 s deadline at the mercy of ambient load; advanceTime
+    // steps every ticker with rendering suppressed, so resolution lands in a
+    // fixed number of pumps (~3 sim-s) regardless of GPU speed.
     let latest = await getState(page);
-    while (Date.now() < deadline) {
-      if (latest.dispatch.incidents.some((incident) => incident.status === 'resolved')) break;
-      await page.waitForTimeout(1000);
+    const deadline = Date.now() + 30_000; // wall-clock backstop only
+    while (!latest.dispatch.incidents.some((incident) => incident.status === 'resolved') && Date.now() < deadline) {
+      await page.evaluate(() => window.__wildfireTestApi?.advanceTime(1000));
       latest = await getState(page);
     }
 
@@ -381,7 +395,9 @@ async function manualDispatchScenario(baseUrl: string, artifactDir: string) {
       window.__wildfireTestApi?.manualDispatch(incidentId, followerId) ?? false
     ), { incidentId: incident.id, followerId: firetruck.id });
     assert(ok, 'Manual dispatch API rejected the selected firetruck');
-    await page.waitForTimeout(1500);
+    // Pump simulated time so the assignment is observable deterministically;
+    // a wall-clock sleep races detection/assignment ticks under software GL.
+    await page.evaluate(() => window.__wildfireTestApi?.advanceTime(1500));
     const after = await getState(page);
     const assigned = after.dispatch.incidents.find((entry) => entry.id === incident.id);
     assert(assigned, 'Incident disappeared before manual dispatch verification');
@@ -405,16 +421,28 @@ async function payloadRoundTripScenario(baseUrl: string, artifactDir: string) {
 
     // Drain tank directly — simulates mid-engagement exhaustion without the flake of
     // the real suppression loop. The drain mechanic itself is covered by unit tests.
-    const drainOk = await page.evaluate((id) => window.__wildfireTestApi!.exhaustFollowerWater(id), firetruck.id);
-    assert(drainOk, 'exhaustFollowerWater returned false');
-
-    const drainedImmediately = (await getState(page)).vehicles.followers.find((f) => f.id === firetruck.id);
-    assert(drainedImmediately && drainedImmediately.water === 0, `Tank should be empty post-exhaust (${drainedImmediately?.water})`);
+    // Drain and read back inside ONE evaluate: separate roundtrips let live
+    // frames run in between, and if the truck is already within hydrant range
+    // the logistics loop refills a few liters before we can observe the empty tank.
+    const drained = await page.evaluate((id) => {
+      const api = window.__wildfireTestApi!;
+      const ok = api.exhaustFollowerWater(id);
+      const snap = api.getState();
+      const me = snap.vehicles.followers.find((f) => f.id === id);
+      return { ok, water: me?.water ?? -1, returningToBase: me?.returningToBase ?? false };
+    }, firetruck.id);
+    assert(drained.ok, 'exhaustFollowerWater returned false');
+    assert(drained.water <= 0, `Tank should be empty post-exhaust (${drained.water})`);
 
     // Advance until the logistics loop completes the round trip: either RTB flips
     // immediately (if already at home) or the truck drives home and refills.
     // Cap at ~90s sim.
-    let refilled = drainedImmediately;
+    type FollowerSnapshot = GameState['vehicles']['followers'][number];
+    let refilled: FollowerSnapshot = {
+      ...firetruck,
+      water: drained.water,
+      returningToBase: drained.returningToBase,
+    };
     let sawRtbOrRefill = false;
     for (let i = 0; i < 30; i++) {
       await page.evaluate(() => window.__wildfireTestApi!.advanceTime(3_000));
