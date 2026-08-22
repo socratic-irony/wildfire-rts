@@ -225,20 +225,19 @@ loop.add((dt) => {
 
   // Dispatch loop — detect incidents, auto-assign, promote/resolve
   {
-    const followerRefs: FollowerRef[] = followers.map(f => ({
-      id: f.id,
-      type: f.type,
-      follower: f.follower,
-      busy: f.busy,
-      waterRemaining: f.payload.water,
-      route: (pos) => setTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
-      canRoute: (pos) => canSetTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
-    }));
-    dispatchLoop.tick(dt, fireGrid.time, fireGrid, followerRefs, path2ds);
+    if (followerRefsDirty) rebuildFollowerRefs();
+    // Sync mutable per-frame fields into the pooled refs (index-aligned).
+    for (let i = 0; i < followerRefPool.length; i++) {
+      const f = followers[i];
+      const ref = followerRefPool[i];
+      ref.busy = f.busy;
+      ref.waterRemaining = f.payload.water;
+    }
+    dispatchLoop.tick(dt, fireGrid.time, fireGrid, followerRefPool, path2ds);
     // Sync busy flag back from followerRefs (dispatch loop may have updated it)
-    for (const ref of followerRefs) {
-      const f = followers.find(x => x.id === ref.id);
-      if (f) f.busy = ref.busy;
+    for (let i = 0; i < followerRefPool.length; i++) {
+      const f = followers[i];
+      if (f.busy !== followerRefPool[i].busy) f.busy = followerRefPool[i].busy;
     }
     syncFollowerAssignments();
     updateFollowerSuppression(dt);
@@ -302,13 +301,29 @@ loop.add((dt) => {
     groups.get(p)!.push(i);
   }
   for (const [path, idxs] of groups) {
-    assignPathLeaders(path, idxs.map((idx) => followers[idx].follower));
+    leaderScratch.length = 0;
+    for (const idx of idxs) leaderScratch.push(followers[idx].follower);
+    assignPathLeaders(path, leaderScratch);
     for (const idx of idxs) followers[idx].follower.setSpacingMode(spacingMode);
   }
-  const controlledFollowers = [...groups.entries()].flatMap(([path, idxs]) =>
-    idxs.map((idx) => ({ id: followers[idx].id, follower: followers[idx].follower, path })),
-  );
-  intersectionManager.updateBeforeMovement(controlledFollowers, dt);
+  controlledView.length = 0;
+  let nControlled = 0;
+  for (const [path, idxs] of groups) {
+    for (const idx of idxs) {
+      const f = followers[idx];
+      let slot = controlledStorage[nControlled];
+      if (!slot) {
+        slot = { id: f.id, follower: f.follower, path };
+        controlledStorage.push(slot);
+      }
+      slot.id = f.id;
+      slot.follower = f.follower;
+      slot.path = path;
+      controlledView.push(slot);
+      nControlled++;
+    }
+  }
+  intersectionManager.updateBeforeMovement(controlledView, dt);
   for (const [path, idxs] of groups) {
     for (const idx of idxs) {
       const current = followers[idx].follower;
@@ -375,20 +390,26 @@ loop.add((dt) => {
   
   // Update unified menubar/debug interface
   menubar.update(dt, renderer, { chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid, followers });
-  // Update dispatch panel (refresh at 5 Hz to keep DOM updates cheap)
-  dispatchPanel.update(followers.length, followers.filter(f => f.busy).length);
+  // Single fleet pass: busy count for the dispatch panel and the selected
+  // follower for the unit HUD (previously separate filter/find scans per frame).
+  const selId = (selection.getSelected() as (FollowerEntry & { id?: number }) | null)?.id ?? null;
+  selectedFollower = null;
+  busyFollowerCount = 0;
+  for (const f of followers) {
+    if (f.busy) busyFollowerCount++;
+    if (selId != null && f.id === selId) selectedFollower = f;
+  }
+  dispatchPanel.update(followers.length, busyFollowerCount);
   // Update selected-unit HUD (fuel, water, assignment status)
   {
-    const sel = selection.getSelected() as (FollowerEntry & { id?: number }) | null;
-    const active = sel?.id != null ? followers.find(f => f.id === sel.id) ?? null : null;
-    if (!active) {
+    if (!selectedFollower) {
       vehicleHud.render(null);
     } else {
       vehicleHud.render({
-        type: String(active.type),
-        payload: active.payload,
-        returningToBase: active.returningToBase,
-        assignedIncidentId: active.assignedIncidentId,
+        type: String(selectedFollower.type),
+        payload: selectedFollower.payload,
+        returningToBase: selectedFollower.returningToBase,
+        assignedIncidentId: selectedFollower.assignedIncidentId,
       });
     }
   }
@@ -649,6 +670,41 @@ type ActiveFollower = {
 let followers: ActiveFollower[] = [];
 let followerIdCounter = 0;
 const followerFxStates: VehicleFxState[] = [];
+
+// ── Per-frame scratch state (allocated once, reused every tick) ──────────────
+// Dispatch-loop view over `followers`. Rebuilt only when fleet membership
+// changes (spawn/clear); busy/water fields are synced per frame without
+// reallocating the route closures. Index-aligned with `followers`.
+const followerRefPool: FollowerRef[] = [];
+let followerRefsDirty = true;
+function markFollowerMembershipChanged() {
+  followerRefsDirty = true;
+}
+function rebuildFollowerRefs() {
+  followerRefPool.length = 0;
+  for (const f of followers) {
+    followerRefPool.push({
+      id: f.id,
+      type: f.type,
+      follower: f.follower,
+      busy: f.busy,
+      waterRemaining: f.payload.water,
+      route: (pos) => setTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
+      canRoute: (pos) => canSetTargetOnCurrentPath(f as unknown as FollowerEntry, path2ds, pos),
+    });
+  }
+  followerRefsDirty = false;
+}
+// Intersection-manager input, pooled per slot so steady-state frames allocate
+// nothing; `controlledView` is the length-clamped array handed to the manager.
+const controlledStorage: Array<{ id: number; follower: PathFollower; path: Path2D }> = [];
+const controlledView: Array<{ id: number; follower: PathFollower; path: Path2D }> = [];
+// Leader list passed to assignPathLeaders (consumed immediately per path).
+const leaderScratch: PathFollower[] = [];
+// Hoisted per-frame results for the dispatch panel and selection HUD.
+let busyFollowerCount = 0;
+let selectedFollower: ActiveFollower | null = null;
+
 const tmpFollowerPos = new Vector3();
 const tmpFollowerQuat = new Quaternion();
 const tmpFollowerScale = new Vector3();
@@ -841,6 +897,7 @@ function spawnFollowerOnPath(p: Path2D, startS: number, vehicleType: VManagerVeh
     returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null,
     refillTarget: null, style: look?.style ?? null, color: look?.color ?? null,
   });
+  markFollowerMembershipChanged();
 }
 
 /**
@@ -894,6 +951,7 @@ function clearFollowers() {
   followers = [];
   followerFxStates.length = 0;
   followerIdCounter = 0;
+  markFollowerMembershipChanged();
   vehicles.updateExternalFx(0, followerFxStates);
   intersectionManager.clearFollowers();
   selection.clear();

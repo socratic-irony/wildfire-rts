@@ -115,6 +115,7 @@ Performance Principles
 
 - Prefer InstancedMesh for repeated quads (fire overlays) and agents.
 - Avoid per-frame allocations where possible; reuse Vectors/Matrix4 in hot loops.
+- The main loop in `main.ts` keeps persistent views over the follower fleet: the dispatch-loop ref array (`followerRefPool`, route/canRoute closures baked once) rebuilds only on membership change (spawn/clear set a dirty flag), mutable `busy`/`waterRemaining` fields sync per frame, and the intersection-manager input uses pooled slot objects plus a reused leader scratch array. Busy-count/selected-follower HUD lookups run in a single fleet pass.
 - Restrict fixed-step sub-steps; clamp to avoid spiraling on stalls.
 - Minimize per-frame scanning over large arrays (e.g., keep frontier lists for fire; in vehicles, use grid-path interpolation, not dense projections).
 - For visuals that must hug terrain, sample normal + normal-offset and use polygon offset for z-ordering.
