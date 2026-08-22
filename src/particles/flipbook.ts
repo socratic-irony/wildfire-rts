@@ -10,6 +10,7 @@ import {
   RGBAFormat,
   ShaderMaterial,
   Texture,
+  Vector2,
   Vector3,
 } from 'three';
 import type { Heightmap } from '../terrain/heightmap';
@@ -45,7 +46,7 @@ function makeProceduralAtlas(opts = { flameFrames: 16, smokeFrames: 8, size: 48 
         const vv = isFlame ? v * 1.2 : v * 1.0;
         const r2 = uu * uu + vv * vv;
         const fall = Math.max(0, 1 - r2 * (isFlame ? 3.6 : 2.4));
-        const a = Math.pow(fall, isFlame ? 1.6 : 2.2);
+        const a = Math.pow(fall, isFlame ? 1.6 : 1.7); // softened smoke falloff
         const idx = ((frameIndex * size + y) * w + x) * 4;
         if (isFlame) {
           data[idx + 0] = fR * (0.70 + 0.30 * fall);
@@ -84,15 +85,20 @@ function makeMaterial(atlas: Texture, frames: number) {
       uFrames: { value: frames },
       cameraRight: { value: new Vector3(1, 0, 0) },
       cameraUp: { value: new Vector3(0, 1, 0) },
+      uWindDir: { value: new Vector2(0, 1) },
+      uWindSpeed: { value: 0 },
     },
     vertexShader: `
       uniform float uTime;
       uniform vec3 cameraRight;
       uniform vec3 cameraUp;
+      uniform vec2 uWindDir;
+      uniform float uWindSpeed;
       attribute vec3 iOffset;
       attribute vec4 iPack1; // x=size, y=angle, z=f0, w=rate
       attribute vec4 iPack2; // x=fBase, y=fCount, z=aspect, w=phase
       attribute vec4 iPack3; // x=rise, y=colorR, z=colorG, w=colorB
+      attribute float iDrift; // wind shear multiplier (smoke >> flames)
       varying vec2 vUv;
       varying vec3 vColor;
       varying float vFrame;
@@ -108,7 +114,7 @@ function makeMaterial(atlas: Texture, frames: number) {
         float iPhase = iPack2.w;
         float iRise = iPack3.x;
         vec3 iColor = iPack3.yzw;
-        
+
         vec2 p = position.xy; // -0.5..0.5
         float c = cos(iAngle), s = sin(iAngle);
         vec2 r = vec2(p.x*c - p.y*s, p.x*s + p.y*c);
@@ -119,6 +125,8 @@ function makeMaterial(atlas: Texture, frames: number) {
         vec3 world = iOffset + cameraRight * (r.x * iSize) + cameraUp * (r.y * iSize * iAspect * sMul);
         // vertical rise over lifetime in world space
         world.y += iRise * lifeT;
+        // wind shear: drift downwind with age (dominates smoke, negligible for flames)
+        world.xz += uWindDir * (uWindSpeed * 0.22 * lifeT * iDrift);
         vUv = p + 0.5;
         vColor = iColor;
         // Choose frame within the per-instance frame range, then offset by base
@@ -167,10 +175,12 @@ export function createFlipbookParticles(hm: Heightmap) {
   const iPack1 = new Float32Array(caps.total * 4); // size, angle, f0, rate
   const iPack2 = new Float32Array(caps.total * 4); // fBase, fCount, aspect, phase
   const iPack3 = new Float32Array(caps.total * 4); // rise, colorR, colorG, colorB
+  const iDrift = new Float32Array(caps.total);     // wind shear multiplier
   mesh.geometry.setAttribute('iOffset', new InstancedBufferAttribute(iOffset, 3));
   mesh.geometry.setAttribute('iPack1', new InstancedBufferAttribute(iPack1, 4));
   mesh.geometry.setAttribute('iPack2', new InstancedBufferAttribute(iPack2, 4));
   mesh.geometry.setAttribute('iPack3', new InstancedBufferAttribute(iPack3, 4));
+  mesh.geometry.setAttribute('iDrift', new InstancedBufferAttribute(iDrift, 1));
 
   group.add(mesh);
 
@@ -181,12 +191,15 @@ export function createFlipbookParticles(hm: Heightmap) {
 
   function rng(i: number) { let x = i * 1664525 + 1013904223; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 0xffffffff; }
 
-  function update(grid: FireGrid, _env: { windDirRad: number; windSpeed: number }, dt: number, camera: Camera) {
+  function update(grid: FireGrid, env: { windDirRad: number; windSpeed: number }, dt: number, camera: Camera) {
     // Update camera basis
     const m = (camera as any).matrixWorld.elements as number[];
     (mat.uniforms as any).cameraRight.value.set(m[0], m[1], m[2]);
     (mat.uniforms as any).cameraUp.value.set(m[4], m[5], m[6]);
     (mat.uniforms as any).uTime.value += dt;
+    // Wind shear (fire-sim convention: dirRad 0 = +Z, pi/2 = +X)
+    (mat.uniforms as any).uWindDir.value.set(Math.sin(env.windDirRad), Math.cos(env.windDirRad));
+    (mat.uniforms as any).uWindSpeed.value = env.windSpeed;
 
     let alive = 0;
     const width = grid.width;
@@ -230,6 +243,7 @@ export function createFlipbookParticles(hm: Heightmap) {
             iPack3[i4 + 1] = 1.0;                     // colorR
             iPack3[i4 + 2] = 0.85;                    // colorG
             iPack3[i4 + 3] = 0.6;                     // colorB
+            iDrift[alive] = 0.15;                     // flames hug the front
             alive++;
           }
         }
@@ -256,6 +270,7 @@ export function createFlipbookParticles(hm: Heightmap) {
           iPack3[i4 + 1] = 0.7;                        // colorR
           iPack3[i4 + 2] = 0.7;                        // colorG
           iPack3[i4 + 3] = 0.7;                        // colorB
+          iDrift[alive] = 1.0;                         // smoke shears downwind
           alive++;
         }
       }
@@ -290,9 +305,10 @@ export function createFlipbookParticles(hm: Heightmap) {
         iPack2[i4 + 2] = 1.1 + 0.3 * (1.0 - t.heat);     // aspect
         iPack2[i4 + 3] = h2;                              // phase
         iPack3[i4 + 0] = 0.8 + 0.4 * lod;                // rise (gentle rise for smolder)
-        iPack3[i4 + 1] = 0.82;                            // colorR (a bit lighter/whiter for smolder)
-        iPack3[i4 + 2] = 0.82;                            // colorG
-        iPack3[i4 + 3] = 0.82;                            // colorB
+        iPack3[i4 + 1] = 0.87;                            // colorR (lighter/whiter smolder)
+        iPack3[i4 + 2] = 0.87;                            // colorG
+        iPack3[i4 + 3] = 0.87;                            // colorB
+        iDrift[alive] = 1.0;                              // smolder smoke shears downwind too
         alive++;
       }
     }
@@ -302,6 +318,7 @@ export function createFlipbookParticles(hm: Heightmap) {
     (mesh.geometry.getAttribute('iPack1') as any).needsUpdate = true;
     (mesh.geometry.getAttribute('iPack2') as any).needsUpdate = true;
     (mesh.geometry.getAttribute('iPack3') as any).needsUpdate = true;
+    (mesh.geometry.getAttribute('iDrift') as any).needsUpdate = true;
   }
 
   return { 

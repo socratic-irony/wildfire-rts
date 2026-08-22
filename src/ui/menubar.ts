@@ -94,6 +94,9 @@ type MenubarActions = {
     setOpacity?: (o: number) => void;
     setSpeed?: (v: number) => void;
   };
+  graphics?: {
+    toggleBloom?: (on: boolean) => void;
+  };
   preset?: {
     set?: (variant: 'loop' | 'figure8') => void;
   };
@@ -734,6 +737,23 @@ export function createMenubar(container: HTMLElement): MenubarHandle {
     hydrantControls.appendChild(hydrantClearBtn);
 
     controlsPanel.appendChild(createSection('🚰 Hydrants', hydrantControls));
+
+    // Graphics section — post-processing toggles (bloom flips bloomPass.enabled live)
+    const graphicsControls = document.createElement('div');
+    graphicsControls.style.cssText = 'display: flex; flex-wrap: wrap; align-items: center; gap: 8px;';
+    const bloomBtn = document.createElement('button');
+    bloomBtn.style.cssText = 'background: #111827; color: #e5e7eb; border: 1px solid #374151; border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;';
+    let bloomOn = true;
+    bloomBtn.textContent = 'Bloom: On';
+    bloomBtn.dataset.testid = 'graphics-bloom-toggle';
+    bloomBtn.addEventListener('click', () => {
+      bloomOn = !bloomOn;
+      bloomBtn.textContent = `Bloom: ${bloomOn ? 'On' : 'Off'}`;
+      actions.graphics?.toggleBloom?.(bloomOn);
+    });
+    graphicsControls.appendChild(bloomBtn);
+    controlsPanel.appendChild(createSection('🎨 Graphics', graphicsControls));
+
 
     // Terrain Configuration Section
     const terrainControls = document.createElement('div');

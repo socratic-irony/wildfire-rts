@@ -1,5 +1,6 @@
 import { Object3D, PerspectiveCamera, Vector3, Quaternion, Raycaster, Vector2 } from 'three';
-import { createRenderer, resizeRenderer } from './core/renderer';
+import { createRenderer, resizeRenderer, createComposer, resizeComposer, type ComposerRig } from './core/renderer';
+import { createEnvironment } from './core/environment';
 import { createScene } from './core/scene';
 import { Loop } from './core/loop';
 import { attachInput } from './core/input';
@@ -28,6 +29,7 @@ import type { Env as FireEnv } from './fire/sim';
 import { createFireViz } from './fire/viz';
 import { createFireRibbon } from './particles/ribbon';
 import { createFlipbookParticles } from './particles/flipbook';
+import { createEmbers } from './particles/embers';
 import { createSuppressionDecals } from './fire/decals';
 import { createHydrantSystem, updateHydrantPlacement, clearHydrants } from './fire/hydrants';
 import { HydrantVisual } from './fire/hydrantVisual';
@@ -135,6 +137,15 @@ const worldCenterZ = (hm.height * hm.scale) / 2;
 const shadowExtent = Math.max(hm.width, hm.height) * hm.scale * 0.75;
 const scene = createScene({ worldCenter: { x: worldCenterX, z: worldCenterZ }, shadowExtent });
 
+// Visual overhaul: sky dome + fog/light retuning. The dome half extent must
+// stay inside the camera far plane (the perspective camera below is created
+// with far = 2000), so the radius is bounded accordingly.
+createEnvironment(scene, {
+  worldRadius: 900,
+  sunLight: (scene.children.find((c) => (c as any).isDirectionalLight) as any) ?? undefined,
+  hemiLight: (scene.children.find((c) => (c as any).isHemisphereLight) as any) ?? undefined,
+});
+
 const renderer = createRenderer(app);
 const input = attachInput(renderer.domElement);
 installGlobalErrorOverlay(app);
@@ -155,7 +166,7 @@ let chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
 scene.add(chunked.group);
 
 // Stage C: RTS camera controller (true spherical orbit, damped)
-const camera = new PerspectiveCamera(60, app.clientWidth / app.clientHeight, 0.1, 1000);
+const camera = new PerspectiveCamera(60, app.clientWidth / app.clientHeight, 0.1, 2000);
 const _groundRay = new Raycaster();
 const _groundNdc = new Vector2();
 const cam = new CameraController(renderer.domElement, camera, {
@@ -168,6 +179,12 @@ const cam = new CameraController(renderer.domElement, camera, {
   },
   initialTarget: { x: (hm.width * hm.scale) / 2, z: (hm.height * hm.scale) / 2 },
 });
+
+// Post-processing: RenderPass -> subtle bloom -> OutputPass. ?nofx=1 (perf
+// probes / software-GL audits) or a missing WebGL2 context falls back to the
+// plain renderer.render path.
+const nofx = new URLSearchParams(window.location.search).get('nofx') === '1';
+let post: ComposerRig | null = nofx ? null : createComposer(renderer, scene, cam.camera);
 
 const loop = new Loop();
 let suppressRenderDuringAdvance = false;
@@ -278,6 +295,8 @@ loop.add((dt) => {
   fireRibbon.update(fireGrid as any, performance.now() / 1000);
   // Update flipbook particles with real wind from simEnv
   fireParticles.update(fireGrid as any, simEnv, dt, cam.camera);
+  // Additive embers drift off the burning frontier (same wind env)
+  embers.update(fireGrid as any, simEnv, dt, cam.camera);
   
   // Always update Frenet followers with intersection-aware speed control
   const groups = new Map<Path2D, number[]>();
@@ -377,7 +396,8 @@ loop.add((dt) => {
   vehicles.updateExternalFx(dt, followerFxStates);
 
   if (!suppressRenderDuringAdvance) {
-    renderer.render(scene, cam.camera);
+    if (post) post.composer.render();
+    else renderer.render(scene, cam.camera);
   }
   
   // Update paint system
@@ -575,6 +595,7 @@ let vegTintAcc = 0;
 function onResize() {
   resizeRenderer(renderer, app);
   cam.resize(app.clientWidth, app.clientHeight);
+  resizeComposer(post, app.clientWidth, app.clientHeight);
 }
 
 window.addEventListener('resize', onResize);
@@ -613,6 +634,9 @@ scene.add(firelineOverlay.inst);
 // Flipbook billboard particles (flame/smoke)
 let fireParticles = createFlipbookParticles(hm);
 scene.add((fireParticles as any).group);
+// Additive ember sparks lifted from the burning frontier
+let embers = createEmbers(hm);
+scene.add(embers.group);
 // Perimeter ribbon (animated strip)
 let fireRibbon = createFireRibbon(hm, { width: 0.45, yOffset: 0.12 });
 scene.add(fireRibbon.mesh);
@@ -1697,6 +1721,11 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         eventSystem.setEnabled(on);
       }
     },
+    graphics: {
+      toggleBloom: (on) => {
+        if (post) post.bloomPass.enabled = on;
+      }
+    },
     roads: {
       toggle: (on) => { roadsEnabled = on; if (!on) roadEndpoints = []; },
       clear: () => clearRoadNetwork(),
@@ -1807,6 +1836,7 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         fireViz.updateTerrain?.(hm, chunked.group);
         suppressionDecals.updateTerrain?.(hm);
         fireParticles.updateTerrain?.(hm);
+        embers.updateTerrain?.(hm);
         fireRibbon.updateTerrain?.(hm);
         
         // Update vehicle manager with new terrain references. Capture the OLD
