@@ -1741,28 +1741,32 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         hm = generateHeightmap(worldCfg.width, worldCfg.height, 1, worldCfg.noise);
         biomes = computeBiomesTuned(hm, { forestMoistureMin: worldCfg.biomes.forestMoistureMin }, { seed: worldCfg.moisture.seed as any });
         
-        // Remove old terrain and rebuild
+        // Remove old terrain and rebuild (dispose both LOD geometries per chunk;
+        // the shared terrain material stays alive for the new chunks)
         scene.remove(chunked.group);
+        chunked.dispose();
         chunked = buildChunkedTerrain(hm, terrainMat, 32, biomes);
         scene.add(chunked.group);
-        
-        // Rebuild vegetation
+
+        // Rebuild vegetation — free the old instances' GPU resources first
         if (forest.group.parent) scene.remove(forest.group);
-        if (shrubs.group.parent) scene.remove(shrubs.group);
-        if (rocks.inst.parent) scene.remove(rocks.inst);
-        
+        forest.dispose();
         forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
         scene.add(forest.group);
 
+        if (shrubs.group.parent) scene.remove(shrubs.group);
+        shrubs.dispose();
         shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub });
         scene.add(shrubs.group);
-        
+
+        if (rocks.inst.parent) scene.remove(rocks.inst);
+        rocks.dispose();
         rocks = createRocks(hm, biomes, { density: worldCfg.densities.rock });
         scene.add(rocks.inst);
-        
+
         // Clear existing roads, vehicles, and hydrants from old terrain
         scene.remove(roadsVis.group);
-        roadsVis.clear();
+        roadsVis.dispose();
         vehicles.clear();
         clearFollowers();
         clearHydrants(hydrantSystem);
@@ -1787,6 +1791,7 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         hydrantVisual.setVisible(hydrantsVisible);
         scene.add(hydrantVisual.group);
         scene.remove(hydrantCoverageRings.inst);
+        hydrantCoverageRings.dispose();
         hydrantCoverageRings = createHydrantCoverageRings(hm);
         hydrantCoverageRings.setVisible(hydrantCoverageVisible);
         scene.add(hydrantCoverageRings.inst);
@@ -1802,10 +1807,14 @@ if (new URLSearchParams(window.location.search).get('scenario') === 'traffic') {
         fireParticles.updateTerrain?.(hm);
         fireRibbon.updateTerrain?.(hm);
         
-        // Update vehicle manager with new terrain references
+        // Update vehicle manager with new terrain references. Capture the OLD
+        // manager first — its group/particleGroup are the ones actually in the
+        // scene, so they must be removed and disposed before the replacement.
+        const oldVehicles = vehicles;
+        scene.remove(oldVehicles.group);
+        scene.remove(oldVehicles.particleGroup);
+        oldVehicles.dispose();
         vehicles = new VehiclesManager(hm, roadCost, roadMask, 64, roadsVis, fireGrid);
-        scene.remove(vehicles.group);
-        scene.remove(vehicles.particleGroup);
         scene.add(vehicles.group);
         scene.add(vehicles.particleGroup);
         

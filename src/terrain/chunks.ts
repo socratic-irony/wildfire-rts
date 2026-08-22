@@ -220,5 +220,15 @@ export function buildChunkedTerrain(
     }
   };
 
-  return { group, updateLOD };
+  // Release both LOD geometries of every chunk. The terrain material is shared
+  // with future rebuilds and is intentionally left alive.
+  const dispose = () => {
+    for (const m of group.children as Mesh[]) {
+      const ud = m.userData as { geoHi?: BufferGeometry; geoLo?: BufferGeometry };
+      ud.geoHi?.dispose();
+      ud.geoLo?.dispose();
+    }
+  };
+
+  return { group, updateLOD, dispose };
 }

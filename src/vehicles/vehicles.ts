@@ -1,4 +1,4 @@
-import { ArrowHelper, Color, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry, BufferGeometry, BufferAttribute } from 'three';
+import { ArrowHelper, Color, Group, IcosahedronGeometry, InstancedMesh, Material, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3, SphereGeometry, CylinderGeometry, ConeGeometry, BufferGeometry, BufferAttribute } from 'three';
 import { BoxGeometry } from 'three';
 import { InstancedParticleSystem } from '../particles/system';
 import type { Heightmap } from '../terrain/heightmap';
@@ -530,6 +530,36 @@ export class VehiclesManager {
     this.instHeadlight.instanceMatrix.needsUpdate = true;
     this.instSignal.instanceMatrix.needsUpdate = true;
     this.instFlasher.instanceMatrix.needsUpdate = true;
+  }
+
+  /**
+   * Release all GPU resources owned by this manager (geometries, materials,
+   * instanced attributes across `group` and `particleGroup`). Call only when
+   * the instance will never render again (e.g. terrain regeneration); for
+   * reuse-in-place, prefer `clear()`.
+   */
+  dispose() {
+    const geometries = new Set<BufferGeometry>();
+    const materials = new Set<Material>();
+    const visit = (root: Object3D) => {
+      root.traverse((obj) => {
+        const mesh = obj as Mesh;
+        if (mesh.geometry) geometries.add(mesh.geometry);
+        const mat = mesh.material as Material | Material[] | undefined;
+        if (Array.isArray(mat)) mat.forEach((m) => materials.add(m));
+        else if (mat) materials.add(mat);
+        if ((obj as InstancedMesh).isInstancedMesh) (obj as InstancedMesh).dispose();
+      });
+    };
+    visit(this.group);
+    visit(this.particleGroup);
+    if (this.yawArrow) {
+      geometries.add(this.yawArrow.line.geometry);
+      materials.add(this.yawArrow.line.material as Material);
+      materials.add(this.yawArrow.cone.material as Material);
+    }
+    for (const geo of geometries) geo.dispose();
+    for (const mat of materials) mat.dispose();
   }
 
   // DEPRECATED: Grid-based pathfinding for vehicle destinations

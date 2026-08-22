@@ -62,5 +62,11 @@ export function createRocks(hm: Heightmap, biomes: BiomeMask, opts: { density?: 
   }
 
   const update = (_time: number) => { /* rocks are static */ };
-  return { inst, update };
+  // Geometry/material are per-instance; safe to free on regeneration.
+  const dispose = () => {
+    baseGeo.dispose();
+    mat.dispose();
+    inst.dispose();
+  };
+  return { inst, update, dispose };
 }

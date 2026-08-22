@@ -98,5 +98,12 @@ export function createShrubs(hm: Heightmap, biomes: BiomeMask, opts: { density?:
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   };
 
-  return { group, inst, update, applyFireTint };
+  // Geometry/material are per-instance; safe to free on regeneration.
+  const dispose = () => {
+    geo.dispose();
+    mat.dispose();
+    inst.dispose();
+  };
+
+  return { group, inst, update, applyFireTint, dispose };
 }

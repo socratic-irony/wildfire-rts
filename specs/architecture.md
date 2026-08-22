@@ -30,7 +30,7 @@ Repository Topology
   - `coordinates.ts`: nearest-cell world-to-grid conversion with map-bound clamping, shared by interaction and actor-placement call sites.
   - `mesh.ts`, `material.ts`: low-poly tri mesh + flat-shaded material with grid overlay support.
   - `biomes.ts`: biome masks (rock/forest/chaparral) + vertex tinting.
-  - `chunks.ts`: chunked LOD terrain with visibility toggle and base/hi geometry; per-chunk edge skirts to hide LOD cracks; bounding spheres for distance tests.
+  - `chunks.ts`: chunked LOD terrain with visibility toggle and base/hi geometry; per-chunk edge skirts to hide LOD cracks; bounding spheres for distance tests. `dispose()` frees both LOD geometries (`geoHi`/`geoLo`) of every chunk; the shared terrain material intentionally stays alive across rebuilds.
 - Fire System: `src/fire/`
   - `grid.ts`: grid state (tiles, indices), ignition helpers, suppression hooks, containment heuristic.
   - `params.ts`: tuning constants and fuel tables.
@@ -46,7 +46,7 @@ Repository Topology
   - `visual.ts`: one depth-tested smoothed asphalt ribbon (adaptive Catmull–Rom), normal-offset to hug terrain, dusty shoulders, dashed center stripe, and stable physical-intersection metadata. Duplicate segment hits merge by position, self-crossings retain both path arc occurrences under one intersection ID, and simple endpoint joins are excluded. Triangle lattice/midline diagnostics are hidden by default and exposed only through debug controls.
   - `procedural.ts`: procedural loop generator (oval/figure-8/rectangle) for boot/regenerate seeding.
   - `state.ts`: rasterization of road paths to a road mask; integration hooks (e.g., fire grid fuel adjustments).
-- Vehicles: `src/vehicles/vehicles.ts`: instanced agents with road and air pathing, terrain-aligned pose, and fire-suppression hooks.
+- Vehicles: `src/vehicles/vehicles.ts`: instanced agents with road and air pathing, terrain-aligned pose, and fire-suppression hooks. `dispose()` releases the manager's geometries/materials/instanced attributes across `group` and `particleGroup`; regeneration in `main.ts` removes + disposes the OLD manager's groups before creating the replacement (the old group is the one actually parented to the scene).
   - `src/vehicles/types.ts`: shared vehicle enums + FX state types.
   - `src/vehicles/vehicleFx.ts`: particle/light FX helpers for vehicles and external emitters.
   - `src/vehicles/followerOrders.ts`: selection + order utilities for Frenet followers (including off-road bulldozer orders).
@@ -79,7 +79,7 @@ Runtime Model
 Key Abstractions & Data
 
 - Heightmap: `{ width,height,scale,data[], sample(wx,wz) }` — source of truth for elevation. `worldToGridCell(heightmap, worldX, worldZ)` is the shared nearest-cell conversion for world points; callers that intentionally use floor-based occupancy or already-grid coordinates retain their distinct semantics.
-- Terrain chunks: Mesh nodes grouped; each chunk stores `baseColors` for quick vertex recolor.
+- Terrain chunks: Mesh nodes grouped; each chunk stores `baseColors` for quick vertex recolor plus `geoHi`/`geoLo` LOD geometries released by `dispose()`. Regeneration paths in `main.ts` remove + dispose every replaced system (chunked terrain, forest, shrubs, rocks, roads visual, hydrant coverage rings, vehicles manager, buildings/hydrant visuals) so GPU resources do not leak across reseeds.
 - Fire
   - FireGrid: `{ width,height,params,tiles[], burning[], smoldering[], bCount,sCount,time,seed }`.
   - Tile: AoS object including `state,heat,progress,wetness,retardant,lineStrength,fuel,slopeTan,downX,downZ` (fuelMoisture early adoption planned).
