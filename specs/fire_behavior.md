@@ -4,6 +4,7 @@ specs/fire_behavior.md
 
 ### ✅ Implemented
 - FireGrid tile build with per-tile slope, downslope direction, and biome-driven fuels (`grass`, `chaparral`, `forest`, `rock`, `water`, `urban`)
+- Structure-of-arrays data layout: per-tile fields live in typed arrays (`state: Uint8Array`, `heat`/`progress`/`wetness`/`retardant`/`lineStrength`/`fuelMoisture`/`lastIgnitedAt`/`slopeTan`/`downX`/`downZ: Float32Array`) and `fuel: Uint8Array` indexing the canonical `FUEL_KEYS` order; frontier lists and RNG index hashing are unchanged so simulation determinism is bit-exact (pinned by `fire_determinism`, `fire_soa_layout`)
 - Deterministic `FireSim` stepping at 4 Hz with humidity drift toward ambient conditions, moisture gating (`fuelMoisture` + `wetness` + retardant), and early extinguish when heat falls below `thresholds.extinguishHeat`
 - Suppression hooks: `applyWaterAoE` and `applyWaterAoEWithHydrants` share one radius/application core, with exact base behavior when no hydrant system is supplied and a per-tile 1.5× boost under active coverage; `applyRetardantLine` and tile-based `writeFirelineEdges` remain available
 - Spotting pass (single-hop downwind), ignition queue promotion, burning→smoldering progression, and containment heuristic (`isContained`)
@@ -19,7 +20,6 @@ specs/fire_behavior.md
 - Retardant gel knockback/decay tuning and handline/clearing workflows along edges
 - Particle FX (flames/smoke), burned-ground decals, and vegetation scorch tinting
 - Expanded UI controls (wind sliders, overlay toggles) and containment badges within the menubar
-- Optional data layout upgrade to typed-array SoA if profiling indicates AoS object storage is a bottleneck
 
 ## Outstanding Work (v0.1 audit)
 
@@ -27,7 +27,6 @@ specs/fire_behavior.md
   - Line barriers: edge-based line field (separate from tile `lineStrength`) and crown-threshold bypass behavior.
   - Crown fire: behavior switches tied to `thresholds.crownHeat`.
   - Perimeter: visualization polish (thickness, color ramp) and optional smoothing for large fires.
-  - Data layout: current AoS objects; optional SoA typed arrays if/when perf dictates.
 - Spread/probability:
   - Head/elliptical bias based on wind/slope azimuth (current model uses Poisson from fractional advance without an extra head bias).
   - Spotting details: angular jitter, distance sampling and moisture check as described; current version is a simplified single hop.
@@ -62,7 +61,7 @@ Design a performant, tile-based wildfire model that feels plausible (slope/wind-
 
 2) Tile Data Model
 
-// One struct per tile (packed / SoA for perf where possible)
+// Structure-of-arrays: one typed array per field (see FireGrid in src/fire/grid.ts)
 type FireState = 0 | 1 | 2 | 3 | 4 | 5; 
 // 0 Unburned, 1 Igniting, 2 Burning, 3 Smoldering, 4 Burned, 5 Cleared/Fireline
 
@@ -86,7 +85,7 @@ interface Tile {
   lastIgnitedAt: number;     // seconds
 }
 
-Data is currently stored as an array of tile objects (AoS) for implementation simplicity; migrate to typed-array SoA only if profiling shows pressure.
+The shipped implementation stores these fields as structure-of-arrays typed arrays on `FireGrid` (e.g. `grid.state[i]`, `grid.heat[i]`; `fuel` holds a `FUEL_KEYS` index — use `fuelKeyOf(grid, i)` for the string key). `sampleTile` returns a plain-object snapshot for read-only consumers. Frontier lists (`igniting`/`burning`/`smoldering: Uint32Array` + counts) keep their pre-existing push/pop ordering; RNG still hashes tile indices, so behavior matches the former AoS layout bit-for-bit.
 
 ⸻
 
