@@ -82,7 +82,7 @@ Key Abstractions & Data
 - Heightmap: `{ width,height,scale,data[], sample(wx,wz) }` — source of truth for elevation. `worldToGridCell(heightmap, worldX, worldZ)` is the shared nearest-cell conversion for world points; callers that intentionally use floor-based occupancy or already-grid coordinates retain their distinct semantics.
 - Terrain chunks: Mesh nodes grouped; each chunk stores `baseColors` for quick vertex recolor plus `geoHi`/`geoLo` LOD geometries released by `dispose()`. Regeneration paths in `main.ts` remove + dispose every replaced system (chunked terrain, forest, shrubs, rocks, roads visual, hydrant coverage rings, vehicles manager, buildings/hydrant visuals) so GPU resources do not leak across reseeds.
 - Fire
-  - FireGrid: `{ width,height,params,tiles[], burning[], smoldering[], bCount,sCount,time,seed }`.
+  - FireGrid (SoA): `{ width,height,params, state:Uint8Array, heat/progress/wetness/retardant/lineStrength/fuelMoisture/lastIgnitedAt/slopeTan/downX/downZ:Float32Array, fuel:Uint8Array (FUEL_KEYS index), igniting/burning/smoldering:Uint32Array, iCount,bCount,sCount, time, seed }`. Tile access is `grid.<field>[idx]`; `sampleTile` returns an object snapshot.
   - Tile: AoS object including `state,heat,progress,wetness,retardant,lineStrength,fuel,slopeTan,downX,downZ` (fuelMoisture early adoption planned).
   - FireSim: neighbor ignition via ROS and Poisson arrival; spotting (simple); combustion progressions; early extinguish; moisture decay.
   - FireViz: overlay instances and vertex tint; perimeter overlay hugging terrain; analytics via `computePerimeter` + `computeFireStats`.

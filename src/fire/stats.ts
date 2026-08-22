@@ -28,7 +28,7 @@ export function computeFireStats(grid: FireGrid): FireStats {
   const burning = grid.bCount;
   const smoldering = grid.sCount;
   let burnedTiles = 0;
-  for (let i = 0; i < grid.tiles.length; i++) if (grid.tiles[i].state === FireState.Burned) burnedTiles++;
+  for (let i = 0; i < grid.state.length; i++) if (grid.state[i] === FireState.Burned) burnedTiles++;
   const active = burning + smoldering;
   const polylines = computePerimeter(grid);
   const perTile = polylines.reduce((s, p) => s + polylineLength(p), 0);

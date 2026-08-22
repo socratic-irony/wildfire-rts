@@ -6,6 +6,7 @@ import {
   ignite,
   isContained,
   sampleTile,
+  fuelKeyOf,
   FireState,
   coordToIndex,
 } from '../fire/grid';
@@ -23,16 +24,16 @@ describe('fire grid helper queries', () => {
     return buildFireGrid(hm, biomes, { spotting: { enabled: false, baseRate: 0, maxDistanceTiles: 0 } });
   };
 
-  it('returns the same tile instance for sampleTile', () => {
+  it('samples the same tile data as direct array access', () => {
     const grid = makeGrid();
     const target = { x: 2, z: 3 };
     const idx = coordToIndex(grid, target.x, target.z);
-    const fromArray = grid.tiles[idx];
     const sampled = sampleTile(grid, target.x, target.z);
 
-    expect(sampled).toBe(fromArray);
-    sampled.heat = 0.42;
-    expect(grid.tiles[idx].heat).toBeCloseTo(0.42);
+    expect(sampled.state).toBe(grid.state[idx]);
+    expect(sampled.fuel).toBe(fuelKeyOf(grid, idx));
+    grid.heat[idx] = 0.42;
+    expect(sampleTile(grid, target.x, target.z).heat).toBeCloseTo(0.42);
   });
 
   it('detects containment when surrounding line strength is high', () => {
@@ -40,7 +41,7 @@ describe('fire grid helper queries', () => {
     const center = { x: 4, z: 4 };
     ignite(grid, [center], 0.8);
     const centerIdx = coordToIndex(grid, center.x, center.z);
-    grid.tiles[centerIdx].state = FireState.Burning;
+    grid.state[centerIdx] = FireState.Burning;
 
     expect(isContained(grid)).toBe(false);
 
@@ -50,7 +51,7 @@ describe('fire grid helper queries', () => {
         const nx = center.x + dx;
         const nz = center.z + dz;
         const idx = coordToIndex(grid, nx, nz);
-        grid.tiles[idx].lineStrength = 1;
+        grid.lineStrength[idx] = 1;
       }
     }
 

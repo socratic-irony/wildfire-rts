@@ -60,15 +60,15 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
         if (gx < 0) gx = 0; else if (gx >= gw) gx = gw - 1;
         if (gz < 0) gz = 0; else if (gz >= gh) gz = gh - 1;
         const idx = gz * grid.width + gx;
-        const t = grid.tiles[idx];
+        const st = grid.state[idx];
         // base color
         const r0 = base[vi * 3 + 0];
         const g0 = base[vi * 3 + 1];
         const b0 = base[vi * 3 + 2];
         let r = r0, g = g0, b = b0;
         // tint by state (more pronounced)
-        if (t.state === 2 /* Burning */) {
-          const heat = t.heat;
+        if (st === 2 /* Burning */) {
+          const heat = grid.heat[idx];
           // Shift toward distinct red/orange (less yellow/green)
           const tr = 1.0;                     // strong red base
           const tg = 0.18 + 0.22 * heat;      // 0.18..0.40
@@ -77,12 +77,12 @@ export function createFireViz(hm: Heightmap, chunkGroup: Group) {
           r = r0 * (1 - a) + tr * a;
           g = g0 * (1 - a) + tg * a;
           b = b0 * (1 - a) + tb * a;
-        } else if (t.state === 3 /* Smoldering */) {
+        } else if (st === 3 /* Smoldering */) {
           const a = 0.70;                     // darker brown tint
           r = r0 * (1 - a) + 0.55 * a;
           g = g0 * (1 - a) + 0.24 * a;
           b = b0 * (1 - a) + 0.12 * a;
-        } else if (t.state === 4 /* Burned */) {
+        } else if (st === 4 /* Burned */) {
           const a = 0.92;                     // near-char
           r = r0 * (1 - a) + 0.06 * a;
           g = g0 * (1 - a) + 0.06 * a;

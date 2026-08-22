@@ -75,7 +75,7 @@ function mockPath2d(pts: Array<{ x: number; z: number }>): Path2D {
 describe('dispatchLoop', () => {
   it('detects incidents from burning fire grid', () => {
     const { grid } = flatGrid();
-    grid.tiles[2 * grid.width + 2].state = FireState.Burning;
+    grid.state[2 * grid.width + 2] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: false });
@@ -90,7 +90,7 @@ describe('dispatchLoop', () => {
 
   it('auto-assigns nearest idle suppression unit', () => {
     const { grid } = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: true });
@@ -111,7 +111,7 @@ describe('dispatchLoop', () => {
 
   it('does not auto-assign when autoDispatch is off', () => {
     const { grid } = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: false });
@@ -127,7 +127,7 @@ describe('dispatchLoop', () => {
   it('promotes incident to engaged when unit arrives', () => {
     const { grid } = flatGrid();
     // Tile (0,0) → world pos (0.5, 0.5) with cellSize=1
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: true });
@@ -147,7 +147,7 @@ describe('dispatchLoop', () => {
 
   it('resolves incident when fire cools', () => {
     const { grid } = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: false });
@@ -157,7 +157,7 @@ describe('dispatchLoop', () => {
     expect(registry.list()[0].status).toBe('detected');
 
     // Extinguish the fire
-    grid.tiles[0].state = FireState.Burned;
+    grid.state[0] = FireState.Burned;
     loop.tick(1.1, 2.2, grid, [], paths);
 
     expect(registry.list()[0].status).toBe('resolved');
@@ -173,7 +173,7 @@ describe('dispatchLoop', () => {
 
   it('skips non-suppression units for auto-assign', () => {
     const { grid } = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
 
     const registry = createIncidentRegistry(1);
     const loop = createDispatchLoop(registry, { detectInterval: 1.0, autoDispatch: true });

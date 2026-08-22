@@ -1,4 +1,4 @@
-import { FireGrid, FireState, coordToIndex, indexToCoord } from './grid';
+import { FireGrid, FireState, FUEL_KEYS, fuelIndex, coordToIndex, indexToCoord } from './grid';
 import { getLogger } from '../../tools/logging/index.js';
 
 export type Env = {
@@ -25,11 +25,10 @@ function neighborDirs() {
 }
 const NEIGH = neighborDirs();
 
-function fuel(grid: FireGrid, i: number) { return grid.params.fuels[grid.tiles[i].fuel]; }
+function fuel(grid: FireGrid, i: number) { return grid.params.fuels[FUEL_KEYS[grid.fuel[i]]]; }
 
 // Compute effective rate-of-spread toward neighbor (m/s)
 function effectiveROS(grid: FireGrid, srcIdx: number, nDX: number, nDZ: number, env: Env) {
-  const t = grid.tiles[srcIdx];
   const F = fuel(grid, srcIdx);
   if (F.baseROS <= 0 || F.fuelLoad <= 0) return 0;
 
@@ -40,9 +39,9 @@ function effectiveROS(grid: FireGrid, srcIdx: number, nDX: number, nDZ: number, 
   const windMul = Math.exp(F.k_w * env.windSpeed * windAlign);
 
   // Slope along direction (downslope vector points +down). Uphill fire (opposite downslope) spreads faster.
-  const uphillX = -t.downX, uphillZ = -t.downZ;
+  const uphillX = -grid.downX[srcIdx], uphillZ = -grid.downZ[srcIdx];
   const slopeAlign = clamp(dirDot(uphillX, uphillZ, nDX, nDZ), -1, 1);
-  const slopeMul = Math.exp(F.k_s * t.slopeTan * Math.max(0, slopeAlign));
+  const slopeMul = Math.exp(F.k_s * grid.slopeTan[srcIdx] * Math.max(0, slopeAlign));
 
   // Moisture gates via wetness/retardant on target are applied separately as gate factors
   const ros = F.baseROS * windMul * slopeMul;
@@ -66,13 +65,21 @@ function rand01(seed: number) {
   return (x >>> 0) / 0xffffffff;
 }
 
+const UNBURNED_I = FireState.Unburned as number;
+const IGNITING_I = FireState.Igniting as number;
+const BURNING_I = FireState.Burning as number;
+const SMOLDERING_I = FireState.Smoldering as number;
+const BURNED_I = FireState.Burned as number;
+const ROCK_I = fuelIndex('rock');
+const WATER_I = fuelIndex('water');
+
 export class FireSim {
   private grid: FireGrid;
   private env: Env;
   private acc = 0;
   private logger = getLogger();
   private stepCount = 0;
-  
+
   constructor(grid: FireGrid, env?: Partial<Env>) {
     this.grid = grid;
     this.env = { windDirRad: 0, windSpeed: 0, humidity: 0.3, ...env } as Env;
@@ -118,18 +125,15 @@ export class FireSim {
     const hm = 1 - Math.exp(-dt / HUMID_TAU);
     for (let i = 0; i < g.sCount; i++) {
       const idx = g.smoldering[i];
-      const t = g.tiles[idx];
-      t.wetness *= dw; t.retardant *= dr; t.fuelMoisture += (humid - t.fuelMoisture) * hm;
+      g.wetness[idx] *= dw; g.retardant[idx] *= dr; g.fuelMoisture[idx] += (humid - g.fuelMoisture[idx]) * hm;
     }
     for (let i = 0; i < g.bCount; i++) {
       const idx = g.burning[i];
-      const t = g.tiles[idx];
-      t.wetness *= dw; t.retardant *= dr; t.fuelMoisture += (humid - t.fuelMoisture) * hm;
+      g.wetness[idx] *= dw; g.retardant[idx] *= dr; g.fuelMoisture[idx] += (humid - g.fuelMoisture[idx]) * hm;
     }
     for (let i = 0; i < g.iCount; i++) {
       const idx = g.igniting[i];
-      const t = g.tiles[idx];
-      t.wetness *= dw; t.retardant *= dr; t.fuelMoisture += (humid - t.fuelMoisture) * hm;
+      g.wetness[idx] *= dw; g.retardant[idx] *= dr; g.fuelMoisture[idx] += (humid - g.fuelMoisture[idx]) * hm;
     }
 
     // 2) ignition trials from burning tiles
@@ -138,15 +142,13 @@ export class FireSim {
       const i = g.burning[bi];
       const c = indexToCoord(g, i);
       const baseF = fuel(g, i);
-      const src = g.tiles[i];
-      const isCrown = src.heat > g.params.thresholds.crownHeat;
+      const isCrown = g.heat[i] > g.params.thresholds.crownHeat;
       for (const n of NEIGH) {
         const nx = c.x + n.dx; const nz = c.z + n.dz;
         if (nx < 0 || nz < 0 || nx >= g.width || nz >= g.height) continue;
         const j = coordToIndex(g, nx, nz);
-        const tgt = g.tiles[j];
-        if (tgt.state !== FireState.Unburned) continue;
-        if (tgt.fuel === 'rock' || tgt.fuel === 'water') continue;
+        if (g.state[j] !== UNBURNED_I) continue;
+        if (g.fuel[j] === ROCK_I || g.fuel[j] === WATER_I) continue;
 
         const ros = effectiveROS(g, i, n.dx, n.dz, this.env);
         const adv = (ros * dt) / (g.params.cellSize * n.dist);
@@ -154,11 +156,11 @@ export class FireSim {
         // adv >= 1 -> ignite almost certainly, adv small -> small chance
         let p = 1 - Math.exp(-clamp(adv, 0, 10));
         // Hard moisture gate and damping (crown fire can partially bypass)
-        const fuelMoistEff = clamp(tgt.fuelMoisture + tgt.wetness + 0.6 * tgt.retardant, 0, 1);
+        const fuelMoistEff = clamp(g.fuelMoisture[j] + g.wetness[j] + 0.6 * g.retardant[j], 0, 1);
         if (fuelMoistEff > 0.9 && !isCrown) continue;
-        const m = moistGate(tgt.wetness + tgt.fuelMoisture, tgt.retardant, baseF);
+        const m = moistGate(g.wetness[j] + g.fuelMoisture[j], g.retardant[j], baseF);
         p *= isCrown ? Math.max(m, 0.25) : m;
-        let bf = barrierFactor(tgt.lineStrength);
+        let bf = barrierFactor(g.lineStrength[j]);
         // Crown-level heat can partially bypass strong lines (embers/spotting across line)
         if (isCrown) bf = Math.max(bf, 0.15);
         p *= bf;
@@ -170,7 +172,7 @@ export class FireSim {
       }
       // spotting (very simplified): occasional downwind leap within range
       if (g.params.spotting.enabled && this.env.windSpeed > 0) {
-        const rate = g.params.spotting.baseRate * g.tiles[i].heat;
+        const rate = g.params.spotting.baseRate * g.heat[i];
         const pr = 1 - Math.exp(-rate * dt);
         const r = rand01((i ^ (g.time * 997) | 0) + 0x1234abcd);
         if (r < pr) {
@@ -182,8 +184,7 @@ export class FireSim {
           const tz = Math.round(c.z + wz * dist);
           if (tx >= 0 && tz >= 0 && tx < g.width && tz < g.height) {
             const j = coordToIndex(g, tx, tz);
-            const tgt = g.tiles[j];
-            if (tgt.state === 0 && tgt.fuel !== 'rock' && tgt.fuel !== 'water') newIgnitions.push(j);
+            if (g.state[j] === UNBURNED_I && g.fuel[j] !== ROCK_I && g.fuel[j] !== WATER_I) newIgnitions.push(j);
           }
         }
       }
@@ -196,10 +197,9 @@ export class FireSim {
     // Promote igniting tiles after timer
     for (let ii = 0; ii < g.iCount; ii++) {
       const i = g.igniting[ii];
-      const t = g.tiles[i];
-      if (g.time - t.lastIgnitedAt >= g.params.timeConstants.tIgnite) {
-        t.state = FireState.Burning;
-        t.heat = Math.max(t.heat, 0.6);
+      if (g.time - g.lastIgnitedAt[i] >= g.params.timeConstants.tIgnite) {
+        g.state[i] = BURNING_I;
+        g.heat[i] = Math.max(g.heat[i], 0.6);
         nextBurning.push(i);
       } else {
         nextIgniting.push(i);
@@ -207,26 +207,25 @@ export class FireSim {
     }
     for (let bi = 0; bi < g.bCount; bi++) {
       const i = g.burning[bi];
-      const t = g.tiles[i];
       const F = fuel(g, i);
       const rise = dt / Math.max(1, F.flameDur * 0.5);
-      t.heat = clamp(t.heat + rise * (1 - t.heat), 0, 1);
-      t.progress += dt / Math.max(1e-3, F.flameDur + F.smolderDur);
+      g.heat[i] = clamp(g.heat[i] + rise * (1 - g.heat[i]), 0, 1);
+      g.progress[i] += dt / Math.max(1e-3, F.flameDur + F.smolderDur);
       // Early extinguish: push to Smoldering when cool and isolated
       let isolated = false;
-      if (t.heat < g.params.thresholds.extinguishHeat) {
+      if (g.heat[i] < g.params.thresholds.extinguishHeat) {
         isolated = true;
         const c = indexToCoord(g, i);
         for (const n of NEIGH) {
           const nx = c.x + n.dx, nz = c.z + n.dz;
           if (nx < 0 || nz < 0 || nx >= g.width || nz >= g.height) continue;
           const j = coordToIndex(g, nx, nz);
-          const s = g.tiles[j].state;
-          if (s === FireState.Burning || s === FireState.Igniting) { isolated = false; break; }
+          const s = g.state[j];
+          if (s === BURNING_I || s === IGNITING_I) { isolated = false; break; }
         }
       }
-      if (isolated || t.progress >= F.flameDur / (F.flameDur + F.smolderDur)) {
-        t.state = FireState.Smoldering;
+      if (isolated || g.progress[i] >= F.flameDur / (F.flameDur + F.smolderDur)) {
+        g.state[i] = SMOLDERING_I;
         nextSmolder.push(i);
       } else {
         nextBurning.push(i);
@@ -234,12 +233,11 @@ export class FireSim {
     }
     for (let si = 0; si < g.sCount; si++) {
       const i = g.smoldering[si];
-      const t = g.tiles[i];
       const F = fuel(g, i);
-      t.heat = clamp(t.heat - dt / Math.max(1, F.smolderDur), 0, 1);
-      t.progress += dt / Math.max(1e-3, F.flameDur + F.smolderDur);
-      if (t.progress >= 1) {
-        t.state = FireState.Burned;
+      g.heat[i] = clamp(g.heat[i] - dt / Math.max(1, F.smolderDur), 0, 1);
+      g.progress[i] += dt / Math.max(1e-3, F.flameDur + F.smolderDur);
+      if (g.progress[i] >= 1) {
+        g.state[i] = BURNED_I;
       } else {
         nextSmolder.push(i);
       }
@@ -247,12 +245,11 @@ export class FireSim {
 
     // apply new ignitions
     for (const j of newIgnitions) {
-      const t = g.tiles[j];
-      if (t.state === FireState.Unburned) {
-        t.state = FireState.Igniting;
-        t.lastIgnitedAt = g.time;
-        t.heat = Math.max(t.heat, 0.4);
-        t.progress = 0.0;
+      if (g.state[j] === UNBURNED_I) {
+        g.state[j] = IGNITING_I;
+        g.lastIgnitedAt[j] = g.time;
+        g.heat[j] = Math.max(g.heat[j], 0.4);
+        g.progress[j] = 0.0;
         nextIgniting.push(j);
       }
     }

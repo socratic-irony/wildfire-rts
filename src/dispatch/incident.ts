@@ -45,9 +45,8 @@ export function createIncidentRegistry(cellSize: number): IncidentRegistry {
 
     detectFromFireGrid(grid, simSeconds) {
       const created: Incident[] = [];
-      for (let i = 0; i < grid.tiles.length; i++) {
-        const tile = grid.tiles[i];
-        if (tile.state !== FireState.Burning) continue;
+      for (let i = 0; i < grid.state.length; i++) {
+        if (grid.state[i] !== FireState.Burning) continue;
         const tx = i % grid.width;
         const tz = Math.floor(i / grid.width);
 
@@ -109,11 +108,11 @@ export function createIncidentRegistry(cellSize: number): IncidentRegistry {
       for (const inc of incidents) {
         if (inc.status === 'resolved') continue;
         const idx = inc.tile.z * grid.width + inc.tile.x;
-        const tile = grid.tiles[idx];
+        const st = grid.state[idx];
         const stillHot =
-          tile.state === FireState.Burning ||
-          tile.state === FireState.Igniting ||
-          (tile.state === FireState.Smoldering && tile.heat > grid.params.thresholds.extinguishHeat);
+          st === FireState.Burning ||
+          st === FireState.Igniting ||
+          (st === FireState.Smoldering && grid.heat[idx] > grid.params.thresholds.extinguishHeat);
         // Auto-resolve once flames are out and any remaining smolder is below the extinguish threshold.
         if (!stillHot) {
           inc.status = 'resolved';

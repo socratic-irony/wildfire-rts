@@ -163,7 +163,7 @@ export function createEmbers(hm: Heightmap) {
       const h2 = (((h1 * 65537.0) % 1) + ((idx % 97) * 0.0103)) % 1;
       const ox = (h1 * 2 - 1) * 0.35 * scale;
       const oz = (h2 * 2 - 1) * 0.35 * scale;
-      const heat = grid.tiles[idx]?.heat ?? 0.5;
+      const heat = grid.heat[idx] ?? 0.5;
       const i3 = alive * 3;
       const i4 = alive * 4;
       iOffset[i3 + 0] = wx + ox;

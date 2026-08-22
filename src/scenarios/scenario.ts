@@ -41,8 +41,8 @@ export function evaluateScenario(def: ScenarioDef, elapsedSec: number, footprint
  */
 export function countFireFootprint(grid: FireGrid): number {
   let n = 0;
-  for (const tile of grid.tiles) {
-    if (tile.state !== FireState.Unburned) n++;
+  for (let i = 0; i < grid.state.length; i++) {
+    if (grid.state[i] !== FireState.Unburned) n++;
   }
   return n;
 }

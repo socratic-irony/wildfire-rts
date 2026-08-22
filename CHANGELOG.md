@@ -29,6 +29,9 @@ Fire gains a deterministic additive ember system (`src/particles/embers.ts`): �
 **Verification**: `npm run typecheck`, `npx vitest run src` (61 files / 254 tests), and `npm run build` all green on `feat/visual-overhaul`.
 
 ---
+## 2026-08-21 — FireGrid converted to structure-of-arrays typed arrays
+
+`FireGrid` no longer stores an array of tile objects: every per-tile field (`state`, `heat`, `progress`, `wetness`, `retardant`, `lineStrength`, `fuelMoisture`, `lastIgnitedAt`, `slopeTan`, `downX`, `downZ`, and `fuel` as a `FUEL_KEYS` index) now lives in its own typed array, cutting pointer-chasing in the hottest sim loop. All consumers (sim, viz/overlay/perimeter/decals/stats, hydrant/building/actor/event/scenario/dispatch/particle/road code, main.ts UI/console/test-API) were migrated mechanically; frontier-list ordering and RNG index hashing are untouched, so behavior is bit-exact with the previous layout — pinned by the existing fire determinism/mechanics suites plus a new `fire_soa_layout` test (array-length invariants, double-run bit-identity, NaN-free 16k-tile tick). `sampleTile` now returns a plain-object snapshot. **Verification**: `npm run typecheck`, `npx vitest run src` (61 files / 243 tests), `npm run build`.
 
 ## 2026-07-12 — Repository hygiene and maintenance gates
 

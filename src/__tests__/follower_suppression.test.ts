@@ -27,17 +27,17 @@ describe('follower_suppression_applies_water_and_wetness', () => {
   it('applyWaterAoEWithHydrants increases tile wetness and knocks down heat', () => {
     const grid = flatGrid();
     ignite(grid, [{ x: 4, z: 4 }]);
-    grid.tiles[4 * grid.width + 4].state = FireState.Burning;
-    grid.tiles[4 * grid.width + 4].heat = 0.8;
+    const ci = 4 * grid.width + 4;
+    grid.state[ci] = FireState.Burning;
+    grid.heat[ci] = 0.8;
 
-    const prevWetness = grid.tiles[4 * grid.width + 4].wetness;
-    const prevHeat = grid.tiles[4 * grid.width + 4].heat;
+    const prevWetness = grid.wetness[ci];
+    const prevHeat = grid.heat[ci];
 
     applyWaterAoEWithHydrants(grid, { x: 4.5, z: 4.5 }, 2.5, 0.4, undefined);
 
-    const tile = grid.tiles[4 * grid.width + 4];
-    expect(tile.wetness).toBeGreaterThan(prevWetness);
-    expect(tile.heat).toBeLessThan(prevHeat);
+    expect(grid.wetness[ci]).toBeGreaterThan(prevWetness);
+    expect(grid.heat[ci]).toBeLessThan(prevHeat);
   });
 
   it('consumeWater reduces payload water and returns actual drawn amount', () => {
@@ -60,7 +60,7 @@ describe('follower_suppression_applies_water_and_wetness', () => {
 describe('empty_tank_reopens_incident_and_sends_unit_home', () => {
   it('reopen() on an assigned incident resets it to detected with no assignees', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
     const reg = createIncidentRegistry(1);
     const [inc] = reg.detectFromFireGrid(grid, 0);
 
@@ -79,7 +79,7 @@ describe('empty_tank_reopens_incident_and_sends_unit_home', () => {
 
   it('reopen() on an engaged incident also resets it', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
     const reg = createIncidentRegistry(1);
     const [inc] = reg.detectFromFireGrid(grid, 0);
 
@@ -95,7 +95,7 @@ describe('empty_tank_reopens_incident_and_sends_unit_home', () => {
 
   it('reopen() on a resolved incident is a no-op', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
     const reg = createIncidentRegistry(1);
     const [inc] = reg.detectFromFireGrid(grid, 0);
 

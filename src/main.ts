@@ -17,7 +17,7 @@ import { buildChunkedTerrain } from './terrain/chunks';
 import { installGlobalErrorOverlay } from './ui/errorOverlay';
 import { createMenubar } from './ui/menubar';
 import { createPaintSystem } from './ui/paint';
-import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRetardantLine, applyWaterAoEWithHydrants, writeFirelineEdges } from './fire/grid';
+import { buildFireGrid, ignite as igniteTiles, FireState, applyWaterAoE, applyRetardantLine, applyWaterAoEWithHydrants, writeFirelineEdges, fuelKeyOf } from './fire/grid';
 import { createFirelineOverlay } from './fire/firelineOverlay';
 import { countFireFootprint, createScenarioRunner, type ScenarioDef, type ScenarioResult, type ScenarioRunner } from './scenarios/scenario';
 import { createEventSystem, createRng, type EventSystem, type GameEvent } from './events/events';
@@ -276,15 +276,15 @@ loop.add((dt) => {
       const p = hits[0].point;
       const { x: gx, z: gz } = worldToGridCell(hm, p.x, p.z);
       const idx = gz * fireGrid.width + gx;
-      const t0 = fireGrid.tiles[idx];
-      const stateName = ['Unburned','Igniting','Burning','Smoldering','Burned'][t0.state] || String(t0.state);
+      const st0 = fireGrid.state[idx];
+      const stateName = ['Unburned','Igniting','Burning','Smoldering','Burned'][st0] || String(st0);
       const th = fireGrid.params.thresholds;
       const windDeg = ((simEnv.windDirRad * 180 / Math.PI) % 360 + 360) % 360;
       const lines =
-        `Tile ${gx},${gz}  Fuel ${t0.fuel}\n` +
-        `State ${stateName}  Heat ${t0.heat.toFixed(2)}  Prog ${t0.progress.toFixed(2)}\n` +
-        `Moist ${t0.fuelMoisture.toFixed(2)}  Wet ${t0.wetness.toFixed(2)}  Ret ${t0.retardant.toFixed(2)}  Line ${t0.lineStrength.toFixed(2)}\n` +
-        `SlopeTan ${t0.slopeTan.toFixed(2)}  Wind ${simEnv.windSpeed.toFixed(1)} m/s @ ${windDeg.toFixed(0)}°\n` +
+        `Tile ${gx},${gz}  Fuel ${fuelKeyOf(fireGrid, idx)}\n` +
+        `State ${stateName}  Heat ${fireGrid.heat[idx].toFixed(2)}  Prog ${fireGrid.progress[idx].toFixed(2)}\n` +
+        `Moist ${fireGrid.fuelMoisture[idx].toFixed(2)}  Wet ${fireGrid.wetness[idx].toFixed(2)}  Ret ${fireGrid.retardant[idx].toFixed(2)}  Line ${fireGrid.lineStrength[idx].toFixed(2)}\n` +
+        `SlopeTan ${fireGrid.slopeTan[idx].toFixed(2)}  Wind ${simEnv.windSpeed.toFixed(1)} m/s @ ${windDeg.toFixed(0)}°\n` +
         `Thresh: ExtinguishHeat ${th.extinguishHeat.toFixed(2)}  CrownHeat ${th.crownHeat.toFixed(2)}`;
       if (_hoverTileDiv) _hoverTileDiv.textContent = lines;
     } else {
@@ -515,7 +515,8 @@ if (isFeatureEnabled('console_commands')) {
       const burning = fireGrid.bCount;
       const smoldering = fireGrid.sCount;
       const total = fireGrid.width * fireGrid.height;
-      const burned = fireGrid.tiles.filter(t => t.state === FireState.Burned).length;
+      let burned = 0;
+      for (let i = 0; i < fireGrid.state.length; i++) if (fireGrid.state[i] === FireState.Burned) burned++;
       return [
         'Fire Statistics:',
         `  Burning tiles: ${burning}`,
@@ -532,11 +533,9 @@ if (isFeatureEnabled('console_commands')) {
     description: 'Extinguish all fires',
     execute: () => {
       // Reset fire grid by setting all tiles to unburned
-      fireGrid.tiles.forEach(tile => {
-        tile.state = FireState.Unburned;
-        tile.heat = 0;
-        tile.progress = 0;
-      });
+      fireGrid.state.fill(FireState.Unburned);
+      fireGrid.heat.fill(0);
+      fireGrid.progress.fill(0);
       fireGrid.burning = new Uint32Array(fireGrid.burning.length);
       fireGrid.smoldering = new Uint32Array(fireGrid.smoldering.length);
       fireGrid.bCount = 0;
@@ -1301,16 +1300,17 @@ function buildGameState() {
   }> = [];
   for (let z = 0; z < fireGrid.height; z++) {
     for (let x = 0; x < fireGrid.width; x++) {
-      const tile = fireGrid.tiles[z * fireGrid.width + x];
-      if (tile.state === FireState.Unburned) continue;
+      const ti = z * fireGrid.width + x;
+      const tileState = fireGrid.state[ti];
+      if (tileState === FireState.Unburned) continue;
       activeFireTiles.push({
         x,
         z,
-        state: ['unburned', 'igniting', 'burning', 'smoldering', 'burned', 'cleared'][tile.state] ?? String(tile.state),
-        heat: Number(tile.heat.toFixed(3)),
-        progress: Number(tile.progress.toFixed(3)),
-        wetness: Number(tile.wetness.toFixed(3)),
-        retardant: Number(tile.retardant.toFixed(3)),
+        state: ['unburned', 'igniting', 'burning', 'smoldering', 'burned', 'cleared'][tileState] ?? String(tileState),
+        heat: Number(fireGrid.heat[ti].toFixed(3)),
+        progress: Number(fireGrid.progress[ti].toFixed(3)),
+        wetness: Number(fireGrid.wetness[ti].toFixed(3)),
+        retardant: Number(fireGrid.retardant[ti].toFixed(3)),
       });
       if (activeFireTiles.length >= 16) break;
     }
@@ -1442,13 +1442,11 @@ window.__wildfireTestApi = {
     return true;
   },
   clearFire: () => {
-    fireGrid.tiles.forEach((tile) => {
-      tile.state = FireState.Unburned;
-      tile.heat = 0;
-      tile.progress = 0;
-      tile.wetness = 0;
-      tile.retardant = 0;
-    });
+    fireGrid.state.fill(FireState.Unburned);
+    fireGrid.heat.fill(0);
+    fireGrid.progress.fill(0);
+    fireGrid.wetness.fill(0);
+    fireGrid.retardant.fill(0);
     fireGrid.burning = new Uint32Array(fireGrid.burning.length);
     fireGrid.smoldering = new Uint32Array(fireGrid.smoldering.length);
     fireGrid.bCount = 0;
@@ -1477,9 +1475,10 @@ window.__wildfireTestApi = {
     const margin = 6;
     for (let z = margin; z < fireGrid.height - margin && found.length < count; z += 2) {
       for (let x = margin; x < fireGrid.width - margin && found.length < count; x += 2) {
-        const tile = fireGrid.tiles[z * fireGrid.width + x];
-        if (tile.state !== FireState.Unburned) continue;
-        if (tile.fuel === 'rock' || tile.fuel === 'water' || tile.fuel === 'urban') continue;
+        const fi = z * fireGrid.width + x;
+        if (fireGrid.state[fi] !== FireState.Unburned) continue;
+        const fk = fuelKeyOf(fireGrid, fi);
+        if (fk === 'rock' || fk === 'water' || fk === 'urban') continue;
         if (roadTiles.some((r) => (r.x - x) * (r.x - x) + (r.z - z) * (r.z - z) < minD2)) continue;
         if (found.some((f) => Math.hypot(f.x - x, f.z - z) < 20)) continue;
         found.push({ x, z });
@@ -1520,15 +1519,15 @@ window.__wildfireTestApi = {
     const gx = Math.round(x);
     const gz = Math.round(z);
     if (gx < 0 || gz < 0 || gx >= fireGrid.width || gz >= fireGrid.height) return null;
-    const tile = fireGrid.tiles[gz * fireGrid.width + gx];
+    const gi = gz * fireGrid.width + gx;
     return {
       x: gx,
       z: gz,
-      state: ['unburned', 'igniting', 'burning', 'smoldering', 'burned', 'cleared'][tile.state] ?? String(tile.state),
-      heat: Number(tile.heat.toFixed(3)),
-      wetness: Number(tile.wetness.toFixed(3)),
-      retardant: Number(tile.retardant.toFixed(3)),
-      lineStrength: Number(tile.lineStrength.toFixed(3)),
+      state: ['unburned', 'igniting', 'burning', 'smoldering', 'burned', 'cleared'][fireGrid.state[gi]] ?? String(fireGrid.state[gi]),
+      heat: Number(fireGrid.heat[gi].toFixed(3)),
+      wetness: Number(fireGrid.wetness[gi].toFixed(3)),
+      retardant: Number(fireGrid.retardant[gi].toFixed(3)),
+      lineStrength: Number(fireGrid.lineStrength[gi].toFixed(3)),
     };
   },
   applyRetardantAt: (x, z, radius = 1.5, intensity = 0.6) => {

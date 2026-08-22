@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateHeightmap } from '../terrain/heightmap';
 import { computeBiomes } from '../terrain/biomes';
-import { buildFireGrid, restoreFuelsFromBiomes } from '../fire/grid';
+import { buildFireGrid, restoreFuelsFromBiomes, fuelKeyOf } from '../fire/grid';
 import { createRoadMask, applyRoadMaskToFireGrid } from '../roads/state';
 
 describe('road mask fuel restoration', () => {
@@ -14,11 +14,11 @@ describe('road mask fuel restoration', () => {
     // Mark a single road tile and apply to fire grid (urban fuel)
     roadMask.mask[1 * hm.width + 2] = 1;
     applyRoadMaskToFireGrid(grid as any, roadMask);
-    expect(grid.tiles[1 * hm.width + 2].fuel).toBe('urban');
+    expect(fuelKeyOf(grid, 1 * hm.width + 2)).toBe('urban');
 
     restoreFuelsFromBiomes(grid, biomes);
     // Flat map defaults to grass/forest/chaparral; anything but urban is acceptable here
-    const restoredFuel = grid.tiles[1 * hm.width + 2].fuel;
+    const restoredFuel = fuelKeyOf(grid, 1 * hm.width + 2);
     expect(restoredFuel === 'urban').toBe(false);
   });
 });

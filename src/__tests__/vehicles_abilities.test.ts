@@ -17,6 +17,5 @@ test('firetruck sprayWater increases wetness', () => {
   const vm = new VehiclesManager(hm, terrain, roadMask, 4, undefined, fireGrid);
   vm.spawnAt(2, 2, VehicleType.FIRETRUCK);
   vm.sprayWater(0, 1.5, 0.5);
-  const tile = fireGrid.tiles[2 * fireGrid.width + 2];
-  expect(tile.wetness).toBeGreaterThan(0);
+  expect(fireGrid.wetness[2 * fireGrid.width + 2]).toBeGreaterThan(0);
 });

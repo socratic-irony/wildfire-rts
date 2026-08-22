@@ -47,7 +47,7 @@ describe('countFireFootprint', () => {
     expect(countFireFootprint(grid)).toBeGreaterThan(0);
 
     // Manually mark a Burned tile — footprint still counts it.
-    grid.tiles[0].state = FireState.Burned;
+    grid.state[0] = FireState.Burned;
     expect(countFireFootprint(grid)).toBeGreaterThanOrEqual(2);
   });
 });

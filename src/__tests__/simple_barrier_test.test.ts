@@ -29,9 +29,9 @@ describe('Simple Barrier Test', () => {
       applyRetardantLine(grid, [{ x, z: 4 }], 1, 1.0);
     }
 
-    const barrierTile = grid.tiles[4 * 8 + 4];
-    expect(barrierTile.retardant).toBeGreaterThan(0.5);
-    expect(barrierTile.lineStrength).toBeGreaterThan(0);
+    const bi4 = 4 * 8 + 4;
+    expect(grid.retardant[bi4]).toBeGreaterThan(0.5);
+    expect(grid.lineStrength[bi4]).toBeGreaterThan(0);
     
     // Ignite south of barrier
     ignite(grid, [{ x: 4, z: 2 }]);
@@ -47,12 +47,12 @@ describe('Simple Barrier Test', () => {
     let fireSouth = 0, fireNorth = 0;
     for (let z = 0; z < 4; z++) {
       for (let x = 0; x < 8; x++) {
-        if (grid.tiles[z * 8 + x].state >= 2) fireSouth++;
+        if (grid.state[z * 8 + x] >= 2) fireSouth++;
       }
     }
     for (let z = 5; z < 8; z++) {
       for (let x = 0; x < 8; x++) {
-        if (grid.tiles[z * 8 + x].state >= 2) fireNorth++;
+        if (grid.state[z * 8 + x] >= 2) fireNorth++;
       }
     }
     

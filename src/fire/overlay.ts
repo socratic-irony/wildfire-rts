@@ -29,14 +29,14 @@ export function createFireOverlay(hm: Heightmap, opts?: { offsetY?: number; dept
       const wx = c.x * hm.scale + half;
       const wz = c.z * hm.scale + half;
       const wy = hm.sample(wx, wz) + yOffset;
-      const s = 0.75 + grid.tiles[ci].heat * 0.5;
+      const s = 0.75 + grid.heat[ci] * 0.5;
       tmp.position.set(wx, wy, wz);
       tmp.scale.set(scl * s, 1, scl * s);
       tmp.rotation.set(0, 0, 0);
       tmp.updateMatrix();
       m.copy(tmp.matrix);
       inst.setMatrixAt(idx++, m);
-      const col = new Color().setHSL(0.01 + 0.02 * grid.tiles[ci].heat, 1.0, 0.46);
+      const col = new Color().setHSL(0.01 + 0.02 * grid.heat[ci], 1.0, 0.46);
       inst.setColorAt(idx - 1, col);
     }
     for (let k = 0; k < grid.sCount; k++) {
@@ -45,7 +45,7 @@ export function createFireOverlay(hm: Heightmap, opts?: { offsetY?: number; dept
       const wx = c.x * hm.scale + half;
       const wz = c.z * hm.scale + half;
       const wy = hm.sample(wx, wz) + yOffset;
-      const s = 0.6 + grid.tiles[ci].heat * 0.3;
+      const s = 0.6 + grid.heat[ci] * 0.3;
       tmp.position.set(wx, wy, wz);
       tmp.scale.set(scl * s, 1, scl * s);
       tmp.rotation.set(0, 0, 0);

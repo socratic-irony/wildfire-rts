@@ -83,27 +83,38 @@ describe('hydrant-enhanced suppression', () => {
     const baseGrid = buildFireGrid(hm, biomes, params);
     const hydrantGrid = buildFireGrid(hm, biomes, params);
 
-    for (let i = 0; i < baseGrid.tiles.length; i++) {
+    for (let i = 0; i < baseGrid.state.length; i++) {
       const state = i % 5 as FireState;
       const heat = ((i * 17) % 101) / 100;
       const wetness = ((i * 13) % 97) / 100;
-      Object.assign(baseGrid.tiles[i], { state, heat, wetness });
-      Object.assign(hydrantGrid.tiles[i], { state, heat, wetness });
+      baseGrid.state[i] = state;
+      baseGrid.heat[i] = heat;
+      baseGrid.wetness[i] = wetness;
+      hydrantGrid.state[i] = state;
+      hydrantGrid.heat[i] = heat;
+      hydrantGrid.wetness[i] = wetness;
     }
 
     // Exercise burning and smoldering knockdown while the radius is clipped by
     // the top and left map edges.
-    baseGrid.tiles[coordToIndex(baseGrid, 0, 0)].state = FireState.Burning;
-    hydrantGrid.tiles[coordToIndex(hydrantGrid, 0, 0)].state = FireState.Burning;
-    baseGrid.tiles[coordToIndex(baseGrid, 1, 1)].state = FireState.Smoldering;
-    hydrantGrid.tiles[coordToIndex(hydrantGrid, 1, 1)].state = FireState.Smoldering;
+    baseGrid.state[coordToIndex(baseGrid, 0, 0)] = FireState.Burning;
+    hydrantGrid.state[coordToIndex(hydrantGrid, 0, 0)] = FireState.Burning;
+    baseGrid.state[coordToIndex(baseGrid, 1, 1)] = FireState.Smoldering;
+    hydrantGrid.state[coordToIndex(hydrantGrid, 1, 1)] = FireState.Smoldering;
 
     const center = { x: 0.25, z: 0.5 };
     applyWaterAoE(baseGrid, center, 2.75, 0.37);
     applyWaterAoEWithHydrants(hydrantGrid, center, 2.75, 0.37, undefined);
 
-    expect(hydrantGrid.tiles.map(({ wetness, heat, state }) => ({ wetness, heat, state })))
-      .toEqual(baseGrid.tiles.map(({ wetness, heat, state }) => ({ wetness, heat, state })));
+    expect({
+      wetness: Array.from(hydrantGrid.wetness),
+      heat: Array.from(hydrantGrid.heat),
+      state: Array.from(hydrantGrid.state),
+    }).toEqual({
+      wetness: Array.from(baseGrid.wetness),
+      heat: Array.from(baseGrid.heat),
+      state: Array.from(baseGrid.state),
+    });
   });
 
   it('boosts water intensity only inside hydrant coverage', () => {
@@ -125,16 +136,16 @@ describe('hydrant-enhanced suppression', () => {
     const baseOutsideIdx = coordToIndex(baseGrid, outside.x, outside.z);
 
     const prep = (grid: typeof baseGrid) => {
-      const c = grid.tiles[coordToIndex(grid, center.x, center.z)];
-      c.state = FireState.Burning;
-      c.heat = 0.9;
-      c.wetness = 0;
-      c.retardant = 0;
-      const o = grid.tiles[coordToIndex(grid, outside.x, outside.z)];
-      o.state = FireState.Burning;
-      o.heat = 0.9;
-      o.wetness = 0;
-      o.retardant = 0;
+      const ci = coordToIndex(grid, center.x, center.z);
+      grid.state[ci] = FireState.Burning;
+      grid.heat[ci] = 0.9;
+      grid.wetness[ci] = 0;
+      grid.retardant[ci] = 0;
+      const oi = coordToIndex(grid, outside.x, outside.z);
+      grid.state[oi] = FireState.Burning;
+      grid.heat[oi] = 0.9;
+      grid.wetness[oi] = 0;
+      grid.retardant[oi] = 0;
     };
     prep(baseGrid);
     prep(hydrantGrid);
@@ -152,17 +163,13 @@ describe('hydrant-enhanced suppression', () => {
     applyWaterAoE(baseGrid, center, 2, 0.3);
     applyWaterAoEWithHydrants(hydrantGrid, center, 2, 0.3, hydrantSystem);
 
-    const baseCenter = baseGrid.tiles[baseCenterIdx];
-    const boostedCenter = hydrantGrid.tiles[baseCenterIdx];
-    expect(baseCenter.wetness).toBeCloseTo(0.3, 5);
-    expect(boostedCenter.wetness).toBeCloseTo(0.45, 5);
-    expect(boostedCenter.wetness).toBeGreaterThan(baseCenter.wetness);
-    expect(boostedCenter.heat).toBeLessThan(baseCenter.heat);
+    expect(hydrantGrid.wetness[baseCenterIdx]).toBeCloseTo(0.45, 5);
+    expect(hydrantGrid.wetness[baseCenterIdx]).toBeGreaterThan(baseGrid.wetness[baseCenterIdx]);
+    expect(baseGrid.wetness[baseCenterIdx]).toBeCloseTo(0.3, 5);
+    expect(hydrantGrid.heat[baseCenterIdx]).toBeLessThan(baseGrid.heat[baseCenterIdx]);
 
-    const baseFar = baseGrid.tiles[baseOutsideIdx];
-    const boostedFar = hydrantGrid.tiles[baseOutsideIdx];
-    expect(boostedFar.wetness).toBeCloseTo(baseFar.wetness, 5);
-    expect(boostedFar.heat).toBeCloseTo(baseFar.heat, 5);
+    expect(hydrantGrid.wetness[baseOutsideIdx]).toBeCloseTo(baseGrid.wetness[baseOutsideIdx], 5);
+    expect(hydrantGrid.heat[baseOutsideIdx]).toBeCloseTo(baseGrid.heat[baseOutsideIdx], 5);
   });
 });
 

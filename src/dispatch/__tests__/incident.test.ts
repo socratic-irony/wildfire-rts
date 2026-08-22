@@ -17,7 +17,7 @@ describe('incident registry', () => {
   it('creates one incident per burning cluster', () => {
     const grid = flatGrid();
     ignite(grid, [{ x: 2, z: 2 }]);
-    grid.tiles[2 * grid.width + 2].state = FireState.Burning;
+    grid.state[2 * grid.width + 2] = FireState.Burning;
 
     const reg = createIncidentRegistry(grid.params.cellSize);
     const created = reg.detectFromFireGrid(grid, 0);
@@ -29,7 +29,7 @@ describe('incident registry', () => {
 
   it('does not duplicate incidents on subsequent scans', () => {
     const grid = flatGrid();
-    grid.tiles[3 * grid.width + 3].state = FireState.Burning;
+    grid.state[3 * grid.width + 3] = FireState.Burning;
     const reg = createIncidentRegistry(grid.params.cellSize);
 
     reg.detectFromFireGrid(grid, 0);
@@ -41,11 +41,11 @@ describe('incident registry', () => {
 
   it('auto-resolves incidents when tile is no longer hot', () => {
     const grid = flatGrid();
-    grid.tiles[1 * grid.width + 1].state = FireState.Burning;
+    grid.state[1 * grid.width + 1] = FireState.Burning;
     const reg = createIncidentRegistry(grid.params.cellSize);
     const [inc] = reg.detectFromFireGrid(grid, 0);
 
-    grid.tiles[1 * grid.width + 1].state = FireState.Burned;
+    grid.state[1 * grid.width + 1] = FireState.Burned;
     const pruned = reg.prune(grid, 5);
 
     expect(pruned).toBe(1);
@@ -55,13 +55,13 @@ describe('incident registry', () => {
 
   it('auto-resolves cooled smoldering incidents', () => {
     const grid = flatGrid();
-    grid.tiles[1 * grid.width + 1].state = FireState.Burning;
-    grid.tiles[1 * grid.width + 1].heat = 0.6;
+    grid.state[1 * grid.width + 1] = FireState.Burning;
+    grid.heat[1 * grid.width + 1] = 0.6;
     const reg = createIncidentRegistry(grid.params.cellSize);
     const [inc] = reg.detectFromFireGrid(grid, 0);
 
-    grid.tiles[1 * grid.width + 1].state = FireState.Smoldering;
-    grid.tiles[1 * grid.width + 1].heat = 0;
+    grid.state[1 * grid.width + 1] = FireState.Smoldering;
+    grid.heat[1 * grid.width + 1] = 0;
     const pruned = reg.prune(grid, 5);
 
     expect(pruned).toBe(1);
@@ -70,7 +70,7 @@ describe('incident registry', () => {
 
   it('tracks lifecycle transitions', () => {
     const grid = flatGrid();
-    grid.tiles[0].state = FireState.Burning;
+    grid.state[0] = FireState.Burning;
     const reg = createIncidentRegistry(grid.params.cellSize);
     const [inc] = reg.detectFromFireGrid(grid, 0);
 

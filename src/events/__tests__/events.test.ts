@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createEventSystem, createRng } from '../events';
 import { generateHeightmap } from '../../terrain/heightmap';
 import { computeBiomes } from '../../terrain/biomes';
-import { buildFireGrid } from '../../fire/grid';
+import { buildFireGrid , fuelIndex, fuelKeyOf} from '../../fire/grid';
 import type { Env } from '../../fire/sim';
 
 function makeGrid(size = 16) {
@@ -95,7 +95,7 @@ describe('createEventSystem', () => {
     const grid = makeGrid();
     // Mark a band of tiles urban (road) — lightning must avoid them.
     for (let x = 0; x < grid.width; x++) {
-      grid.tiles[5 * grid.width + x].fuel = 'urban';
+      grid.fuel[5 * grid.width + x] = fuelIndex('urban');
     }
     const env: Env = { windDirRad: 0, windSpeed: 0 };
     const sys = createEventSystem('strike', { lightningMeanIntervalSec: 5 });
@@ -104,8 +104,7 @@ describe('createEventSystem', () => {
     runFor(sys, grid, env, 300, ignitions);
     expect(ignitions.length).toBeGreaterThan(0);
     for (const tile of ignitions) {
-      const t = grid.tiles[tile.z * grid.width + tile.x];
-      expect(['rock', 'water', 'urban']).not.toContain(t.fuel);
+      expect(['rock', 'water', 'urban']).not.toContain(fuelKeyOf(grid, tile.z * grid.width + tile.x));
     }
   });
 });

@@ -217,7 +217,7 @@ export function createFlipbookParticles(hm: Heightmap) {
         let lod = 1.0;
         if (d2 > far2) lod = 0; else if (d2 > mid2) lod = 0.3; else if (d2 > near2) lod = 0.6;
         if (lod <= 0) continue;
-        const heat = grid.tiles[idx].heat;
+        const heat = grid.heat[idx];
         // Flames (1-2 per hot tile)
         if (enabled.flames) {
           const n = heat > 0.6 ? 2 : 1;
@@ -286,7 +286,6 @@ export function createFlipbookParticles(hm: Heightmap) {
         let lod = 1.0;
         if (d2 > far2) lod = 0; else if (d2 > mid2) lod = 0.3; else if (d2 > near2) lod = 0.6;
         if (lod <= 0) continue;
-        const t = grid.tiles[idx];
         const h2 = rng(idx * 2713);
         const ox = (h2 * 2 - 1) * 0.45 * scale;
         const oz = (((h2 * 12289.0) % 1) * 2 - 1) * 0.45 * scale;
@@ -296,13 +295,13 @@ export function createFlipbookParticles(hm: Heightmap) {
         iOffset[i3 + 1] = hm.sample(wx + ox, wz + oz) + 0.2;
         iOffset[i3 + 2] = wz + oz;
         // Pack attributes into vec4s
-        iPack1[i4 + 0] = 0.6 + 0.8 * (1 - t.heat);      // size
+        iPack1[i4 + 0] = 0.6 + 0.8 * (1 - grid.heat[idx]);      // size
         iPack1[i4 + 1] = h2 * Math.PI * 2;               // angle
         iPack1[i4 + 2] = Math.floor(h2 * atlasInfo.smokeFrames); // f0
         iPack1[i4 + 3] = 4 + 3 * lod;                    // rate
         iPack2[i4 + 0] = atlasInfo.smokeBase;             // fBase (smolder uses smoke frames)
         iPack2[i4 + 1] = atlasInfo.smokeFrames;           // fCount
-        iPack2[i4 + 2] = 1.1 + 0.3 * (1.0 - t.heat);     // aspect
+        iPack2[i4 + 2] = 1.1 + 0.3 * (1.0 - grid.heat[idx]);     // aspect
         iPack2[i4 + 3] = h2;                              // phase
         iPack3[i4 + 0] = 0.8 + 0.4 * lod;                // rise (gentle rise for smolder)
         iPack3[i4 + 1] = 0.87;                            // colorR (lighter/whiter smolder)
