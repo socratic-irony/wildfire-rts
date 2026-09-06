@@ -124,4 +124,31 @@ describe('RoadsVisual debug diagnostics', () => {
     expect(after).toBeLessThan(before);
     expect(roads.group.getObjectsByProperty('name', 'road-intersection-apron')).toHaveLength(1);
   });
+
+  it('uses planar arc distance for marking suppression on a steep road', () => {
+    const hm = {
+      width: 64,
+      height: 64,
+      scale: 1,
+      data: new Float32Array(65 * 65),
+      sample: (x: number, z: number) => x * 0.8 + z * 0.2,
+    };
+    const roads = new RoadsVisual(hm);
+    roads.addPath([{ x: 8, z: 32 }, { x: 56, z: 32 }]);
+    roads.addPath([{ x: 32, z: 8 }, { x: 32, z: 56 }]);
+    roads.buildIntersections();
+
+    const intersection = roads.getIntersectionsForPath(0)[0].pos;
+    const centerStripes = roads.group.getObjectsByProperty('name', 'road-center-stripe') as Mesh[];
+    for (const stripe of centerStripes) {
+      const positions = stripe.geometry.getAttribute('position');
+      for (let i = 0; i < positions.count; i++) {
+        const distance = Math.hypot(positions.getX(i) - intersection.x, positions.getZ(i) - intersection.z);
+        expect(distance).toBeGreaterThan(1.8);
+      }
+    }
+
+    const apron = roads.group.getObjectsByProperty('name', 'road-intersection-apron')[0] as Mesh;
+    expect(apron.position.y).toBeCloseTo(hm.sample(apron.position.x, apron.position.z) + 0.324, 4);
+  });
 });

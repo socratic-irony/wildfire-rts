@@ -2,6 +2,8 @@
 
 Status (current)
 
+- Plant silhouettes are merged per family/material before instancing to bound draw calls. Road/lot/driveway clearance is wired into the main game and refreshed after road edits and world reseeding. Excluding plants preserves the RNG sequence of surviving candidates.
+
 - Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint with deterministic hash jitter (mottled fields, no textures), four deterministic instanced tree families (pine, tall fir, rounded broadleaf, spreading oak) and three deterministic instanced shrub silhouettes (rounded multi-lobed, low spreading scrub, upright brush), all with per-instance color/scale variety, multiplicative burn tint restoration, and light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (shared A* planner with valley bonus plus strong slope/grade/curvature penalties) rendered as double-sided leveled angular ribbons that plane into hillsides while snapping to tile centres with orthogonal turns at ~2-tile asphalt width. Rural roads now use deterministic low-frequency asphalt vertex variation, solid edge lines, dashed warm center lines, dusty shoulders, and shared apron surfaces at physical intersections; all road markings are suppressed through intersection aprons. Controlled X/T/self crossings expose one stop-sign approach per actual incoming direction, rendered as shared instanced octagonal boards, poles, borders, and STOP glyph faces outside the drivable pavement at the computed stop distance. Road triangle-lattice/midline diagnostics and hydrant coverage radius rings are available through debug controls but are hidden during normal play.
 - Terrain regeneration replaces the road visual and hydrant systems with instances bound to the new heightmap/mask, keeping ribbons and hydrants flush with the refreshed terrain.
 - Procedural trees, shrubs, and rocks retain their established deterministic scatter sequences through a shared per-instance LCG helper. Nearest-cell conversion from world coordinates is centralized for terrain interactions and actor fire-state lookup; floor-based occupancy and grid-unit APIs remain intentionally separate.
@@ -166,8 +168,8 @@ Start with **shader projection** for clarity/perf; make toggleable.
 
 **Models (procedural, low-poly)**
 
-* **Trees**: four low-poly silhouettes share two wind-enabled materials and are placed by one deterministic LCG stream. `pine` uses two tiers and a trunk; `tallFir` uses three narrower tiers and a taller trunk; `roundedBroadleaf` uses a broad crown and trunk; `spreadingOak` uses three offset crown lobes, a wider trunk, and an angled branch. The public `createForest()` result retains the legacy mesh handles and also exposes `families`, `meshes`, and deterministic `instances` for diagnostics.
-* **Shrubs**: three low-poly silhouettes share one wind-enabled material. `roundedMultiLobed` uses three overlapping lobes; `lowSpreadingScrub` uses flattened clumps; `uprightBrush` uses paired tapered stems. The public `createShrubs()` result retains the legacy `inst` handle and exposes `families`, `meshes`, and deterministic `instances`.
+* **Trees**: four low-poly silhouettes share two wind-enabled materials and are placed by one deterministic LCG stream. `pine` uses two tiers and a trunk; `tallFir` uses three narrower tiers and a taller trunk; `roundedBroadleaf` uses a broad crown and trunk; `spreadingOak` uses three offset crown lobes, a wider trunk, and an angled branch. Static components are merged by family/material before instancing, so normal maps use at most eight tree batches (up to 16,384 instances per batch). The public `createForest()` result retains the legacy mesh handles and also exposes `families`, `meshes`, and deterministic `instances` for diagnostics.
+* **Shrubs**: three low-poly silhouettes share one wind-enabled material. `roundedMultiLobed` uses three overlapping lobes; `lowSpreadingScrub` uses flattened clumps; `uprightBrush` uses paired tapered stems. Static components are merged into one complete plant geometry per silhouette, with at most six bounded batches (up to 32,768 instances per batch). The public `createShrubs()` result retains the legacy `inst` handle and exposes `families`, `meshes`, and deterministic `instances`.
 * **Rock**: distorted icosahedron (random vertex noise, then flat shade); anisotropic per-instance scale for shape variety.
 
 **Density rules**
@@ -207,7 +209,7 @@ Start with **shader projection** for clarity/perf; make toggleable.
 
 **Targets**
 
-* ≤ 200 draw calls at rest; foliage uses shared geometry/materials and bounded instanced batches (up to 1024 instances per family part; typical maps remain well below the cap).
+* ≤ 200 draw calls at rest; foliage uses shared geometry/materials and bounded complete-silhouette instanced batches (up to 16,384 tree or 32,768 shrub instances per batch; typical maps remain below the cap).
 * GPU frame time under \~10–12ms on iGPU.
 
 **Techniques**

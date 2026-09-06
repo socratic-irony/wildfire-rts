@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { InstancedMesh, Matrix4, Vector3 } from 'three';
 import { generateHeightmap } from '../../terrain/heightmap';
+import { INTERSECTION_STOP_DISTANCE } from '../trafficRules';
 import { RoadsVisual } from '../visual';
 
 function flatHeightmap() {
@@ -105,8 +107,32 @@ describe('RoadsVisual intersection metadata', () => {
     roads.buildIntersections();
 
     for (const sign of roads.getStopSignApproaches()) {
-      expect(Math.hypot(sign.stopPos.x - sign.intersectionPos.x, sign.stopPos.z - sign.intersectionPos.z)).toBeGreaterThan(2);
+      expect(Math.hypot(sign.stopPos.x - sign.intersectionPos.x, sign.stopPos.z - sign.intersectionPos.z)).toBeCloseTo(INTERSECTION_STOP_DISTANCE, 5);
       expect(Math.hypot(sign.signPos.x - sign.stopPos.x, sign.signPos.z - sign.stopPos.z)).toBeGreaterThan(0.8);
+    }
+  });
+
+  it('orients every octagonal board and border toward its incoming approach', () => {
+    const roads = new RoadsVisual(flatHeightmap());
+    roads.addPath([{ x: 8, z: 32 }, { x: 56, z: 32 }]);
+    roads.addPath([{ x: 32, z: 8 }, { x: 32, z: 56 }]);
+    roads.buildIntersections();
+
+    const approaches = roads.getStopSignApproaches();
+    const boards = roads.group.getObjectByName('road-stop-sign-boards') as InstancedMesh;
+    const borders = roads.group.getObjectByName('road-stop-sign-borders') as InstancedMesh;
+    const boardMatrix = new Matrix4();
+    const borderMatrix = new Matrix4();
+    const boardNormal = new Vector3();
+    const borderNormal = new Vector3();
+    for (let i = 0; i < approaches.length; i++) {
+      boards.getMatrixAt(i, boardMatrix);
+      borders.getMatrixAt(i, borderMatrix);
+      boardNormal.setFromMatrixColumn(boardMatrix, 2).normalize();
+      borderNormal.setFromMatrixColumn(borderMatrix, 2).normalize();
+      const expected = new Vector3(-approaches[i].direction.x, 0, -approaches[i].direction.z);
+      expect(boardNormal.dot(expected)).toBeGreaterThan(0.999);
+      expect(borderNormal.dot(expected)).toBeGreaterThan(0.999);
     }
   });
 });

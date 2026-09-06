@@ -1,4 +1,5 @@
 import type { Path2D } from '../paths/path2d';
+import { INTERSECTION_STOP_DISTANCE } from '../roads/trafficRules';
 import type { PathFollower } from './frenet';
 
 export type IntersectionInfo = {
@@ -67,7 +68,7 @@ export class IntersectionManager {
 
   // Tuning constants (world meters / seconds).
   private readonly approachDistance = 12;
-  private readonly stopDistance = 1.5;
+  private readonly stopDistance = INTERSECTION_STOP_DISTANCE;
   private readonly stopTolerance = 0.25;
   private readonly clearDistance = 4;
   private readonly minStopTime = 1;

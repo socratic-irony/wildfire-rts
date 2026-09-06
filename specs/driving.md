@@ -2,6 +2,8 @@ Intersection Logic Spec (Vehicles on Procedural Roads)
 
 Status
 
+- Intersection signs and the controller share `INTERSECTION_STOP_DISTANCE` (1.5 world units) from `roads/trafficRules.ts`, so displayed stopping approaches agree with the enforced stop line.
+
 - ✅ Visible Frenet `PathFollower` vehicles use `IntersectionManager` for deterministic all-way-stop approach, queue, grant, occupancy, crossing, and clearance phases
 - ✅ Closed-loop-safe approach math controls both occurrences of a self-crossing figure-eight; simple shared endpoints are not misclassified as controlled intersections
 - ✅ Batch arbitration uses full-stop time then follower ID, so simultaneous arrivals are independent of per-frame update order

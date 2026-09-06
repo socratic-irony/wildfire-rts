@@ -9,6 +9,7 @@ import { worldToGridCell } from './terrain/coordinates';
 import { createTerrainMaterial } from './terrain/material';
 import { CameraController } from './core/cameraController';
 import { computeBiomesTuned } from './terrain/biomes';
+import { createVegetationClearance } from './actors/clearance';
 import { createForest } from './actors/trees';
 import { createShrubs } from './actors/shrubs';
 import { createRocks } from './actors/rocks';
@@ -202,6 +203,7 @@ loop.add((dt) => {
   };
 
   cam.update(dt, move);
+  if (vegetationDirty) refreshVegetationClearance();
   // Wind sway updates (Stage F)
   const t = performance.now() / 1000;
   forest?.update(t);
@@ -474,6 +476,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Stage F: vegetation
+let vegetationDirty = false;
 let forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio });
 scene.add(forest.group);
 
@@ -823,7 +826,26 @@ function rebuildPath2Ds() {
   intersectionManager.setPaths(path2ds.map((path, idx) => ({ path, intersections: pathIntersections[idx] || [] })));
 }
 
+function refreshVegetationClearance() {
+  vegetationDirty = false;
+  const exclusionMask = createVegetationClearance(roadMask, buildings);
+  const forestVisible = forest.group.visible;
+  const shrubsVisible = shrubs.group.visible;
+  scene.remove(forest.group, shrubs.group);
+  forest.dispose();
+  shrubs.dispose();
+  forest = createForest(hm, biomes, { density: worldCfg.densities.tree, broadleafRatio: worldCfg.densities.broadleafRatio, exclusionMask });
+  shrubs = createShrubs(hm, biomes, { density: worldCfg.densities.shrub, exclusionMask });
+  forest.group.visible = forestVisible;
+  shrubs.group.visible = shrubsVisible;
+  forest.applyFireTint(fireGrid);
+  shrubs.applyFireTint(fireGrid);
+  scene.add(forest.group, shrubs.group);
+  menubar.setRefs?.({ chunkGroup: chunked.group, forest, shrubs, rocks, fireGrid, followers });
+}
+
 function applyRoadPaths() {
+  vegetationDirty = true;
   roadsVis.clear();
   clearRoadMask(roadMask);
   for (const path of roadPaths) {
@@ -839,6 +861,7 @@ function applyRoadPaths() {
 }
 
 function buildRoadBetween(a: { x: number; z: number }, b: { x: number; z: number }) {
+  vegetationDirty = true;
   const path = buildPlannedRoadPath(hm, roadCost, a, b);
   if (!path.length) return false;
 
@@ -856,6 +879,7 @@ function buildRoadBetween(a: { x: number; z: number }, b: { x: number; z: number
 }
 
 function clearRoadNetwork() {
+  vegetationDirty = true;
   roadsVis.clear();
   clearRoadMask(roadMask);
   roadPaths = [];
@@ -970,6 +994,7 @@ function reseedRoadsAndVehicles(count = 2) {
   spawnFollowersOnAllPaths(3);
   buildings = generateBuildings(hm, fireGrid, roadMask, String(worldCfg.noise.seed));
   buildingsVisual.update(buildings);
+  vegetationDirty = true;
 }
 function clearFollowers() {
   for (const f of followers) scene.remove(f.object);

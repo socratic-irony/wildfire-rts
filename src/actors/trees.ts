@@ -10,6 +10,7 @@ import {
   MeshStandardMaterial,
   Object3D,
 } from 'three';
+import { mergePlantParts } from './plantGeometry';
 import { createLcg } from '../core/random';
 import type { Heightmap } from '../terrain/heightmap';
 import type { BiomeMask } from '../terrain/biomes';
@@ -18,7 +19,7 @@ import type { FireGrid } from '../fire/grid';
 import { FireState } from '../fire/grid';
 
 /** Maximum instance count in one draw batch. Keeps large maps bounded. */
-export const MAX_TREE_INSTANCES_PER_BATCH = 1024;
+export const MAX_TREE_INSTANCES_PER_BATCH = 16384;
 
 export const TREE_FAMILY_IDS = ['pine', 'tallFir', 'roundedBroadleaf', 'spreadingOak'] as const;
 export type TreeFamilyId = (typeof TREE_FAMILY_IDS)[number];
@@ -161,7 +162,7 @@ export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts 
   const roundedCrown = new DodecahedronGeometry(0.7, 0);
   const trunk = new CylinderGeometry(0.15, 0.22, 0.65, 6, 1);
   const oakBranch = new CylinderGeometry(0.07, 0.11, 0.72, 5, 1);
-  const geometries = [pineCone, firLowerCone, firUpperCone, firTopCone, roundedCrown, trunk, oakBranch];
+  const geometries: BufferGeometry[] = [pineCone, firLowerCone, firUpperCone, firTopCone, roundedCrown, trunk, oakBranch];
   for (const geometry of geometries) geometry.computeVertexNormals();
   pineCone.name = 'pine-tier';
   firLowerCone.name = 'fir-lower-tier';
@@ -269,9 +270,17 @@ export function createForest(hm: Heightmap, biomes: BiomeMask, opts: ForestOpts 
     const familyPartBatches: Record<string, TreeBatch[]> = {};
     const familyMeshes: InstancedMesh[] = [];
     familyBatches[familyId] = [];
-    for (const part of parts[familyId]) {
+    for (const materialKind of ['leaf', 'wood'] as const) {
+      const components = parts[familyId].filter(part => part.materialKind === materialKind);
+      const geometry = mergePlantParts(components);
+      geometry.name = `${familyId}-${materialKind}`;
+      geometries.push(geometry);
+      const part: TreePart = {
+        id: materialKind, geometry, materialKind, material: components[0].material,
+        offsetY: 0, scaleX: 1, scaleY: 1, scaleZ: 1,
+      };
       const batches = makeBatches(instances[familyId], part, familyId);
-      familyPartBatches[part.id] = batches;
+      for (const component of components) familyPartBatches[component.id] = batches;
       for (const batch of batches) {
         familyBatches[familyId].push(batch);
         familyMeshes.push(batch.mesh);

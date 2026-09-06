@@ -88,7 +88,7 @@ Key Abstractions & Data
   - FireViz: overlay instances and vertex tint; perimeter overlay hugging terrain; analytics via `computePerimeter` + `computeFireStats`.
 - Roads
   - CostField/planner: elevation/slope/valley; slope-block threshold; grade and curvature penalties live in `src/roads/planner.ts` so the main game and vehicle testbed share identical player-road planning.
-  - Visual: Catmull–Rom smoothed midlines resampled to uniform spacing (~2 tile asphalt width) with a 3-column cross-section; one normal-offset, depth-tested, double-sided asphalt mesh with coherent vertex-color variation so terrain and vehicles occlude it correctly; dusty shoulders blended back into terrain; polygon-offset solid edge and dashed center markings. Intersection aprons integrate with the asphalt and suppress markings inside their radius. Stop signs are generated from the same intersection occurrences: signs sit on the right side of each incoming approach, outside the shoulder, at a fixed stop distance, and use shared instanced board/border/glyph/pole resources. The production group must not stack a second filled baseline ribbon because the separation reads as variable road thickness on hills. Optional diagnostic wireframe and midline render under a hidden-by-default debug group.
+  - Visual: Catmull–Rom smoothed midlines resampled to uniform spacing (~2 tile asphalt width) with a 3-column cross-section; one normal-offset, depth-tested, double-sided asphalt mesh with coherent vertex-color variation so terrain and vehicles occlude it correctly; dusty shoulders blended back into terrain; polygon-offset solid edge and dashed center markings measured in planar XZ arc length. Intersection aprons integrate with the asphalt and suppress markings inside their radius. Stop signs are generated from the same intersection occurrences: signs sit on the right side of each incoming approach, outside the shoulder, at the shared `INTERSECTION_STOP_DISTANCE` stop line, and use shared instanced board/border/glyph/pole resources. The production group must not stack a second filled baseline ribbon because the separation reads as variable road thickness on hills. Optional diagnostic wireframe and midline render under a hidden-by-default debug group.
   - Mask: `Uint8Array` marking road tiles; consumed by vehicles pathing and fire integration.
   - Procedural: road loops are generated in tile space on boot/regenerate and re-projected onto the current heightmap via `RoadsVisual`.
 - Vehicles
@@ -113,6 +113,8 @@ Event Flow & Input
 - Manual dispatch UX: the dispatch panel only enables "Assign selected" when the currently selected follower can actually service the incident from its current road/path, using the same routeability rule as the dispatch logic.
 
 Performance Principles
+
+- Vegetation static lobes/branches are merged once per family/material by `actors/plantGeometry.ts`, then whole silhouettes are instanced (eight tree batches and three shrub batches on the default map). `actors/clearance.ts` builds a road/lot/driveway exclusion mask after edits; `main.ts` coalesces invalidations into one rebuild before the next frame, preserving visibility, fire tint, and seeded appearances.
 
 - Prefer InstancedMesh for repeated quads (fire overlays) and agents.
 - Avoid per-frame allocations where possible; reuse Vectors/Matrix4 in hot loops.

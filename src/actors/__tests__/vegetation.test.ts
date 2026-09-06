@@ -34,12 +34,14 @@ describe('procedural vegetation families', () => {
 
     expect(Object.keys(first.families)).toEqual(['pine', 'tallFir', 'roundedBroadleaf', 'spreadingOak']);
     expect(Object.values(first.families).every((family) => family.count > 0)).toBe(true);
+    expect(Object.values(first.families).every((family) => family.meshes.length <= 2)).toBe(true);
     expect(Object.values(first.families).map((family) => family.parts)).toEqual(
       Object.values(second.families).map((family) => family.parts),
     );
     expect(Object.values(first.families).map((family) => family.count)).toEqual(
       Object.values(second.families).map((family) => family.count),
     );
+    expect(first.meshes.length).toBeLessThanOrEqual(8);
     expect(first.meshes.every((mesh) => mesh.count <= MAX_TREE_INSTANCES_PER_BATCH)).toBe(true);
     expect(first.meshes.map((mesh) => mesh.geometry.name)).toEqual(second.meshes.map((mesh) => mesh.geometry.name));
     expect(first.meshes.map((mesh) => Array.from(mesh.instanceMatrix.array))).toEqual(
@@ -110,6 +112,8 @@ describe('procedural vegetation families', () => {
 
     expect(Object.keys(shrubs.families)).toEqual(['roundedMultiLobed', 'lowSpreadingScrub', 'uprightBrush']);
     expect(Object.values(shrubs.families).every((family) => family.count > 0)).toBe(true);
+    expect(Object.values(shrubs.families).every((family) => family.meshes.length === 1)).toBe(true);
+    expect(shrubs.meshes.length).toBeLessThanOrEqual(3);
     expect(shrubs.meshes.every((mesh) => mesh.count <= MAX_SHRUB_INSTANCES_PER_BATCH)).toBe(true);
     expect(new Set(Object.values(shrubs.families).flatMap((family) => family.parts)).size).toBeGreaterThan(2);
     shrubs.dispose();

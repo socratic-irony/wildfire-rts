@@ -1,3 +1,4 @@
+import { INTERSECTION_STOP_DISTANCE } from './trafficRules';
 import {
   BufferGeometry,
   CircleGeometry,
@@ -495,7 +496,7 @@ export class RoadsVisual {
   private computeStopSignApproaches(): StopSignApproach[] {
     const scale = this.hm.scale;
     const roadWidth = this.roadWidth || Math.max(scale * 1.6, scale * 1.1);
-    const stopDistance = Math.max(scale * 2.2, roadWidth * 1.45);
+    const stopDistance = INTERSECTION_STOP_DISTANCE;
     const shoulder = Math.max(scale * 0.45, roadWidth * 0.35);
     const lateralOffset = roadWidth * 0.5 + shoulder + scale * 0.55;
     const result: StopSignApproach[] = [];
@@ -558,7 +559,10 @@ export class RoadsVisual {
     const boardDepth = Math.max(scale * 0.08, 0.07);
     const signHeight = Math.max(scale * 2.0, 1.7);
     this.stopBoardGeo = new CylinderGeometry(radius, radius, boardDepth, 8);
+    this.stopBoardGeo.rotateX(Math.PI / 2);
+    this.stopBoardGeo.rotateZ(Math.PI / 8);
     this.stopBorderGeo = new RingGeometry(radius * 0.76, radius * 0.88, 8);
+    this.stopBorderGeo.rotateZ(Math.PI / 8);
     this.stopPoleGeo = new CylinderGeometry(Math.max(scale * 0.055, 0.045), Math.max(scale * 0.055, 0.045), signHeight, 8);
     this.stopGlyphGeo = buildStopGlyphGeometry(radius * 0.88, radius * 0.52);
     const count = this.stopSignApproaches.length;
@@ -577,7 +581,6 @@ export class RoadsVisual {
     const poleMatrix = new Matrix4();
     const normal = new Vector3();
     const horizontal = new Vector3();
-    const quaternion = new Quaternion();
     const scaleOne = new Vector3(1, 1, 1);
     const yAxis = new Vector3(0, 1, 0);
     for (let i = 0; i < count; i++) {
@@ -585,11 +588,10 @@ export class RoadsVisual {
       const terrainY = this.hm.sample(approach.signPos.x, approach.signPos.z);
       const boardCenter = new Vector3(approach.signPos.x, terrainY + signHeight * 0.82, approach.signPos.z);
       normal.set(-approach.direction.x, 0, -approach.direction.z).normalize();
-      quaternion.setFromUnitVectors(yAxis, normal);
-      boardMatrix.compose(boardCenter, quaternion, scaleOne);
-      boards.setMatrixAt(i, boardMatrix);
       horizontal.copy(yAxis).cross(normal).normalize();
       faceMatrix.makeBasis(horizontal, yAxis, normal);
+      boardMatrix.copy(faceMatrix).setPosition(boardCenter);
+      boards.setMatrixAt(i, boardMatrix);
       faceMatrix.setPosition(boardCenter.clone().addScaledVector(normal, boardDepth * 0.5 + 0.008));
       borders.setMatrixAt(i, faceMatrix);
       glyphs.setMatrixAt(i, faceMatrix);
@@ -974,7 +976,7 @@ function buildCenterDashed(frames: RoadFrame[], stripeWidth: number, dashLen: nu
     const aIdx = si;
     const bIdx = closed ? (si + 1) % N : si + 1;
     if (!closed && bIdx >= N) continue;
-    const segLen = frames[aIdx].center.distanceTo(frames[bIdx].center);
+    const segLen = planarFrameDistance(frames[aIdx], frames[bIdx]);
     if (segLen <= 1e-6) continue;
     let progressed = 0;
     while (progressed < segLen - 1e-6) {
@@ -1025,7 +1027,7 @@ function buildRoadEdgeStrips(frames: RoadFrame[], roadWidth: number, stripeWidth
     const bIdx = closed ? (si + 1) % frames.length : si + 1;
     const a = frames[aIdx];
     const b = frames[bIdx];
-    const segLen = a.center.distanceTo(b.center);
+    const segLen = planarFrameDistance(a, b);
     if (segLen <= 1e-6) continue;
     if (!rangeOverlaps(segmentStart, segmentStart + segLen, suppressRanges)) {
       const halfRoad = roadWidth * 0.5;
@@ -1063,11 +1065,15 @@ function rangeOverlaps(start: number, end: number, ranges: SuppressedRange[]) {
   return ranges.some((range) => start < range.end && end > range.start);
 }
 
+function planarFrameDistance(a: RoadFrame, b: RoadFrame) {
+  return Math.hypot(b.center.x - a.center.x, b.center.z - a.center.z);
+}
+
 function buildStopGlyphGeometry(width: number, height: number) {
   const geo = new BufferGeometry();
   const positions: number[] = [];
   const indices: number[] = [];
-  const stroke = Math.max(width * 0.12, 0.025);
+  const stroke = width * 0.038;
   const letterW = width * 0.18;
   const gap = width * 0.045;
   const totalW = letterW * 4 + gap * 3;
@@ -1079,10 +1085,12 @@ function buildStopGlyphGeometry(width: number, height: number) {
     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
   const glyphs: Array<Array<[number, number, number, number]>> = [
-    [[0, 0, stroke, height], [0, 0, letterW, stroke], [0, height * 0.5, letterW, stroke], [0, height - stroke, letterW, stroke], [letterW - stroke, 0, stroke, height * 0.5]],
-    [[0, 0, stroke, height], [0, 0, letterW * 0.8, stroke], [0, height * 0.5, letterW * 0.8, stroke], [0, height - stroke, letterW * 0.8, stroke], [letterW - stroke, height * 0.5, stroke, height * 0.5]],
-    [[0, 0, stroke, height], [0, 0, letterW, stroke], [0, height - stroke, letterW, stroke]],
-    [[0, 0, stroke, height], [0, 0, letterW, stroke], [0, height * 0.5, letterW * 0.85, stroke], [letterW - stroke, height * 0.5, stroke, height * 0.5]],
+    // S: top/middle/bottom, upper-left and lower-right strokes.
+    [[0, 0, letterW, stroke], [0, height / 2 - stroke / 2, letterW, stroke], [0, height - stroke, letterW, stroke], [0, 0, stroke, height / 2], [letterW - stroke, height / 2, stroke, height / 2]],
+    // T, O, P.
+    [[0, 0, letterW, stroke], [(letterW - stroke) / 2, 0, stroke, height]],
+    [[0, 0, letterW, stroke], [0, height - stroke, letterW, stroke], [0, 0, stroke, height], [letterW - stroke, 0, stroke, height]],
+    [[0, 0, stroke, height], [0, 0, letterW, stroke], [0, height / 2 - stroke / 2, letterW, stroke], [letterW - stroke, 0, stroke, height / 2]],
   ];
   glyphs.forEach((glyph, index) => {
     const x = left + index * (letterW + gap);

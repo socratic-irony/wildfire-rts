@@ -9,6 +9,7 @@ import {
   MeshStandardMaterial,
   Object3D,
 } from 'three';
+import { mergePlantParts } from './plantGeometry';
 import { createLcg } from '../core/random';
 import type { Heightmap } from '../terrain/heightmap';
 import type { BiomeMask } from '../terrain/biomes';
@@ -17,7 +18,7 @@ import type { FireGrid } from '../fire/grid';
 import { FireState } from '../fire/grid';
 
 /** Maximum instance count in one draw batch. Keeps dense chaparral bounded. */
-export const MAX_SHRUB_INSTANCES_PER_BATCH = 1024;
+export const MAX_SHRUB_INSTANCES_PER_BATCH = 32768;
 
 export const SHRUB_FAMILY_IDS = ['roundedMultiLobed', 'lowSpreadingScrub', 'uprightBrush'] as const;
 export type ShrubFamilyId = (typeof SHRUB_FAMILY_IDS)[number];
@@ -131,7 +132,7 @@ export function createShrubs(hm: Heightmap, biomes: BiomeMask, opts: ShrubOpts =
   const roundGeo = new IcosahedronGeometry(0.35, 1);
   const scrubGeo = new IcosahedronGeometry(0.4, 0);
   const brushGeo = new ConeGeometry(0.28, 0.8, 5, 1);
-  const geometries = [roundGeo, scrubGeo, brushGeo];
+  const geometries: BufferGeometry[] = [roundGeo, scrubGeo, brushGeo];
   for (const geometry of geometries) geometry.computeVertexNormals();
   roundGeo.name = 'rounded-shrub-lobe';
   scrubGeo.name = 'spreading-scrub-clump';
@@ -201,14 +202,15 @@ export function createShrubs(hm: Heightmap, biomes: BiomeMask, opts: ShrubOpts =
   for (const familyId of SHRUB_FAMILY_IDS) {
     const familyMeshes: InstancedMesh[] = [];
     familyBatches[familyId] = [];
-    for (const part of parts[familyId]) {
-      const batches = makeBatches(instances[familyId], part, familyId, mat);
-      for (const batch of batches) {
-        familyBatches[familyId].push(batch);
-        familyMeshes.push(batch.mesh);
-        visibleMeshes.push(batch.mesh);
-        group.add(batch.mesh);
-      }
+    const geometry = mergePlantParts(parts[familyId]);
+    geometry.name = familyId;
+    geometries.push(geometry);
+    const part: ShrubPart = { id: 'shape', geometry, offsetY: 0, scaleX: 1, scaleY: 1, scaleZ: 1 };
+    for (const batch of makeBatches(instances[familyId], part, familyId, mat)) {
+      familyBatches[familyId].push(batch);
+      familyMeshes.push(batch.mesh);
+      visibleMeshes.push(batch.mesh);
+      group.add(batch.mesh);
     }
     families[familyId] = { count: instances[familyId].length, parts: parts[familyId].map((part) => part.id), meshes: familyMeshes };
   }
