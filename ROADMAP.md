@@ -69,14 +69,14 @@ Lower-risk once Phase 1 lands.
 ## Phase 4 — World fidelity and connected traffic (2026-09-05)
 
 Diagnosis and acceptance criteria: [world fidelity diagnosis](docs/plans/2026-09-05-world-fidelity-diagnosis.md).
-Seven isolated Luna implementation tasks were dispatched. Visual changes are integrated; final combined runtime acceptance remains in progress, including a repair for omitted turn-loop wiring and sustained hydrant supply validation.
+Seven isolated Luna implementation tasks were dispatched and reviewed. Integrated checks pass 319 tests, production build, and all 19 browser scenarios. Hydrant supply and connected turns have direct runtime acceptance; one final terrain-conforming intersection apron correction remains under review.
 
-- [~] **Detailed vehicle models** — shaped bodies, distinct silhouettes, readable glazing and equipment, preserving animation hooks and bounded rendering cost.
+- [x] **Detailed vehicle models** — shaped bodies, distinct silhouettes, readable glazing and equipment, preserving animation hooks and bounded rendering cost.
 - [~] **Realistic roads + stop signs** — coherent two-lane markings, shoulders and intersection surfaces; signs face controlled incoming approaches and stay off pavement.
-- [~] **Tree and shrub families** — distinct canopy/branch and shrub forms, deterministic instanced generation, retained fire tinting.
-- [~] **Road-facing buildings and lots** — varied structures, frontage orientation, setbacks, footprint clearance and driveway access; retained fire/scoring behavior.
-- [~] **Visible hydrant supply** — actual dispatched ground units draw from active sources; refill/supply status is visible; removal, disablement and range restore tank limitations. The existing boost-only audit does not verify sustained truck supply.
-- [~] **Connected-road turns** — civilians choose continuous left/through/right movements while preserving full-stop queues, exclusive occupancy, exit clearance and spacing.
+- [x] **Tree and shrub families** — distinct canopy/branch and shrub forms, deterministic instanced generation, retained fire tinting.
+- [x] **Road-facing buildings and lots** — varied structures, frontage orientation, setbacks, footprint clearance and driveway access; retained fire/scoring behavior.
+- [x] **Visible hydrant supply** — actual dispatched ground units draw from active sources; refill/supply status is visible; removal, disablement and range restore tank limitations. The real-dispatch audit verifies 4,224 L beyond an empty tank, source removal, and redraw preservation.
+- [x] **Connected-road turns** — civilians choose continuous left/through/right movements while preserving full-stop queues, exclusive occupancy, exit clearance and spacing.
 - [x] **Particle and fog clarity** — lighter distant atmosphere and rising, fading wind-driven smoke. Fixed terrain skirt color NaNs that blacked out HDR bloom; default fire rendering inspected after the fix.
 
 ## Deferred

@@ -63,6 +63,8 @@ type HydrantSystem = {
 
 ## Implementation Notes
 
+- Suppression and logistics perform no state changes for `dt <= 0`; a redraw with no water demand must not be treated as supply exhaustion.
+
 - Data lives in plain arrays (array-of-structs). Performance has been adequate; migrate to typed arrays only if profiling calls for it.
 - `updateHydrantPlacement` recomputes candidates from the full road mask, then `placeHydrant` enforces minimum spacing before committing. This double check keeps legacy hydrants compatible with new spacing rules.
 - Offsets alternate left/right by sampling the local road tangent (`findRoadDirection`) and shifting 1.4 tiles perpendicular before converting to meters (`cellSize`); a clearance fallback moves farther out when the rounded roadside cell is still part of a wide road stamp.
@@ -217,7 +219,7 @@ function updateHydrantVisual(visual: HydrantVisual, system: HydrantSystem): void
 
 - ✅ Unit tests cover straight-road roadside placement, active draw-radius lookup, coverage behavior, source removal, and HUD supply labels.
 - ✅ Browser audit fixture `hydrant-ground-supply` exercises a dispatched truck, sustained direct supply, and removed-source fallback; run it on an isolated port in the integrated checkout.
-- ⏳ The browser audit still needs a fresh integrated run after parallel task merges; this isolated task has not claimed that run as passing.
+- ✅ Fresh integrated `hydrant-ground-supply` run on 2026-09-06 verified 4,224 L of direct suppression after a 4,000 L tank was emptied, wetness application on every controlled-fire step, source-removal fallback, and assignment/connection preservation during zero-time redraws. The fixture selects a reachable source from world coordinates and removes alternate sources before checking removal.
 
 ## Outstanding Questions
 

@@ -62,11 +62,11 @@ import { getLogger } from '../tools/logging/index.js';
 
 declare global {
   interface Window {
-    advanceTime?: (ms: number) => void;
+    advanceTime?: (ms: number, renderAfter?: boolean) => void;
     render_game_to_text?: () => string;
     __wildfireTestApi?: {
       getState: () => ReturnType<typeof buildGameState>;
-      advanceTime: (ms: number) => void;
+      advanceTime: (ms: number, renderAfter?: boolean) => void;
       igniteCenter: () => boolean;
       igniteTile: (x: number, z: number, intensity?: number) => boolean;
       clearFire: () => void;
@@ -361,6 +361,7 @@ loop.add((dt) => {
         current.path = route.continuationPath;
         current.s = route.continuationS;
         followers[idx].turnRoute = null;
+        followers[idx].turnHandoffCount++;
       }
     }
   }
@@ -710,6 +711,7 @@ type ActiveFollower = {
   style: CivilianStyle | null;
   color: number | null;
   turnRoute: TurnRoute | null;
+  turnHandoffCount: number;
 };
 
 let followers: ActiveFollower[] = [];
@@ -995,7 +997,7 @@ function spawnFollowerOnPath(p: Path2D, startS: number, vehicleType: VManagerVeh
     payload: createPayload(vehicleType), busy: false, assignedIncidentId: null,
     returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null,
     refillTarget: null, hydrantSupplyId: null, hydrantStatus: 'none', hydrantLink,
-    style: look?.style ?? null, color: look?.color ?? null, turnRoute: null,
+    style: look?.style ?? null, color: look?.color ?? null, turnRoute: null, turnHandoffCount: 0,
   });
   markFollowerMembershipChanged();
 }
@@ -1210,6 +1212,9 @@ function updateHydrantLink(entry: ActiveFollower) {
 }
 
 function updateFollowerSuppression(dt: number) {
+  // Render-only ticks request no water. Preserve the current assignment and
+  // supply state instead of treating zero demand as an exhausted source.
+  if (dt <= 0) return;
   for (const entry of followers) {
     entry.fxState.sprayingWater = false;
     entry.hydrantSupplyId = null;
@@ -1295,6 +1300,7 @@ function updateFollowerSuppression(dt: number) {
 }
 
 function updateFollowerLogistics(dt: number) {
+  if (dt <= 0) return;
   for (const entry of followers) {
     const loadFactor =
       entry.payload.waterCapacity > 0
@@ -1429,7 +1435,7 @@ function buildGameState() {
   const trafficByFollower = new Map(traffic.followers.map((state) => [state.id, state]));
   const roadTileCount = roadMask.mask.reduce((sum, cell) => sum + cell, 0);
   let minimumFollowerGap: number | null = null;
-  for (const path of path2ds) {
+  for (const path of new Set(followers.map((entry) => entry.follower.path))) {
     const onPath = followers
       .filter((entry) => entry.follower.path === path && !isOffroadOrderType(entry.type))
       .map((entry) => entry.follower.s)
@@ -1508,6 +1514,8 @@ function buildGameState() {
         id: hydrant.id,
         x: hydrant.gridPos.x,
         z: hydrant.gridPos.z,
+        worldX: hydrant.worldPos.x,
+        worldZ: hydrant.worldPos.z,
         coverageRadius: hydrant.coverageRadius,
         active: hydrant.active,
       })),
@@ -1539,6 +1547,7 @@ function buildGameState() {
           intersectionId: trafficByFollower.get(entry.id)?.intersectionId ?? null,
           trafficMovement: trafficByFollower.get(entry.id)?.movement ?? null,
           turning: entry.turnRoute != null,
+          turnHandoffCount: entry.turnHandoffCount,
           busy: entry.busy,
           returningToBase: entry.returningToBase,
           assignedIncidentId: entry.assignedIncidentId,
@@ -1574,22 +1583,23 @@ function buildGameTextState() {
 }
 
 window.render_game_to_text = () => buildGameTextState();
-window.advanceTime = (ms: number) => {
+window.advanceTime = (ms: number, renderAfter = true) => {
   const clampedMs = Math.max(0, ms);
   // Preserve deterministic 50 ms simulation chunks, but avoid rendering every
   // intermediate frame under software WebGL during browser audits.
   const steps = Math.max(1, Math.ceil(clampedMs / 50));
   const stepMs = clampedMs / steps;
   suppressRenderDuringAdvance = true;
-  for (let i = 0; i < steps; i++) {
-    loop.step(stepMs);
+  try {
+    for (let i = 0; i < steps; i++) loop.step(stepMs);
+  } finally {
+    suppressRenderDuringAdvance = false;
   }
-  suppressRenderDuringAdvance = false;
-  loop.step(0);
+  if (renderAfter) loop.step(0);
 };
 window.__wildfireTestApi = {
   getState: () => buildGameState(),
-  advanceTime: (ms) => window.advanceTime?.(ms),
+  advanceTime: (ms, renderAfter) => window.advanceTime?.(ms, renderAfter),
   igniteCenter: () => {
     igniteTiles(fireGrid, [{ x: Math.floor(hm.width / 2), z: Math.floor(hm.height / 2) }], 0.8);
     return true;

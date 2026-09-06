@@ -22,7 +22,7 @@ Browser audit is being checked separately; static gates do not establish visual 
 
 ## Selected approach
 
-Improve the existing procedural low-poly aesthetic and Frenet architecture. Asset-pack replacement would add licensing/size concerns without fixing placement or traffic; a complete traffic rewrite would jeopardize dispatch and suppression. Use small modules and deterministic generation. Keep work in six isolated Luna tasks: vehicle fidelity; road presentation/signs; vegetation; buildings/lots; hydrant gameplay; intersection turns. Parent reviews and integrates every result, resolves overlap in specs/main/audits, and runs the combined gates.
+Improve the existing procedural low-poly aesthetic and Frenet architecture. Asset-pack replacement would add licensing/size concerns without fixing placement or traffic; a complete traffic rewrite would jeopardize dispatch and suppression. Use small modules and deterministic generation. Keep work in seven isolated Luna tasks: vehicle fidelity; road presentation/signs; vegetation; buildings/lots; hydrant gameplay; intersection turns; smoke/fog. Parent reviews and integrates every result, resolves overlap in specs/main/audits, and runs the combined gates.
 
 ## Acceptance
 
@@ -36,13 +36,15 @@ Improve the existing procedural low-poly aesthetic and Frenet architecture. Asse
 
 ## Execution status
 
-### Latest integration review — 2026-09-05 21:04 PDT
+### Latest integration review — 2026-09-06
 
-- Main includes reviewed vehicle, road/sign, vegetation/clearance, building/roof, smoke/fog, and hydrant changes. The integrated gate passed 70 files / 316 tests before the latest terrain/dispatch corrections. Nothing has been pushed; fetched origin was zero behind, with 70 local commits ahead at that checkpoint.
-- **Correction to the earlier turning report:** `48cd277` was integrated without its `1276ffc` prerequisite. Compile-only declarations hid missing runtime wiring: the router was never populated and turn handoff/occupancy logic was absent. The existing turning task is preparing a scoped repair against the integrated checkout. Passing old intersection tests does not prove physical turns.
-- Black default rendering is fixed in `c6d6043`. Terrain chunk base-color snapshots omitted skirt vertices; fire tinting read past the snapshots and wrote NaNs. Bloom spread those pixels across the frame. Saving the complete geometry color attributes fixes a regression covering both LODs and four fire states. Default fire screenshot `/tmp/wildfire-default-fire.png` is visible; isolated scene render target now contains zero non-finite values. The original composer remains unchanged; the fog task's speculative filtering workaround was rejected.
-- Hydrant ground-supply browser acceptance still fails. `0d99bb0` fixes bounded backward dispatch from open endpoints; the first proposed correction was rejected because it teleported. The latest audit confirms movement but the incident clears before the fixture observes engagement. The hydrant task has the sole browser slot to diagnose this lifecycle/fixture interaction and verify actual sustained supply and source removal.
-- Browser validation stays serialized, with cleanup after each probe. Full audit previously passed scenarios through hydrant-refill, then failed hydrant-ground-supply; later scenarios were not reached. Do not report a complete browser pass yet.
+- All seven implementation scopes are integrated. Fresh origin fetch confirms 75 commits ahead and zero behind at `9a05e16`; nothing has been pushed.
+- Actual turn-loop repair landed as `3aa96e4`. The strengthened integrated traffic browser audit now passes observed left/right movements, retained occupancy, outbound handoffs, world-space progress, bounded movement, spacing and drained queues. Evidence: `/var/folders/b3/hppdf3jn0rx_j5sfr77bqhfr0000gp/T/wildfire-rts-audit-zwYMo7/traffic-contention.png`.
+- Hydrant lifecycle root cause was a zero-time redraw: suppression interpreted zero demand as an empty source, sent the truck home and reopened its incident. Suppression/logistics now ignore `dt <= 0`. The improved real-dispatch fixture selects a reachable source by world coordinates and batches controlled-fire steps without intermediate rendering. It passed 4,224 L of direct supply beyond an empty 4,000 L tank, per-step wetness application, source-removal fallback, and preservation across redraws. Evidence: `/var/folders/b3/hppdf3jn0rx_j5sfr77bqhfr0000gp/T/wildfire-rts-audit-IhzjwD`.
+- Fresh `npm run check` passes 72 files / 319 tests and the production build. The full integrated browser suite passed all 19 scenarios, sequentially, with artifacts at `/var/folders/b3/hppdf3jn0rx_j5sfr77bqhfr0000gp/T/wildfire-rts-audit-Rdnc9o`.
+- Screenshot review caught a flat intersection apron clipping/hovering on slopes. The existing road task is preparing a bounded terrain-conforming correction and regression; visual completion remains pending that review.
+- Black default rendering was fixed in `c6d6043`: terrain skirt color snapshots omitted vertices, so fire tinting wrote NaNs that bloom spread across the frame. Default fire screenshot `/tmp/wildfire-default-fire.png` is visible after the fix. The speculative composer filtering workaround remains rejected.
+- Browser work remains serialized with cleanup. Vitest uses at most two workers. Luna hydrant/traffic tasks were resumed for bounded review; their corrections have been checked by the parent.
 
 The older notes below retain the original task IDs and review history; this latest section supersedes their status claims.
 

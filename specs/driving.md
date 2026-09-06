@@ -2,7 +2,7 @@ Intersection Logic Spec (Vehicles on Procedural Roads)
 
 Status
 
-- Integrated civilian turn wiring populates routes after road rebuilds, retains exclusive occupancy while traversing the turn, and hands the follower to its canonical outbound road after clearance. Telemetry exposes the selected movement and whether a turn is active. Browser verification of this integration is pending.
+- Integrated civilian turn wiring populates routes after road rebuilds, retains exclusive occupancy while traversing the turn, and hands the follower to its canonical outbound road after clearance. Telemetry exposes the selected movement, active turn state, and completed outbound handoff count. Minimum follower gap includes canonical reverse roads and temporary paths. The browser audit now requires observed left/right turns, occupancy through multiple samples, completed handoffs, and bounded world displacement; the fresh integrated run passed on 2026-09-06.
 
 - Intersection signs and the controller share `INTERSECTION_STOP_DISTANCE` (1.5 world units) from `roads/trafficRules.ts`, so displayed stopping approaches agree with the enforced stop line.
 
@@ -11,7 +11,7 @@ Status
 - ✅ Batch arbitration uses full-stop time then follower ID, so simultaneous arrivals are independent of per-frame update order
 - ✅ Braking-envelope speed caps, minimum full-stop time, same-path headway, closed-loop seam spacing, and outbound spillback probes are active; when a civilian turn is planned, the probe evaluates that selected outbound path/arc before granting entry
 - ✅ `render_game_to_text`/`__wildfireTestApi` expose queues, occupants, phases, and minimum path gap; the Playwright `traffic-intersection` scenario verifies four-car fairness and clearance
-- ⏳ Directed lane-graph routing and turn selection remain future work; followers currently continue on their assigned centerline through crossings
+- ✅ Local connected civilian turn selection and cubic movement paths are implemented. Persistent lane-graph storage and destination routing across multiple intersections remain future work.
 
 0) Goals
 	•	No collisions, no deadlocks, no jitter.
@@ -323,7 +323,7 @@ Current automated coverage (2026-07-12):
 
 13) Implementation Order
 
-The current controller implements an exclusive-occupancy all-way-stop subset across steps 1–3. Directed movement splines, conflict matrices/tokens, and turn routing remain deferred with the lane graph; step 4+ remains optional future capacity work.
+The current controller implements an exclusive-occupancy all-way-stop subset across steps 1–3. Local directed movement splines and civilian turn routing are implemented. Conflict matrices/tokens and persistent lane-graph storage remain deferred; step 4+ remains optional future capacity work.
 	1.	Geometry & data: stop lines, movement splines, conflict matrix (or zones).
 	2.	Vehicle state machine around nodes; spillback check.
 	3.	All-way stop manager with deterministic ordering.

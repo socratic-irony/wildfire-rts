@@ -54,9 +54,9 @@ Repository Topology
   - `src/vehicles/trafficSpacing.ts`: assigns same-path leaders including the virtual closed-loop seam leader.
   - `src/vehicles/menubarMapping.ts`: UI type mapping for spawn commands.
   - `src/vehicles/voxelMeshes.ts`: voxel vehicle builders; unreferenced decorative parts are merged at build time into a few multi-material meshes (transforms baked into cloned geometries, per-vertex color attribute, geometry groups per material bucket) while named hook parts (`ladder`, `blade`, `rotor`, `skid`, `wings`, `tailFin`, `helmet`, `lightbar`, `userData.mainRotor/yieldIndicator`) stay as separate meshes/groups per the `meshes.test.ts` contract.
-- **Fire Hydrants (HIGH PRIORITY)**: `src/fire/hydrants.ts`: automatic placement along roads (50m spacing, 100+ tiles min), coverage areas (~10m), integration with suppression system to enable firefighter deployment from road tiles within coverage.
+- **Fire Hydrants (HIGH PRIORITY)**: `src/fire/hydrants.ts`: automatic roadside placement with 8-tile minimum / 10-tile ideal spacing, a 25-tile suppression-boost radius, and active ground-unit water supply within 6 world metres of a source (see `specs/fire_hydrants.md`).
 - UI/Debug: `src/ui/debug.ts`: floating stats with memory usage; toggles for fire viz, roads, vehicles (spawn/move/clear). `src/ui/menubar.ts` owns the primary toolbar and detailed debug controls, including road lattice diagnostics and optional hydrant coverage rings. `src/ui/console.ts`: command console for introspection and debugging. `src/config/features.ts`: feature flag system for debug tools.
-- Browser automation: `src/main.ts` exposes `window.render_game_to_text()`, `window.advanceTime(ms)`, and `window.__wildfireTestApi` so Playwright/browser audits can inspect live game state, fast-forward the loop, and exercise fire/road/vehicle flows deterministically without brittle pixel-only input. The test API also supports `spawnVehicleAt(type, gridX, gridZ)` for deterministic roadside dispatch fixtures. `advanceTime` keeps 50 ms simulation chunks but suppresses intermediate renders so software-WebGL audit runs stay bounded.
+- Browser automation: `src/main.ts` exposes `window.render_game_to_text()`, `window.advanceTime(ms)`, and `window.__wildfireTestApi` so Playwright/browser audits can inspect live game state, fast-forward the loop, and exercise fire/road/vehicle flows deterministically without brittle pixel-only input. The test API also supports `spawnVehicleAt(type, gridX, gridZ)` for deterministic roadside dispatch fixtures. `advanceTime(ms, renderAfter = true)` keeps 50 ms simulation chunks and suppresses intermediate renders; passing `false` also skips the final redraw so a controlled-fire audit can batch hundreds of updates in one browser call. Suppression and logistics ignore zero-time redraws, preserving assignments, payloads, and active source connections. State telemetry includes hydrant world coordinates, active turn movement, and completed turn handoff counts.
 - Repo automation: `scripts/qa/playwright_audit.ts` powers `npm run audit:game`, which launches the local Vite app and verifies the current MVP loop (bootstrap, roads, vehicles, suppression, auto-dispatch, manual dispatch) against the live browser build.
 - Specs: `specs/` contains domain specs (terrain, fire_behavior, vehicles, architecture).
 - Root docs: `AGENTS.md` (guidelines, commit hygiene).
@@ -95,11 +95,11 @@ Key Abstractions & Data
   - Agent: `{ pos, grid, path[], pathIdx, speedTilesPerSec, autoFollowRoad, prev? }`.
   - Movement: interpolate along grid path; altitude from heightmap; orientation from terrain normal + path direction.
   - Pathing: A* restricted to road tiles; auto-follow advances along connected road neighbors.
-  - Visible Frenet traffic: `Path2D` centerline motion with right-side lane offset and terrain-normal road clearance; `IntersectionManager` owns traffic phase and grants. Cars currently continue on their assigned centerline at crossings rather than switching directed edges.
+  - Visible Frenet traffic: `Path2D` centerline motion with right-side lane offset and terrain-normal road clearance; `IntersectionManager` owns traffic phase and grants. Civilian cars choose connected left/through/right movements using stable intersection IDs. A temporary cubic path retains controller occupancy until outbound clearance, then hands off to a canonical forward or reverse road. Service-unit destination routing across multiple roads remains future work.
 - **Fire Hydrants (HIGH PRIORITY)**
   - System: `{ hydrants[], roadMask, minSpacingTiles, idealSpacingTiles }` with automatic placement and coverage calculation.
-  - Placement: Auto-spawn every ~50m along roads with 100+ tile minimum spacing; dynamic updates on road changes.
-  - Coverage: ~10m radius areas enabling firefighter deployment and unlimited water supply from road tiles.
+  - Placement: Auto-spawn with 8-tile minimum / 10-tile ideal spacing; dynamic updates on road changes. Distances in metres scale with the heightmap.
+  - Coverage: 25-tile disk boosts suppression by 1.5×. Direct water supply requires a ground unit within 6 world metres of an active source; aircraft are excluded.
   - Visualization: hydrant markers are visible by default; coverage radius rings start hidden and can be enabled from detailed debug controls.
   - Integration: Extends `applyWaterAoE` suppression system; complements firetruck capabilities.
 
@@ -151,7 +151,7 @@ Testing Strategy
   - FireSim tick transitions and ignition probabilities (deterministic seeds).
   - A* path validity and slope/turn costs.
 - Browser audits use `render_game_to_text`, `advanceTime`, and `__wildfireTestApi` to verify live feature claims such as road placement, hydrant regeneration, vehicle spawning/dispatch, and suppression outcomes against the rendered scene.
-- The `traffic-intersection` browser scenario creates two crossing roads and four cars, then verifies queue formation, deterministic all-way-stop service, exclusive occupancy, minimum spacing, non-overlap, progress, drained queues, and error-free WebGL rendering while capturing visible stopped-car contention.
+- The `traffic-intersection` browser scenario creates two crossing roads and four cars, then verifies queue formation, deterministic all-way-stop service, exclusive occupancy, left/right turns, occupancy retained during turns, completed outbound handoffs, gaps across all active path identities, non-overlap, bounded world displacement, progress, drained queues, and error-free WebGL rendering while capturing visible stopped-car contention.
 - `npm run audit:game` is the current end-to-end browser verification entry point and should be rerun after changes that touch movement, UI actions, dispatch, or fire suppression flows. Audit hardening rules (enforced in the harness):
   - Audit pages load with `?nofx=1` so the post-processing composer is skipped — assertions read state, not pixels, and software-GL (SwiftShader) rendering makes bloom pure CPU cost.
   - The dev server spawns with `--strictPort`; a busy port fails loudly instead of silently auditing whatever stale server owns it.
@@ -177,8 +177,8 @@ LLM Orientation Checklist
 Open Opportunities / Next Items
 
 - Fire: edge-based line strength; crown behavior; UI paint tools; wire stats into UI.
-- Roads: directed lane graph, road-class metadata, turn splines, and cross-component intersection routing.
-- Vehicles: turn selection across the future lane graph; compatible conflict-zone tokens/signals; retirement of the deprecated grid traffic stack.
+- Roads: persistent directed lane graph, road-class metadata, and destination routing across multiple intersections; local connected turn splines are implemented.
+- Vehicles: destination routing across the future lane graph; compatible conflict-zone tokens/signals; retirement of the deprecated grid traffic stack.
 - Repository maintenance: strict unused-code checking and the maintained-source graph are enforced. Shared deterministic random, coordinate conversion, and water-application helpers replace proven duplication. Continue reducing oversized orchestration modules only behind characterization tests while preserving documented app and testbed behavior. The approved implementation sequence is recorded in `docs/plans/2026-07-12-repository-cleanup.md`.
 - (v2.0+) Scenario persistence (save/load) – out of scope for current milestone.
 - Telemetry: per-subsystem timings in stats overlay; debug draws (normals, probability arrows).

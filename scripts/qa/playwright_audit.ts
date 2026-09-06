@@ -15,7 +15,7 @@ type GameState = {
     intersections: Array<{ id: number; queue: number[]; occupantId: number | null }>;
     pendingEndpoints: Array<{ x: number; z: number }>;
   };
-  hydrants: { count: number; positions: Array<{ id: number; x: number; z: number; coverageRadius: number; active: boolean }> };
+  hydrants: { count: number; positions: Array<{ id: number; x: number; z: number; worldX: number; worldZ: number; coverageRadius: number; active: boolean }> };
   fire: {
     burningCount: number;
     smolderingCount: number;
@@ -35,12 +35,15 @@ type GameState = {
       z: number;
       speed: number;
       s: number;
+      trafficMovement: 'left' | 'through' | 'right' | null;
+      turning: boolean;
+      turnHandoffCount: number;
       trafficPhase: string;
       intersectionId: number | null;
       busy: boolean;
       returningToBase: boolean;
       assignedIncidentId: number | null;
-      hydrantStatus: 'none' | 'en-route' | 'refilling' | 'connected' | 'unavailable';
+      hydrantStatus: 'none' | 'nearby' | 'en-route' | 'refilling' | 'connected' | 'unavailable';
       hydrantSupplyId: number | null;
       refillTargetHydrantId: number | null;
       water: number;
@@ -162,7 +165,15 @@ async function trafficIntersectionScenario(baseUrl: string, artifactDir: string)
     assert(start.roads.intersectionCount === 1, `Expected 1 controlled intersection, got ${start.roads.intersectionCount}`);
     assert(start.vehicles.count === 4, `Expected 4 traffic vehicles, got ${start.vehicles.count}`);
 
-    const startingS = new Map(start.vehicles.followers.map((vehicle) => [vehicle.id, vehicle.s]));
+    const startingHandoffCounts = new Map(start.vehicles.followers.map((vehicle) => [vehicle.id, vehicle.turnHandoffCount]));
+    const previousPositions = new Map(start.vehicles.followers.map((vehicle) => [vehicle.id, { x: vehicle.x, z: vehicle.z }]));
+    const accumulatedProgress = new Map(start.vehicles.followers.map((vehicle) => [vehicle.id, 0]));
+    const wasTurning = new Map(start.vehicles.followers.map((vehicle) => [vehicle.id, false]));
+    const turnSamples = new Map<number, number>();
+    const turnedIds = new Set<number>();
+    const handedOffIds = new Set<number>();
+    const observedMovements = new Set<'left' | 'right'>();
+    let previousElapsed = start.world.elapsed;
     const served = new Set<number>();
     let sawQueue = false;
     let contentionCaptured = false;
@@ -170,8 +181,11 @@ async function trafficIntersectionScenario(baseUrl: string, artifactDir: string)
     let minimumWorldDistance = Infinity;
 
     for (let tick = 0; tick < 100; tick++) {
-      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(250));
+      await page.evaluate(() => window.__wildfireTestApi!.advanceTime(250, false));
       const state = await getState(page);
+      // PathFollower permits a 1.35 downhill multiplier on its 10 m/s cap.
+      const maximumStepDistance = (state.world.elapsed - previousElapsed) * 13.5 + 0.75;
+      previousElapsed = state.world.elapsed;
       const intersection = state.roads.intersections[0];
       assert(intersection, 'Controlled intersection disappeared during the traffic run');
       if (intersection.queue.length > 0) sawQueue = true;
@@ -182,6 +196,26 @@ async function trafficIntersectionScenario(baseUrl: string, artifactDir: string)
       for (let i = 0; i < state.vehicles.followers.length; i++) {
         const a = state.vehicles.followers[i];
         assert(Number.isFinite(a.x) && Number.isFinite(a.y) && Number.isFinite(a.z), `Vehicle ${a.id} has a non-finite transform`);
+        const previous = previousPositions.get(a.id);
+        if (previous) {
+          const stepDistance = Math.hypot(a.x - previous.x, a.z - previous.z);
+          assert(Number.isFinite(stepDistance) && stepDistance <= maximumStepDistance, `Vehicle ${a.id} made an unbounded movement step (${stepDistance.toFixed(2)}m, limit ${maximumStepDistance.toFixed(2)}m)`);
+          accumulatedProgress.set(a.id, (accumulatedProgress.get(a.id) ?? 0) + stepDistance);
+        }
+        previousPositions.set(a.id, { x: a.x, z: a.z });
+        if (a.turning) {
+          assert(a.trafficMovement === 'left' || a.trafficMovement === 'right' || a.trafficMovement === 'through', `Vehicle ${a.id} reported turning without a movement classification`);
+          assert(intersection.occupantId === a.id, `Turning vehicle ${a.id} did not retain intersection occupancy`);
+          turnedIds.add(a.id);
+          turnSamples.set(a.id, (turnSamples.get(a.id) ?? 0) + 1);
+          if (a.trafficMovement === 'left' || a.trafficMovement === 'right') observedMovements.add(a.trafficMovement);
+        }
+        if (wasTurning.get(a.id) && !a.turning) {
+          const initialHandoffs = startingHandoffCounts.get(a.id) ?? 0;
+          assert(a.turnHandoffCount > initialHandoffs, `Vehicle ${a.id} stopped turning without an outbound handoff`);
+          handedOffIds.add(a.id);
+        }
+        wasTurning.set(a.id, a.turning);
         for (let j = i + 1; j < state.vehicles.followers.length; j++) {
           const b = state.vehicles.followers[j];
           minimumWorldDistance = Math.min(minimumWorldDistance, Math.hypot(a.x - b.x, a.z - b.z));
@@ -189,6 +223,7 @@ async function trafficIntersectionScenario(baseUrl: string, artifactDir: string)
       }
       const visiblyQueued = state.vehicles.followers.filter((vehicle) => vehicle.trafficPhase === 'queued').length;
       if (!contentionCaptured && visiblyQueued >= 2) {
+        await page.evaluate(() => window.__wildfireTestApi!.advanceTime(0));
         await screenshot(page, artifactDir, 'traffic-contention');
         contentionCaptured = true;
       }
@@ -198,11 +233,14 @@ async function trafficIntersectionScenario(baseUrl: string, artifactDir: string)
     assert(sawQueue, 'No vehicle queue formed at the all-way stop');
     assert(contentionCaptured, 'The scenario never reached visible multi-vehicle contention');
     assert(served.size === 4, `FIFO fairness failed: only ${served.size}/4 vehicles received intersection occupancy`);
+    assert(observedMovements.has('left') && observedMovements.has('right'), `Connected-road turns were not both observed (movements=${[...observedMovements].join(',') || 'none'})`);
+    assert([...turnSamples.values()].some((samples) => samples >= 2), 'No turning vehicle retained occupancy across multiple audit samples');
+    assert(turnedIds.size > 0 && handedOffIds.size === turnedIds.size, `Not every observed turn completed an outbound handoff (${handedOffIds.size}/${turnedIds.size})`);
     assert(minimumGap >= 1.9, `Same-path following gap fell below safety target (${minimumGap.toFixed(2)}m)`);
     assert(minimumWorldDistance >= 0.75, `Vehicle transforms overlapped (${minimumWorldDistance.toFixed(2)}m minimum)`);
     for (const vehicle of end.vehicles.followers) {
-      const initial = startingS.get(vehicle.id);
-      assert(initial != null && vehicle.s - initial > 8, `Vehicle ${vehicle.id} did not make progress through the intersection`);
+      const progress = accumulatedProgress.get(vehicle.id) ?? 0;
+      assert(progress > 8, `Vehicle ${vehicle.id} did not accumulate progress through the intersection (${progress.toFixed(2)}m)`);
     }
     assert(end.roads.intersections[0].queue.length === 0, 'Intersection queue did not drain');
     assert(end.roads.intersections[0].occupantId == null, 'Intersection occupant did not clear');
@@ -783,84 +821,76 @@ async function hydrantGroundSupplyScenario(baseUrl: string, artifactDir: string)
       api.addRoad(35, 20, 20, 20);
       api.updateHydrants();
     });
-    const setup = await getState(page);
-    const setupSource = setup.hydrants.positions.filter((h) => h.active).sort((a, b) => b.x - a.x || b.z - a.z)[0];
-    assert(setupSource, 'Ground-supply setup lacks an active hydrant');
-    assert(await page.evaluate(({ x, z }) => window.__wildfireTestApi!.spawnVehicleAt('firetruck', x, z), setupSource), 'Could not spawn the ground unit at the hydrant-side road position');
-    const start = await getState(page);
-    const truck = start.vehicles.followers.find((f) => f.type === 'firetruck');
-    const source = start.hydrants.positions.find((h) => h.id === setupSource.id);
-    assert(truck && source, 'Ground-supply setup lacks a firetruck or active hydrant');
-
-    // Ignite a compact road-side cluster so one real incident keeps the truck
-    // engaged long enough to cross its tank boundary.
-    await page.evaluate(({ x, z }) => {
+    // Keep the whole supply exercise in one browser call, so rAF cannot
+    // advance the incident between a state read and the next fixture action.
+    const result = await page.evaluate(() => {
       const api = window.__wildfireTestApi!;
+      const setup = api.getState() as GameState;
+      const initialSource = setup.hydrants.positions.filter((h) => h.active).sort((a, b) => b.x - a.x || b.z - a.z)[0];
+      if (!(initialSource)) throw new Error('Ground-supply setup lacks an active hydrant');
       for (let dz = -2; dz <= 2; dz++) {
-        for (let dx = -2; dx <= 2; dx++) api.igniteTile(x + dx, z + dz, 0.95);
+        for (let dx = -2; dx <= 2; dx++) api.igniteTile(initialSource.x + dx, initialSource.z + dz, 0.95);
       }
-      api.advanceTime(1_200);
-    }, { x: source.x, z: source.z });
-    let state = await getState(page);
-    const incident = state.dispatch.incidents
-      .filter((entry) => entry.status === 'detected')
-      .sort((a, b) => Math.hypot(a.x - source.x, a.z - source.z) - Math.hypot(b.x - source.x, b.z - source.z))[0];
-    assert(incident, 'No detected incident was created for hydrant supply');
-    await page.evaluate(({ x, z }) => { const api = window.__wildfireTestApi!; api.clearFire(); api.igniteTile(x, z, 0.95); }, { x: incident.x, z: incident.z });
-    const dispatchedIncidentId = await page.evaluate(({ incidentId, followerId }) => window.__wildfireTestApi!.manualDispatch(incidentId, followerId) ? incidentId : null, { incidentId: incident.id, followerId: truck.id });
-    assert(dispatchedIncidentId != null, 'Manual dispatch rejected every reachable hydrant-side incident');
-    const dispatchedIncident = state.dispatch.incidents.find((entry) => entry.id === dispatchedIncidentId)!;
+      api.advanceTime(1_200, false);
+      const detected = api.getState() as GameState;
+      const incident = detected.dispatch.incidents.filter((entry) => entry.status === 'detected')
+        .sort((a, b) => Math.hypot(a.x - initialSource.x, a.z - initialSource.z) - Math.hypot(b.x - initialSource.x, b.z - initialSource.z))[0];
+      if (!(incident)) throw new Error('No detected incident was created for hydrant supply');
+      if (!(api.spawnVehicleAt('firetruck', incident.x, incident.z))) throw new Error('Could not spawn the ground unit on its service road');
+      const truckId = (api.getState() as GameState).vehicles.followers.find((f) => f.type === 'firetruck')!.id;
+      const capacity = (api.getState() as GameState).vehicles.followers.find((f) => f.type === 'firetruck')!.water;
+      // A controlled persistent fire supplies demand without bypassing dispatch,
+      // suppression, payload consumption, source selection, or source removal.
+      api.clearFire();
+      api.igniteTile(incident.x, incident.z, 0.95);
+      if (!(api.manualDispatch(incident.id, truckId))) throw new Error('Manual dispatch rejected the source-side incident');
+      for (let i = 0; i < 60; i++) {
+        api.clearFire();
+        api.igniteTile(incident.x, incident.z, 0.95);
+        api.advanceTime(50, false);
+      }
+      const engaged = (api.getState() as GameState).vehicles.followers.find((f) => f.type === 'firetruck')!;
+      if (!(engaged.busy && engaged.assignedIncidentId === incident.id)) throw new Error(`Dispatched truck lost its incident: ${JSON.stringify(engaged)}`);
+      if (!(engaged.water < capacity)) throw new Error('Dispatched truck never consumed tank water');
+      if (!((api.getState() as GameState).dispatch.incidents.some((entry) => entry.id === incident.id && entry.status === 'engaged'))) throw new Error('Dispatched truck never engaged');
 
-    // Let the dispatched truck arrive while it still has water, then exhaust
-    // the tank so only the nearby hydrant can keep suppression running.
-    let sawEngaged = false;
-    for (let i = 0; i < 30; i++) {
-      await page.evaluate(({ x, z }) => {
-        const api = window.__wildfireTestApi!;
-        api.igniteTile(x, z, 0.95);
-        api.advanceTime(250);
-      }, { x: dispatchedIncident.x, z: dispatchedIncident.z });
-      state = await getState(page);
-      const current = state.vehicles.followers.find((f) => f.id === truck.id);
-      if (current?.assignedIncidentId === dispatchedIncidentId && state.dispatch.incidents.some((entry) => entry.id === dispatchedIncidentId && entry.status === 'engaged')) {
-        sawEngaged = true;
-        break;
-      }
-    }
-    assert(sawEngaged, `Dispatched truck never engaged before tank exhaustion: ${JSON.stringify(state.vehicles.followers.find((f) => f.id === truck.id))}`);
-    await page.evaluate((id) => window.__wildfireTestApi!.exhaustFollowerWater(id), truck.id);
-    let sawConnected = false;
-    for (let i = 0; i < 8; i++) {
-      await page.evaluate(({ x, z }) => {
-        const api = window.__wildfireTestApi!;
-        api.igniteTile(x, z, 0.95);
-        api.advanceTime(50);
-      }, { x: dispatchedIncident.x, z: dispatchedIncident.z });
-      state = await getState(page);
-      const current = state.vehicles.followers.find((f) => f.id === truck.id);
-      if (current?.hydrantSupplyId === source.id && current.hydrantStatus === 'connected') {
-        sawConnected = true;
-        break;
-      }
-    }
-    assert(
-      sawConnected,
-      `Dispatched ground unit never sustained suppression from the nearby hydrant: ${JSON.stringify({
-        source,
-        truck: state.vehicles.followers.find((f) => f.id === truck.id),
-        incidents: state.dispatch.incidents,
-      })}`,
-    );
+      // Zero-time redraws must preserve the active assignment and tank.
+      api.advanceTime(0);
+      const redrawn = (api.getState() as GameState).vehicles.followers.find((f) => f.type === 'firetruck')!;
+      if (!(redrawn.assignedIncidentId === incident.id && redrawn.water === engaged.water && !redrawn.returningToBase)) throw new Error('Render-only tick changed suppression assignment or payload');
 
-    // Removing the connected source must immediately revoke unlimited supply
-    // and send the unit into the normal no-source fallback.
-    await page.evaluate((id) => window.__wildfireTestApi!.removeHydrant(id), source.id);
-    await page.evaluate(() => window.__wildfireTestApi!.advanceTime(500));
-    state = await getState(page);
-    const fallback = state.vehicles.followers.find((f) => f.id === truck.id);
-    assert(fallback, 'Truck disappeared during hydrant source removal');
-    assert(fallback.hydrantSupplyId == null, 'Removed hydrant continued supplying the truck');
-    assert(fallback.returningToBase || fallback.hydrantStatus === 'unavailable', 'Removed hydrant did not trigger fallback');
+      const source = (api.getState() as GameState).hydrants.positions.filter((h) => h.active && Math.hypot(h.worldX - redrawn.x, h.worldZ - redrawn.z) <= 6)
+        .sort((a, b) => Math.hypot(a.worldX - redrawn.x, a.worldZ - redrawn.z) - Math.hypot(b.worldX - redrawn.x, b.worldZ - redrawn.z))[0];
+      if (!(source)) throw new Error('Engaged truck has no reachable source');
+      for (const h of (api.getState() as GameState).hydrants.positions) {
+        if (h.id !== source.id) api.removeHydrant(h.id);
+      }
+      api.exhaustFollowerWater(truckId);
+      let suppliedLiters = 0;
+      const pulses = Math.ceil(capacity / (220 * 0.05)) + 20;
+      for (let i = 0; i < pulses; i++) {
+        api.clearFire();
+        api.igniteTile(incident.x, incident.z, 0.95);
+        api.advanceTime(50, false);
+        const current = (api.getState() as GameState).vehicles.followers.find((f) => f.type === 'firetruck')!;
+        if (!(current.assignedIncidentId === incident.id && current.hydrantSupplyId === source.id && current.hydrantStatus === 'connected' && current.water === 0)) throw new Error(`Hydrant supply failed at pulse ${i}: ${JSON.stringify(current)}`);
+        if (!((api.getTileAt(incident.x, incident.z)?.wetness ?? 0) > 0)) throw new Error('Connected source did not apply suppressant');
+        suppliedLiters += 220 * 0.05;
+      }
+      api.advanceTime(0);
+      if (!((api.getState() as GameState).vehicles.followers.find((f) => f.type === 'firetruck')!.hydrantSupplyId === source.id)) throw new Error('Render-only tick disconnected the active source');
+      api.removeHydrant(source.id);
+      api.clearFire();
+      api.igniteTile(incident.x, incident.z, 0.95);
+      api.advanceTime(50, false);
+      const fallback = (api.getState() as GameState).vehicles.followers.find((f) => f.type === 'firetruck')!;
+      if (!(fallback.hydrantSupplyId == null)) throw new Error('Removed hydrant continued supplying the truck');
+      if (!(fallback.returningToBase || fallback.hydrantStatus === 'unavailable')) throw new Error(`Removed source did not trigger fallback: ${JSON.stringify(fallback)}`);
+      api.advanceTime(0);
+      return { capacity, suppliedLiters, sourceId: source.id, pulses };
+    });
+    assert(result.suppliedLiters > result.capacity, 'Hydrant did not sustain more than one tank of suppression');
+    process.stdout.write(`[game-audit] hydrant supplied ${result.suppliedLiters} L beyond an empty ${result.capacity} L tank; source removal and zero-time redraws verified\n`);
     await screenshot(page, artifactDir, 'hydrant-ground-supply');
   } finally {
     await browser.close();
