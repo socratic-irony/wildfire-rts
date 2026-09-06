@@ -22,7 +22,7 @@ A playthrough satisfies the MVP when, from a seeded boot, the audit can:
 
 Acceptance gate: `npm run check` and `npm run audit:game` both green.
 
-As of 2026-04-19 items 1–2 are covered by `audit:game`. Items 3–4 are the focus of Phase 1–2 below.
+The audit contains scenarios for all four items. See the validation record for the current checkout; scenario presence alone does not establish a passing runtime audit.
 
 ---
 
@@ -38,7 +38,7 @@ Each item adds a new scenario to [scripts/qa/playwright_audit.ts](scripts/qa/pla
 
 ## Phase 2 — Give the MVP a shape
 
-Currently there is no win/loss condition, so "MVP" has no objective gate.
+Seeded scenarios and the containment win/loss gate are implemented below.
 
 - [x] **Scenarios + win/loss** (M) — add `src/scenarios/` with one seeded scenario ("contain fire within N tiles in M simulated minutes"). Expose `getScenarioResult()` on the test API. New audit scenario plays it to completion and asserts `result === 'win'`. This becomes the MVP acceptance test.
 - [x] **Cost-based dispatch** (S, was ROADMAP §1 final item) — [src/dispatch/cost.ts](src/dispatch/cost.ts) `assignByCost` replaced the greedy heuristic, factoring unit type, water remaining, and response distance.
@@ -65,6 +65,19 @@ Lower-risk once Phase 1 lands.
 - [ ] **Decompose `src/ui/menubar.ts`** (M) — split per-section.
 - [ ] **Retire or isolate grid-agent traffic** (M) — keep Frenet `IntersectionManager` traffic authoritative while removing or sharply isolating the remaining `VehiclesManager` grid movement layer; preserve its instanced FX and ability bridge.
 - [ ] **Midline tangent yaw smoothing** (S) — use projected tangent from the `midlineIndex` for yaw in [src/vehicles/frenet.ts](src/vehicles/frenet.ts). Bench query latency vs previous brute-force.
+
+## Phase 4 — World fidelity and connected traffic (2026-09-05)
+
+Diagnosis and acceptance criteria: [world fidelity diagnosis](docs/plans/2026-09-05-world-fidelity-diagnosis.md).
+Seven isolated Luna implementation tasks are being prepared; completion requires parent review and combined runtime validation.
+
+- [~] **Detailed vehicle models** — shaped bodies, distinct silhouettes, readable glazing and equipment, preserving animation hooks and bounded rendering cost.
+- [~] **Realistic roads + stop signs** — coherent two-lane markings, shoulders and intersection surfaces; signs face controlled incoming approaches and stay off pavement.
+- [~] **Tree and shrub families** — distinct canopy/branch and shrub forms, deterministic instanced generation, retained fire tinting.
+- [~] **Road-facing buildings and lots** — varied structures, frontage orientation, setbacks, footprint clearance and driveway access; retained fire/scoring behavior.
+- [~] **Visible hydrant supply** — actual dispatched ground units draw from active sources; refill/supply status is visible; removal, disablement and range restore tank limitations. The existing boost-only audit does not verify sustained truck supply.
+- [~] **Connected-road turns** — civilians choose continuous left/through/right movements while preserving full-stop queues, exclusive occupancy, exit clearance and spacing.
+- [~] **Particle and fog clarity** — lighter distant atmosphere and rising, fading wind-driven smoke that does not blanket the playable ground.
 
 ## Deferred
 
