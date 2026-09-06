@@ -30,6 +30,7 @@ function terrainNormal(hm: Heightmap, wx: number, wz: number) {
 }
 
 export class PathFollower {
+  forcePathProgress = false;
   path: Path2D;
   hm: Heightmap;
   object: Object3D;

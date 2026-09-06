@@ -44,6 +44,7 @@ import { VehiclesManager, VehicleType as VManagerVehicleType, VehicleFxState } f
 import { createVehicleMesh, CIVILIAN_STYLES, CIVILIAN_COLORS, type CivilianStyle, type VehicleMeshOptions } from './vehicles/meshes';
 import { createPayload, tickFuel, needsReturnToBase, consumeWater, refuel, refill, LOW_FUEL_FRACTION, type PayloadState } from './vehicles/payload';
 import { Path2D } from './paths/path2d';
+import { createTurnRouter, type TurnRoute } from './vehicles/turnRouting';
 import { PathFollower } from './vehicles/frenet';
 import { IntersectionManager, IntersectionInfo } from './vehicles/intersectionManager';
 import { assignPathLeaders } from './vehicles/trafficSpacing';
@@ -701,9 +702,11 @@ type ActiveFollower = {
   /** Civilian body style + paint color; null for service vehicles. */
   style: CivilianStyle | null;
   color: number | null;
+  turnRoute: TurnRoute | null;
 };
 
 let followers: ActiveFollower[] = [];
+let turnRouter = createTurnRouter([]);
 let followerIdCounter = 0;
 const followerFxStates: VehicleFxState[] = [];
 
@@ -984,7 +987,7 @@ function spawnFollowerOnPath(p: Path2D, startS: number, vehicleType: VManagerVeh
     payload: createPayload(vehicleType), busy: false, assignedIncidentId: null,
     returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null,
     refillTarget: null, hydrantSupplyId: null, hydrantStatus: 'none', hydrantLink,
-    style: look?.style ?? null, color: look?.color ?? null,
+    style: look?.style ?? null, color: look?.color ?? null, turnRoute: null,
   });
   markFollowerMembershipChanged();
 }

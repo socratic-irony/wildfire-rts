@@ -1,6 +1,7 @@
 import type { Path2D } from '../paths/path2d';
 import { INTERSECTION_STOP_DISTANCE } from '../roads/trafficRules';
 import type { PathFollower } from './frenet';
+import type { TurnRoute } from './turnRouting';
 
 export type IntersectionInfo = {
   id: number;
@@ -40,6 +41,7 @@ type FollowerState = {
   intersection?: IntersectionInfo;
   phase: TrafficPhase;
   waitElapsed: number;
+  route?: TurnRoute;
 };
 
 export type IntersectionSnapshot = {
