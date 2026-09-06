@@ -74,6 +74,7 @@ declare global {
       clearRoads: () => void;
       setupTrafficScenario: () => boolean;
       spawnVehicle: (type?: 'generic' | 'firetruck' | 'bulldozer' | 'helicopter' | 'airplane' | 'firefighter') => boolean;
+      spawnVehicleAt: (type: 'generic' | 'firetruck' | 'bulldozer' | 'helicopter' | 'airplane' | 'firefighter', x: number, z: number) => boolean;
       findOffroadBurnableTiles: (minDistFromRoad: number, count: number) => Array<{ x: number; z: number }>;
       clearVehicles: () => void;
       selectFollower: (id: number) => boolean;
@@ -1067,10 +1068,9 @@ function clearFollowers() {
  * Creates individual Object3D with appropriate geometry and material,
  * then adds a PathFollower for smooth road-following movement.
  */
-function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
-  if (!path2ds.length) return;
-  const camPos = cam.camera.getWorldPosition(new Vector3());
-  const start = { x: camPos.x, z: camPos.z };
+function spawnFollowerAtWorld(vehicleType: VManagerVehicleType, worldX: number, worldZ: number): boolean {
+  if (!path2ds.length) return false;
+  const start = { x: worldX, z: worldZ };
   let bestIdx = 0, bestDist = Infinity, bestS = 0;
   for (let i = 0; i < path2ds.length; i++) {
     const proj = path2ds[i].project(start);
@@ -1078,6 +1078,12 @@ function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
   }
   const type = vehicleType ?? VManagerVehicleType.CAR;
   spawnFollowerOnPath(path2ds[bestIdx], bestS, type);
+  return true;
+}
+
+function spawnFollowerAtCamera(vehicleType?: VManagerVehicleType) {
+  const camPos = cam.camera.getWorldPosition(new Vector3());
+  return spawnFollowerAtWorld(vehicleType ?? VManagerVehicleType.CAR, camPos.x, camPos.z);
 }
 
 
@@ -1613,6 +1619,10 @@ window.__wildfireTestApi = {
     if (!path2ds.length) return false;
     spawnFollowerAtCamera(mapMenubarToVehicleType(type));
     return true;
+  },
+  spawnVehicleAt: (type, x, z) => {
+    rebuildPath2Ds();
+    return spawnFollowerAtWorld(mapMenubarToVehicleType(type) ?? VManagerVehicleType.CAR, (x + 0.5) * hm.scale, (z + 0.5) * hm.scale);
   },
   findOffroadBurnableTiles: (minDistFromRoad, count) => {
     // Collect road tiles once; then scan for burnable tiles at least

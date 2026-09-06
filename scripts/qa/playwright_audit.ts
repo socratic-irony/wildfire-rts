@@ -782,11 +782,14 @@ async function hydrantGroundSupplyScenario(baseUrl: string, artifactDir: string)
       api.updateHydrants();
       api.addRoad(35, 20, 20, 20);
       api.updateHydrants();
-      api.spawnVehicle('firetruck');
     });
+    const setup = await getState(page);
+    const setupSource = setup.hydrants.positions.filter((h) => h.active).sort((a, b) => b.x - a.x || b.z - a.z)[0];
+    assert(setupSource, 'Ground-supply setup lacks an active hydrant');
+    assert(await page.evaluate(({ x, z }) => window.__wildfireTestApi!.spawnVehicleAt('firetruck', x, z), setupSource), 'Could not spawn the ground unit at the hydrant-side road position');
     const start = await getState(page);
     const truck = start.vehicles.followers.find((f) => f.type === 'firetruck');
-    const source = start.hydrants.positions.find((h) => h.active);
+    const source = start.hydrants.positions.find((h) => h.id === setupSource.id);
     assert(truck && source, 'Ground-supply setup lacks a firetruck or active hydrant');
 
     // Ignite a compact road-side cluster so one real incident keeps the truck
@@ -803,18 +806,8 @@ async function hydrantGroundSupplyScenario(baseUrl: string, artifactDir: string)
       .filter((entry) => entry.status === 'detected')
       .sort((a, b) => Math.hypot(a.x - source.x, a.z - source.z) - Math.hypot(b.x - source.x, b.z - source.z))[0];
     assert(incident, 'No detected incident was created for hydrant supply');
-    const dispatchedIncidentId = await page.evaluate(({ incidents, followerId }) => {
-      const api = window.__wildfireTestApi!;
-      for (const candidate of incidents) {
-        if (api.manualDispatch(candidate.id, followerId)) return candidate.id;
-      }
-      return null;
-    }, {
-      incidents: state.dispatch.incidents
-        .filter((entry) => entry.status === 'detected')
-        .sort((a, b) => Math.hypot(a.x - source.x, a.z - source.z) - Math.hypot(b.x - source.x, b.z - source.z)),
-      followerId: truck.id,
-    });
+    await page.evaluate(({ x, z }) => { const api = window.__wildfireTestApi!; api.clearFire(); api.igniteTile(x, z, 0.95); }, { x: incident.x, z: incident.z });
+    const dispatchedIncidentId = await page.evaluate(({ incidentId, followerId }) => window.__wildfireTestApi!.manualDispatch(incidentId, followerId) ? incidentId : null, { incidentId: incident.id, followerId: truck.id });
     assert(dispatchedIncidentId != null, 'Manual dispatch rejected every reachable hydrant-side incident');
     const dispatchedIncident = state.dispatch.incidents.find((entry) => entry.id === dispatchedIncidentId)!;
 
