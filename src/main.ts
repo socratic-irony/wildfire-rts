@@ -350,11 +350,17 @@ loop.add((dt) => {
     }
   }
   intersectionManager.updateBeforeMovement(controlledView, dt);
-  for (const [path, idxs] of groups) {
+  for (const idxs of groups.values()) {
     for (const idx of idxs) {
       const current = followers[idx].follower;
       current.update(dt);
-      intersectionManager.postUpdateFollower(current, path);
+      intersectionManager.postUpdateFollower(current, current.path);
+      const route = followers[idx].turnRoute;
+      if (route && current.path === route.path && current.s >= route.clearS - 1e-3) {
+        current.path = route.continuationPath;
+        current.s = route.continuationS;
+        followers[idx].turnRoute = null;
+      }
     }
   }
 
@@ -853,6 +859,7 @@ function rebuildPath2Ds() {
   }
   path2ds = newPaths;
   pathIntersections = newIntersections;
+  turnRouter = createTurnRouter(path2ds.map((path, idx) => ({ path, intersections: pathIntersections[idx] || [] })));
   intersectionManager.setPaths(path2ds.map((path, idx) => ({ path, intersections: pathIntersections[idx] || [] })));
 }
 
@@ -1524,6 +1531,8 @@ function buildGameState() {
           speed: Number(entry.follower.v.toFixed(2)),
           trafficPhase: trafficByFollower.get(entry.id)?.phase ?? 'cruising',
           intersectionId: trafficByFollower.get(entry.id)?.intersectionId ?? null,
+          trafficMovement: trafficByFollower.get(entry.id)?.movement ?? null,
+          turning: entry.turnRoute != null,
           busy: entry.busy,
           returningToBase: entry.returningToBase,
           assignedIncidentId: entry.assignedIncidentId,

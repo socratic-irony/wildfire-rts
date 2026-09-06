@@ -1,7 +1,7 @@
 import type { Path2D } from '../paths/path2d';
 import { INTERSECTION_STOP_DISTANCE } from '../roads/trafficRules';
 import type { PathFollower } from './frenet';
-import type { TurnRoute } from './turnRouting';
+import type { TurnRoute, TurnMovement } from './turnRouting';
 
 export type IntersectionInfo = {
   id: number;
@@ -55,6 +55,7 @@ export type IntersectionSnapshot = {
     intersectionId: number | null;
     phase: TrafficPhase;
     waitElapsed: number;
+    movement: TurnMovement | null;
   }>;
 };
 
@@ -164,6 +165,11 @@ export class IntersectionManager {
   postUpdateFollower(follower: PathFollower, path: Path2D) {
     const followerState = this.followerStates.get(follower);
     if (followerState?.intersectionId == null) return;
+    if (followerState.route?.path === path) {
+      followerState.phase = 'crossing';
+      if (follower.s >= followerState.route.clearS - 1e-3) this.releaseFollower(follower);
+      return;
+    }
     const entry = this.pathEntries.get(path);
     const info = entry ? followerState.intersection : undefined;
     if (!info) {
@@ -200,6 +206,7 @@ export class IntersectionManager {
         intersectionId: state.intersectionId ?? null,
         phase: state.phase,
         waitElapsed: Number(state.waitElapsed.toFixed(3)),
+        movement: state.route?.movement ?? null,
       }));
     return { intersections, followers };
   }
@@ -209,6 +216,16 @@ export class IntersectionManager {
     const pathEntry = this.pathEntries.get(path);
     const followerState = this.ensureFollowerState(follower, id);
     this.trackedFollowers.add(follower);
+    if (followerState.route?.path === path) {
+      const state = this.getIntersectionState(followerState.route.intersectionId);
+      if (state.occupant?.follower === follower) {
+        followerState.phase = 'crossing';
+        followerState.waitElapsed = 0;
+        follower.setSpeedCap(this.crossingSpeed, this.capDuration(dt));
+        return;
+      }
+      this.releaseFollower(follower);
+    }
     if (!pathEntry || pathEntry.intersections.length === 0 || path.length <= 0) {
       this.releaseFollower(follower);
       return;
@@ -356,6 +373,8 @@ export class IntersectionManager {
     }
     followerState.intersectionId = undefined;
     followerState.intersection = undefined;
+    followerState.route = undefined;
+    follower.forcePathProgress = false;
     followerState.phase = 'cruising';
     followerState.waitElapsed = 0;
   }

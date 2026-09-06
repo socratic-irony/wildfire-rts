@@ -227,7 +227,7 @@ export class PathFollower {
     // wait forever for a heading it cannot reach while stationary.
     const headingAlignment = Math.cos(headingErr);
     const alignment = travelDirection < 0 ? Math.abs(headingAlignment) : Math.max(0, headingAlignment);
-    let ds = this.v * alignment * dt;
+    let ds = this.v * (this.forcePathProgress ? 1 : alignment) * dt;
     if (this.targetS != null && targetDist !== Infinity) {
       ds = Math.min(ds, Math.max(0, targetDist));
     }

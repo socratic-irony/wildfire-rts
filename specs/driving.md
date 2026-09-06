@@ -2,6 +2,8 @@ Intersection Logic Spec (Vehicles on Procedural Roads)
 
 Status
 
+- Integrated civilian turn wiring populates routes after road rebuilds, retains exclusive occupancy while traversing the turn, and hands the follower to its canonical outbound road after clearance. Telemetry exposes the selected movement and whether a turn is active. Browser verification of this integration is pending.
+
 - Intersection signs and the controller share `INTERSECTION_STOP_DISTANCE` (1.5 world units) from `roads/trafficRules.ts`, so displayed stopping approaches agree with the enforced stop line.
 
 - ✅ Visible Frenet `PathFollower` vehicles use `IntersectionManager` for deterministic all-way-stop approach, queue, grant, occupancy, crossing, and clearance phases
