@@ -11,6 +11,10 @@ function countMeshes(root: Object3D): number {
   return count;
 }
 
+function materialCount(mesh: Mesh): number {
+  return Array.isArray(mesh.material) ? mesh.material.length : 1;
+}
+
 describe('createVehicleMesh', () => {
   it('merges decorative parts into few meshes per style/type', () => {
     // Civilians: merged body + merged wheel + yield indicator.
@@ -112,5 +116,29 @@ describe('createVehicleMesh', () => {
       wheel.geometry.computeBoundingBox();
       expect(wheel.geometry.boundingBox!.max.y).toBeGreaterThan(0);
     }
+  });
+
+  it('gives civilian vehicles inset glazing, exterior accents, and wheel hubs', () => {
+    for (const style of CIVILIAN_STYLES) {
+      const g = createVehicleMesh(VehicleType.CAR, 1, { civilianStyle: style });
+      const body = g.getObjectByName('body') as Mesh;
+      const wheels = g.getObjectByName('wheel') as Mesh;
+      expect(materialCount(body)).toBeGreaterThanOrEqual(5);
+      expect(materialCount(wheels)).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('gives service vehicles readable role-specific equipment materials', () => {
+    const firetruck = createVehicleMesh(VehicleType.FIRETRUCK, 1);
+    expect(materialCount(firetruck.getObjectByName('body') as Mesh)).toBeGreaterThanOrEqual(7);
+
+    const dozer = createVehicleMesh(VehicleType.BULLDOZER, 1);
+    expect(materialCount(dozer.getObjectByName('body') as Mesh)).toBeGreaterThanOrEqual(5);
+
+    const helicopter = createVehicleMesh(VehicleType.HELICOPTER, 1);
+    expect(materialCount(helicopter.getObjectByName('body') as Mesh)).toBeGreaterThanOrEqual(5);
+
+    const airplane = createVehicleMesh(VehicleType.AIRPLANE, 1);
+    expect(materialCount(airplane.getObjectByName('body') as Mesh)).toBeGreaterThanOrEqual(7);
   });
 });

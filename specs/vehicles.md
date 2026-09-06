@@ -11,6 +11,7 @@
 - Click-select PathFollower vehicles and issue move orders along the road network (neon green selection box)
 - Bulldozers (yellow) can accept off-road move orders; firetrucks (red) remain road-only
 - **Voxel mesh overhaul + civilian traffic (2026-06-09)**: multi-part voxel builds for every type in `voxelMeshes.ts` (light bar + railed ladder on the firetruck, dozer tracks, spinning `mainRotor` heli group, tanker wings/nacelles, firefighter figure). Civilians come in four styles (sedan, pickup, van, hatchback) with a seeded 8-color palette; boot fleet is 1 firetruck + 1 bulldozer + 3 civilians per road loop. Covered by `civilian-traffic` audit scenario and mesh unit tests.
+- **Vehicle model fidelity pass (2026-09-05)**: retained the merged low-poly resource model while adding chamfered body/cab shells, inset front/side glazing, wheel hubs and arches, bumpers/grilles/lights, firetruck compartments/reel/hose equipment, dozer tread rollers and hydraulic details, aircraft cockpit/tank/engine detail, and firefighter reflective gear. Named animation/test hooks (`ladder`, `blade`, `rotor`, `skid`, `wings`, `tailFin`, `helmet`, `lightbar`, `mainRotor`, `yieldIndicator`) remain intact; `src/vehicles/__tests__/meshes.test.ts` covers hooks, material detail buckets, and resource-count ceilings.
 - **Aircraft roles (2026-06-09)**: helicopters and airplanes are spawnable followers that fly directly to any target at cruise altitude (10 m / 16 m) via the airborne branch in `followerOrders.ts`; helicopters drop water, airplanes drop a retardant line along their flight direction plus a cooling water component. Firefighters walk off-road at type speed. Dispatch assignment is routeability-aware (`canService` in `dispatch/cost.ts`) so off-road fires go to aircraft instead of starving on an unroutable truck. Covered by the `aircraft-drops` audit scenario.
 - **Road traffic reliability (2026-07-12)**: visible Frenet followers now share deterministic batch intersection arbitration, closed-loop seam spacing, braking-distance approach caps, full-stop FIFO queues, occupant/clearance gating, and spillback checks. Vehicles ride above one depth-tested asphalt ribbon and render after its overlays; stopped/creeping vehicles show an above-road gold yield ring. Covered by focused unit tests and the `traffic-intersection` browser audit.
 
@@ -149,7 +150,7 @@ Performance Targets
 - Reintroduce road-midline projection with spatial indexing to keep followers pinned to centerlines and smooth yaw through tight curves.
 - Expand the speed model to factor in grade, curvature, and road class, and add lane/offset support for wider roads.
 - Improve collision spacing for long convoys (lane-based offsets, platooning heuristics) beyond the current leader-follow spacing.
-- Upgrade geometry and VFX fidelity for helicopter/airplane/firefighter meshes, siren lights, and dust/water emitters.
+- Upgrade siren animation fidelity and dust/water emitter presentation; the core helicopter/airplane/firefighter geometry pass is implemented, while future work may add richer animated sub-parts without changing the named-hook contract.
 - Extend telemetry/debug overlays with per-frame timings, path visualizations, and intersection queue state.
 
 Acceptance Criteria (v0.3)
