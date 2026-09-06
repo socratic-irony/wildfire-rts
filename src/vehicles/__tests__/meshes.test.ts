@@ -15,6 +15,20 @@ function materialCount(mesh: Mesh): number {
   return Array.isArray(mesh.material) ? mesh.material.length : 1;
 }
 
+function maxAbsXForMaterial(mesh: Mesh, colorHex: number): number {
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  const position = mesh.geometry.getAttribute('position');
+  let max = 0;
+  for (const group of mesh.geometry.groups) {
+    const material = materials[group.materialIndex ?? 0] as { color?: { getHex(): number } } | undefined;
+    if (material?.color?.getHex() !== colorHex) continue;
+    for (let i = group.start; i < group.start + group.count; i++) {
+      max = Math.max(max, Math.abs(position.getX(i)));
+    }
+  }
+  return max;
+}
+
 describe('createVehicleMesh', () => {
   it('merges decorative parts into few meshes per style/type', () => {
     // Civilians: merged body + merged wheel + yield indicator.
@@ -125,6 +139,16 @@ describe('createVehicleMesh', () => {
       const wheels = g.getObjectByName('wheel') as Mesh;
       expect(materialCount(body)).toBeGreaterThanOrEqual(5);
       expect(materialCount(wheels)).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('places chrome hubs on the visible outer faces of civilian tires', () => {
+    for (const style of CIVILIAN_STYLES) {
+      const g = createVehicleMesh(VehicleType.CAR, 1, { civilianStyle: style });
+      const wheels = g.getObjectByName('wheel') as Mesh;
+      // The tire outer face is at roughly |x|=0.34 for the smallest sedan;
+      // hubs must extend beyond it instead of being buried at the wheel center.
+      expect(maxAbsXForMaterial(wheels, 0xd7dce2)).toBeGreaterThan(0.35);
     }
   });
 

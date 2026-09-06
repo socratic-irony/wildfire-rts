@@ -283,8 +283,13 @@ function addWheels(group: Group, scale: number, positions: Array<[number, number
     const w = makeWheel(scale, r);
     w.position.set(x, y, z);
     group.add(w);
-    const hub = cylinder(scale * r * 0.42, scale * 0.045, std(CHROME, 0.35, 0.8), 'hub', 'x', 10);
-    hub.position.set(x, y, z);
+    const hubLength = scale * 0.045;
+    const tireLength = scale * 0.12;
+    const outward = x < 0 ? -1 : 1;
+    const hub = cylinder(scale * r * 0.42, hubLength, std(CHROME, 0.35, 0.8), 'hub', 'x', 10);
+    // Seat the hub just through the tire's outer face. Keeping a tiny overlap
+    // avoids a light gap while leaving the chrome face visible from either side.
+    hub.position.set(x + outward * (tireLength * 0.5 + hubLength * 0.5 - scale * 0.006), y, z);
     group.add(hub);
   }
 }
