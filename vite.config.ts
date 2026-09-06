@@ -24,6 +24,10 @@ export default defineConfig({
     }
   },
   test: {
+    // Keep local validation from saturating every core while the game/editor
+    // is open. Browser audits are scheduled separately by the parent task.
+    maxWorkers: 2,
+    minWorkers: 1,
     // Keep test discovery inside this checkout; sibling git worktrees under
     // .worktrees/ carry their own copies of the suite and must not be collected
     // (cross-tree /tmp fixture collisions otherwise fail unrelated gates).
