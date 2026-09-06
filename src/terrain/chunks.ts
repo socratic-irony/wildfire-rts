@@ -192,8 +192,10 @@ export function buildChunkedTerrain(
       (mesh as any).userData.cx = (x0 + Math.min(chunkSize, hm.width - x0) * 0.5) * hm.scale;
       (mesh as any).userData.cz = (z0 + Math.min(chunkSize, hm.height - z0) * 0.5) * hm.scale;
       // preserve base colors for vertex-tint visualization
-      (mesh as any).userData.baseColorsHi = colorsHi.slice();
-      (mesh as any).userData.baseColorsLo = colorsLo.slice();
+      // Tinting visits every vertex, including the skirts appended by the
+      // geometry builder. Keep the full attribute so skirt lookups stay finite.
+      (mesh as any).userData.baseColorsHi = geoHi.getAttribute('color').array.slice();
+      (mesh as any).userData.baseColorsLo = geoLo.getAttribute('color').array.slice();
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       group.add(mesh);
