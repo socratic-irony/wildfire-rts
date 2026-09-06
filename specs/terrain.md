@@ -2,7 +2,7 @@
 
 Status (current)
 
-- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint with deterministic hash jitter (mottled fields, no textures), instanced trees (two-tier conifers + broadleaf, per-instance color/height variety with multiplicative burn tint) and shrubs (per-instance sage→olive hues, squash variety) with light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (shared A* planner with valley bonus plus strong slope/grade/curvature penalties) rendered as double-sided leveled angular ribbons that plane into hillsides while snapping to tile centres with orthogonal turns at ~2-tile asphalt width. Rural roads now use deterministic low-frequency asphalt vertex variation, solid edge lines, dashed warm center lines, dusty shoulders, and shared apron surfaces at physical intersections; all road markings are suppressed through intersection aprons. Controlled X/T/self crossings expose one stop-sign approach per actual incoming direction, rendered as shared instanced octagonal boards, poles, borders, and STOP glyph faces outside the drivable pavement at the computed stop distance. Road triangle-lattice/midline diagnostics and hydrant coverage radius rings are available through debug controls but are hidden during normal play.
+- Implemented: heightmap generation, flat-shaded terrain material, shader-projected grid (aligned to tile edges), chunked LOD (32×32) with visibility switching, RTS camera rig (pan/rotate/tilt/zoom-to-cursor), biome masks + per-vertex ground tint with deterministic hash jitter (mottled fields, no textures), four deterministic instanced tree families (pine, tall fir, rounded broadleaf, spreading oak) and three deterministic instanced shrub silhouettes (rounded multi-lobed, low spreading scrub, upright brush), all with per-instance color/scale variety, multiplicative burn tint restoration, and light sway, instanced rocks scattered over rocky/steep zones, debug UI (FPS, toggles), and a roads prototype (shared A* planner with valley bonus plus strong slope/grade/curvature penalties) rendered as double-sided leveled angular ribbons that plane into hillsides while snapping to tile centres with orthogonal turns at ~2-tile asphalt width. Rural roads now use deterministic low-frequency asphalt vertex variation, solid edge lines, dashed warm center lines, dusty shoulders, and shared apron surfaces at physical intersections; all road markings are suppressed through intersection aprons. Controlled X/T/self crossings expose one stop-sign approach per actual incoming direction, rendered as shared instanced octagonal boards, poles, borders, and STOP glyph faces outside the drivable pavement at the computed stop distance. Road triangle-lattice/midline diagnostics and hydrant coverage radius rings are available through debug controls but are hidden during normal play.
 - Terrain regeneration replaces the road visual and hydrant systems with instances bound to the new heightmap/mask, keeping ribbons and hydrants flush with the refreshed terrain.
 - Procedural trees, shrubs, and rocks retain their established deterministic scatter sequences through a shared per-instance LCG helper. Nearest-cell conversion from world coordinates is centralized for terrain interactions and actor fire-state lookup; floor-based occupancy and grid-unit APIs remain intentionally separate.
 - Unit tests verify terrain cost field derivation (elevation normalization, slope, valley), shared road planner endpoints, hidden-by-default road diagnostics, hidden-by-default hydrant coverage rings, pinned LCG output, and world-to-grid rounding/clamping across map scales.
@@ -166,9 +166,8 @@ Start with **shader projection** for clarity/perf; make toggleable.
 
 **Models (procedural, low-poly)**
 
-* **Conifer**: 2-stack truncated cones (leaves) + hex prism trunk. Vertex count target < 120. Light wind sway in vertex shader.
-* **Broadleaf**: squat cone/lumpy canopy + short trunk; slightly larger scale range; separate instanced family for variety.
-* **Shrub**: low-poly clumps (dodecahedron base) with subtle sway.
+* **Trees**: four low-poly silhouettes share two wind-enabled materials and are placed by one deterministic LCG stream. `pine` uses two tiers and a trunk; `tallFir` uses three narrower tiers and a taller trunk; `roundedBroadleaf` uses a broad crown and trunk; `spreadingOak` uses three offset crown lobes, a wider trunk, and an angled branch. The public `createForest()` result retains the legacy mesh handles and also exposes `families`, `meshes`, and deterministic `instances` for diagnostics.
+* **Shrubs**: three low-poly silhouettes share one wind-enabled material. `roundedMultiLobed` uses three overlapping lobes; `lowSpreadingScrub` uses flattened clumps; `uprightBrush` uses paired tapered stems. The public `createShrubs()` result retains the legacy `inst` handle and exposes `families`, `meshes`, and deterministic `instances`.
 * **Rock**: distorted icosahedron (random vertex noise, then flat shade); anisotropic per-instance scale for shape variety.
 
 **Density rules**
@@ -208,7 +207,7 @@ Start with **shader projection** for clarity/perf; make toggleable.
 
 **Targets**
 
-* ≤ 200 draw calls at rest; foliage handled by 4–8 instanced meshes.
+* ≤ 200 draw calls at rest; foliage uses shared geometry/materials and bounded instanced batches (up to 1024 instances per family part; typical maps remain well below the cap).
 * GPU frame time under \~10–12ms on iGPU.
 
 **Techniques**
