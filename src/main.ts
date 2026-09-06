@@ -756,7 +756,10 @@ const intersectionManager = new IntersectionManager();
 /** Distance ahead of an intersection (meters) that must be clear before granting entry. */
 const INTERSECTION_CLEAR_ZONE = 8;
 
-intersectionManager.setCanEnterProbe((follower, info) => {
+intersectionManager.setCanEnterProbe((follower, info, route) => {
+  const exitPath = route?.continuationPath;
+  const exitS = route?.continuationS;
+  const exitPos = exitPath && exitS != null ? exitPath.sample(exitS).p : info.pos;
   return !followers.some(other => {
     if (other.follower === follower) return false;
     if (other.follower.path === follower.path) {
@@ -764,12 +767,28 @@ intersectionManager.setCanEnterProbe((follower, info) => {
       if (follower.path.closed && ds < 0) ds += follower.path.length;
       if (ds > 0 && ds < INTERSECTION_CLEAR_ZONE) return true;
     }
+    if (exitPath && exitS != null && other.follower.path === exitPath) {
+      let ds = other.follower.s - exitS;
+      if (exitPath.closed && ds < 0) ds += exitPath.length;
+      if (ds > 0 && ds < INTERSECTION_CLEAR_ZONE) return true;
+    }
     const phase = intersectionManager.getFollowerPhase(other.follower);
     if (phase !== 'entering' && phase !== 'crossing') return false;
     other.object.updateMatrixWorld(true);
     const pos = other.object.getWorldPosition(tmpFollowerWorld);
-    return Math.hypot(pos.x - info.pos.x, pos.z - info.pos.z) < INTERSECTION_CLEAR_ZONE;
+    return Math.hypot(pos.x - exitPos.x, pos.z - exitPos.z) < INTERSECTION_CLEAR_ZONE;
   });
+});
+
+intersectionManager.setTurnRouter((follower, id, info) => {
+  const entry = followers.find((candidate) => candidate.id === id);
+  if (!entry || entry.type !== VManagerVehicleType.CAR) return null;
+  return turnRouter.chooseRoute(follower.path, follower.s, info, id);
+});
+
+intersectionManager.setTurnGranted((_follower, id, route) => {
+  const entry = followers.find((candidate) => candidate.id === id);
+  if (entry) entry.turnRoute = route;
 });
 
 const selection = createFollowerSelection(scene);

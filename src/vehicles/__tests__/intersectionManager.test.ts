@@ -78,6 +78,36 @@ describe('IntersectionManager traffic arbitration', () => {
     expect(snapshot.queue).toEqual([2]);
   });
 
+  it('probes the selected turn exit before granting entry', () => {
+    const p = path();
+    const turnPath = path(10, false);
+    const continuation = path(80, false);
+    const info = intersection(6);
+    const car = follower(48.5);
+    const manager = new IntersectionManager();
+    manager.setPaths([{ path: p, intersections: [info] }]);
+    manager.setTurnRouter(() => ({
+      path: turnPath,
+      continuationPath: continuation,
+      continuationS: 20,
+      continuationIntersections: [],
+      movement: 'right',
+      intersectionId: info.id,
+      clearS: turnPath.length,
+    }));
+    const probes = vi.fn((_follower: PathFollower, _info: IntersectionInfo, route: unknown) => {
+      expect(route).toBeDefined();
+      return false;
+    });
+    manager.setCanEnterProbe(probes);
+    (car as any).path = p;
+
+    for (let i = 0; i < 20; i++) manager.updateBeforeMovement([{ id: 2, follower: car, path: p }], 0.1);
+    expect(probes).toHaveBeenCalled();
+    expect(car.path).toBe(p);
+    expect(manager.getSnapshot().intersections[0].occupantId).toBeNull();
+  });
+
   it('releases occupancy only after the vehicle clears the conflict area', () => {
     const p = path();
     const info = intersection(9);

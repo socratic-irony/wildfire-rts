@@ -64,7 +64,9 @@ export class IntersectionManager {
   private legacyIds: WeakMap<PathFollower, number> = new WeakMap();
   private nextLegacyId = 1_000_000;
   private time = 0;
-  private canEnterProbe?: (follower: PathFollower, info: IntersectionInfo) => boolean;
+  private canEnterProbe?: (follower: PathFollower, info: IntersectionInfo, route?: TurnRoute) => boolean;
+  private turnRouter?: (follower: PathFollower, id: number, info: IntersectionInfo) => TurnRoute | null;
+  private turnGranted?: (follower: PathFollower, id: number, route: TurnRoute) => void;
 
   // Tuning constants (world meters / seconds).
   private readonly approachDistance = 12;
@@ -77,8 +79,31 @@ export class IntersectionManager {
   private readonly crossingSpeed = 4;
 
   /** Return false to keep a ready vehicle queued (for example, spillback). */
-  setCanEnterProbe(fn?: (follower: PathFollower, info: IntersectionInfo) => boolean) {
+  setCanEnterProbe(fn?: (follower: PathFollower, info: IntersectionInfo, route?: TurnRoute) => boolean) {
     this.canEnterProbe = fn;
+  }
+
+  /**
+   * Optional directed movement hook. A route is installed only when a queued
+   * vehicle is granted entry, so denied vehicles never change paths.
+   */
+  setTurnRouter(fn?: (follower: PathFollower, id: number, info: IntersectionInfo) => TurnRoute | null) {
+    this.turnRouter = fn;
+  }
+
+  setTurnGranted(fn?: (follower: PathFollower, id: number, route: TurnRoute) => void) {
+    this.turnGranted = fn;
+  }
+
+  /** Register a directed continuation generated after a movement grant. */
+  registerPath(path: Path2D, intersections: IntersectionInfo[]) {
+    const unique: IntersectionInfo[] = [];
+    for (const info of intersections) {
+      if (!unique.some((entry) => entry.id === info.id && Math.abs(entry.s - info.s) <= 1e-4)) unique.push(info);
+      if (!this.intersectionStates.has(info.id)) this.intersectionStates.set(info.id, { id: info.id, queue: [] });
+    }
+    unique.sort((a, b) => a.s - b.s);
+    this.pathEntries.set(path, { path, intersections: unique });
   }
 
   setPaths(entries: Array<{ path: Path2D; intersections: IntersectionInfo[] }>) {
@@ -250,10 +275,19 @@ export class IntersectionManager {
       if (!candidate) continue;
       const followerState = this.followerStates.get(candidate.follower);
       const info = followerState?.intersection;
-      if (!followerState || !info || !(this.canEnterProbe?.(candidate.follower, info) ?? true)) continue;
+      const route = followerState && info ? (this.turnRouter?.(candidate.follower, candidate.id, info) ?? null) : null;
+      if (!followerState || !info || !(this.canEnterProbe?.(candidate.follower, info, route ?? undefined) ?? true)) continue;
 
       this.removeFromQueue(state, candidate.follower);
       state.occupant = { id: candidate.id, follower: candidate.follower };
+      if (route) {
+        this.registerPath(route.continuationPath, route.continuationIntersections);
+        this.turnGranted?.(candidate.follower, candidate.id, route);
+        candidate.follower.path = route.path;
+        candidate.follower.s = 0;
+        candidate.follower.forcePathProgress = true;
+        followerState.route = route;
+      }
       followerState.phase = 'entering';
       followerState.waitElapsed = 0;
       candidate.follower.setSpeedCap(this.crossingSpeed, 0.25);

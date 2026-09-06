@@ -7,7 +7,7 @@ Status
 - ✅ Visible Frenet `PathFollower` vehicles use `IntersectionManager` for deterministic all-way-stop approach, queue, grant, occupancy, crossing, and clearance phases
 - ✅ Closed-loop-safe approach math controls both occurrences of a self-crossing figure-eight; simple shared endpoints are not misclassified as controlled intersections
 - ✅ Batch arbitration uses full-stop time then follower ID, so simultaneous arrivals are independent of per-frame update order
-- ✅ Braking-envelope speed caps, minimum full-stop time, same-path headway, closed-loop seam spacing, and outbound spillback probes are active
+- ✅ Braking-envelope speed caps, minimum full-stop time, same-path headway, closed-loop seam spacing, and outbound spillback probes are active; when a civilian turn is planned, the probe evaluates that selected outbound path/arc before granting entry
 - ✅ `render_game_to_text`/`__wildfireTestApi` expose queues, occupants, phases, and minimum path gap; the Playwright `traffic-intersection` scenario verifies four-car fairness and clearance
 - ⏳ Directed lane-graph routing and turn selection remain future work; followers currently continue on their assigned centerline through crossings
 
@@ -221,7 +221,7 @@ At Entering/Crossing:
 	•	Optionally cap yaw rate and speed (v ≤ vTurnMax) based on turn radius.
 
 At Clearing:
-	•	Restore the path follower to the outbound edge polyline; increase vTarget smoothly.
+	•	Retain exclusive ownership until the turn path reaches its outbound clearance point, then hand off to the selected outbound edge (or a canonical reverse directed continuation) so spacing and subsequent intersection metadata are evaluated on the chosen exit.
 
 ⸻
 
