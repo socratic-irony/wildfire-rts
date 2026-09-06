@@ -6,6 +6,7 @@ describe('vehicle HUD hydrant status', () => {
     expect(getHydrantStatusLabel('connected')).toBe('Hydrant connected');
     expect(getHydrantStatusLabel('refilling')).toBe('Refilling at hydrant');
     expect(getHydrantStatusLabel('en-route')).toBe('Driving to hydrant');
+    expect(getHydrantStatusLabel('nearby')).toBe('Hydrant nearby');
     expect(getHydrantStatusLabel('unavailable')).toBe('No active hydrant — returning');
     expect(getHydrantStatusLabel('none')).toBe('No hydrant connection');
   });

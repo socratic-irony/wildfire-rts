@@ -19,13 +19,14 @@ export type VehicleHudEntry = {
   hydrantStatus?: HydrantStatus;
 };
 
-export type HydrantStatus = 'none' | 'en-route' | 'refilling' | 'connected' | 'unavailable';
+export type HydrantStatus = 'none' | 'nearby' | 'en-route' | 'refilling' | 'connected' | 'unavailable';
 
 export function getHydrantStatusLabel(status: HydrantStatus): string {
   switch (status) {
     case 'connected': return 'Hydrant connected';
     case 'refilling': return 'Refilling at hydrant';
     case 'en-route': return 'Driving to hydrant';
+    case 'nearby': return 'Hydrant nearby';
     case 'unavailable': return 'No active hydrant — returning';
     default: return 'No hydrant connection';
   }

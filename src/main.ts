@@ -954,6 +954,9 @@ function spawnFollowerOnPath(p: Path2D, startS: number, vehicleType: VManagerVeh
     new LineBasicMaterial({ color: 0x55ddff, transparent: true, opacity: 0.8, depthWrite: false }),
   );
   hydrantLink.visible = false;
+  // The two endpoints move every frame; bounding-sphere culling would retain
+  // stale bounds and can hide the link after the truck moves.
+  hydrantLink.frustumCulled = false;
   hydrantLink.renderOrder = 18;
   scene.add(hydrantLink);
   const p0 = obj.getWorldPosition(new Vector3());
@@ -1175,7 +1178,15 @@ function updateFollowerSuppression(dt: number) {
   for (const entry of followers) {
     entry.fxState.sprayingWater = false;
     entry.hydrantSupplyId = null;
-    if (!entry.refillTarget && !entry.returningToBase) entry.hydrantStatus = 'none';
+    if (!entry.refillTarget && !entry.returningToBase) {
+      entry.hydrantStatus = 'none';
+      if (isGroundHydrantUnit(entry)) {
+        const currentPos = entry.object.getWorldPosition(tmpFollowerWorld);
+        if (findActiveHydrantWithinReach(hydrantSystem, currentPos, HYDRANT_DRAW_RADIUS)) {
+          entry.hydrantStatus = 'nearby';
+        }
+      }
+    }
 
     const incId = entry.assignedIncidentId;
     if (incId == null) continue;

@@ -3,6 +3,7 @@ import { createRoadMask } from '../roads/state';
 import {
   canSuppressAt,
   createHydrantSystem,
+  findActiveHydrantById,
   findActiveHydrantWithinReach,
   findNearestHydrant,
   getHydrantCoverage,
@@ -49,7 +50,7 @@ describe('fire hydrant placement', () => {
     let offsetSampled = 0;
     for (const hydrant of hydrants) {
       expect(hydrant.coverageRadius).toBe(25);
-      const offset = hydrant.worldPos.z - hydrant.gridPos.z * system.cellSize;
+      const offset = hydrant.worldPos.z - (hydrant.gridPos.z + 0.5) * system.cellSize;
       expect(Math.abs(offset)).toBeCloseTo(lateralOffset, 1);
       offsetSampled++;
     }
@@ -65,6 +66,21 @@ describe('fire hydrant placement', () => {
     expect(isInHydrantCoverage(soloSystem.hydrants, { ...only.gridPos })).toBe(true);
     const outside = { x: only.gridPos.x + only.coverageRadius + 5, z: only.gridPos.z };
     expect(isInHydrantCoverage(soloSystem.hydrants, outside)).toBe(false);
+  });
+
+  it('skips automatic placement on crossroad tiles', () => {
+    const mask = createRoadMask(25, 25);
+    for (let x = 2; x < 23; x++) mask.mask[12 * mask.width + x] = 1;
+    for (let z = 2; z < 23; z++) mask.mask[z * mask.width + 12] = 1;
+
+    const system = createHydrantSystem(mask, 2);
+    updateHydrantPlacement(system);
+
+    expect(system.hydrants.some((hydrant) => hydrant.gridPos.x === 12 && hydrant.gridPos.z === 12)).toBe(false);
+    for (const hydrant of system.hydrants) {
+      expect(hydrant.worldPos.x).toBeGreaterThanOrEqual(0);
+      expect(hydrant.worldPos.z).toBeGreaterThanOrEqual(0);
+    }
   });
 });
 
@@ -208,5 +224,10 @@ describe('hydrant utility helpers', () => {
 
     source.active = false;
     expect(findActiveHydrantWithinReach(system, source.worldPos, 6)).toBeNull();
+
+    source.active = true;
+    expect(findActiveHydrantById(system, source.id)?.id).toBe(source.id);
+    expect(removeHydrant(system, source.id)).toBe(true);
+    expect(findActiveHydrantById(system, source.id)).toBeNull();
   });
 });

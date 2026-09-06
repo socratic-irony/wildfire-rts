@@ -136,18 +136,19 @@ function isValidHydrantPosition(system: HydrantSystem, pos: { x: number; z: numb
 
 export function placeHydrant(system: HydrantSystem, pos: { x: number; z: number }, isLeftSide?: boolean): boolean {
   if (!isValidHydrantPosition(system, pos)) return false;
-  
+
   // Calculate actual placement position (potentially offset from road center)
   const placementPos = (isLeftSide !== undefined) 
     ? getHydrantOffsetPosition(system.roadMask, pos, isLeftSide)
     : pos;
+  if (!placementPos) return false;
   
   const hydrant: FireHydrant = {
     id: system.nextId++,
     gridPos: { x: Math.round(pos.x), z: Math.round(pos.z) }, // Keep grid position as road tile
     worldPos: { 
-      x: placementPos.x * system.cellSize, 
-      z: placementPos.z * system.cellSize 
+      x: (placementPos.x + 0.5) * system.cellSize,
+      z: (placementPos.z + 0.5) * system.cellSize
     },
     coverageRadius: HYDRANT_COVERAGE_RADIUS_TILES,
     active: true,
@@ -234,7 +235,7 @@ function getHydrantOffsetPosition(
   centerPos: { x: number; z: number }, 
   isLeftSide: boolean,
   offsetDistance = HYDRANT_ROADSIDE_OFFSET_TILES
-): { x: number; z: number } {
+): { x: number; z: number } | null {
   const direction = findRoadDirection(roadMask, centerPos.x, centerPos.z);
   if (!direction) {
     // If we can't determine road direction, place on the center
@@ -245,25 +246,37 @@ function getHydrantOffsetPosition(
   const perpDx = -direction.dz;
   const perpDz = direction.dx;
   
-  // Apply offset to left or right side
-  const sideMultiplier = isLeftSide ? -1 : 1;
-  let offsetX = centerPos.x + (perpDx * offsetDistance * sideMultiplier);
-  let offsetZ = centerPos.z + (perpDz * offsetDistance * sideMultiplier);
-
   // Keep the roadside fixture clear of the rasterized road where a wide or
-  // diagonal stamp reaches the first candidate offset. The normal road mask
-  // uses a sub-two-tile radius, so the first candidate remains the usual
-  // 1.4-tile placement; the bounded fallback handles wider custom roads.
-  if (isRoad(roadMask, Math.round(offsetX), Math.round(offsetZ))) {
-    const clearance = offsetDistance + 0.75;
-    offsetX = centerPos.x + (perpDx * clearance * sideMultiplier);
-    offsetZ = centerPos.z + (perpDz * clearance * sideMultiplier);
+  // diagonal stamp reaches the first candidate offset. Try the requested side
+  // first, then the opposite side at bounded increments; every candidate is
+  // map-bounded and must resolve to a non-road cell.
+  const preferredSide = isLeftSide ? -1 : 1;
+  const sideMultipliers = [preferredSide, -preferredSide];
+  for (const sideMultiplier of sideMultipliers) {
+    for (let step = 0; step < 4; step++) {
+      const distance = offsetDistance + step * 0.75;
+      const offsetX = centerPos.x + (perpDx * distance * sideMultiplier);
+      const offsetZ = centerPos.z + (perpDz * distance * sideMultiplier);
+      const cellX = Math.round(offsetX);
+      const cellZ = Math.round(offsetZ);
+      if (cellX < 0 || cellZ < 0 || cellX >= roadMask.width || cellZ >= roadMask.height) continue;
+      if (isRoad(roadMask, cellX, cellZ)) continue;
+      return {
+        x: Math.round(offsetX * 10) / 10,
+        z: Math.round(offsetZ * 10) / 10,
+      };
+    }
   }
-  
-  return { 
-    x: Math.round(offsetX * 10) / 10, // Round to 0.1 precision for sub-tile placement
-    z: Math.round(offsetZ * 10) / 10 
-  };
+
+  return null;
+}
+
+function isRoadIntersection(roadMask: RoadMask, x: number, z: number): boolean {
+  let roadNeighbors = 0;
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    if (isRoad(roadMask, x + dx, z + dz)) roadNeighbors++;
+  }
+  return roadNeighbors >= 3;
 }
 
 function findOptimalSpacing(system: HydrantSystem, roadTiles: Array<{ x: number; z: number }>): Array<{ x: number; z: number; isLeftSide: boolean }> {
@@ -277,6 +290,11 @@ function findOptimalSpacing(system: HydrantSystem, roadTiles: Array<{ x: number;
   });
   
   for (const tile of sortedTiles) {
+    // Intersections have no unambiguous roadside tangent. Leave them to the
+    // adjacent segment candidates so automatic placement cannot land on a
+    // crossroad even when a single extra offset still overlaps the road mask.
+    if (isRoadIntersection(system.roadMask, tile.x, tile.z)) continue;
+
     // Check if this position would have ideal spacing
     let needsHydrant = true;
     
