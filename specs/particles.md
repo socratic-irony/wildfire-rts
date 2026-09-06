@@ -8,7 +8,7 @@ This spec captures the particle FX approach used to visualize wildfire combustio
   - GPU‑instanced flipbook billboards for flames/smoke using a single atlas and one material (`src/particles/flipbook.ts`).
     - Per‑instance attributes: `iOffset(vec3)`, `iSize(float)`, `iAngle(float)`, `iF0(float)`, `iRate(float)`, `iFBase(float)`, `iFCount(float)`, `iColor(vec3)`, `iAspect(float)`, `iPhase(float)`, `iRise(float)`, `iOpacity(float)`.
     - Billboarding done in vertex shader using camera right/up; flames pulse while smoke grows, rises from a lifted base, and fades in/out over its cyclic age; placeholder atlas generated on the fly.
-    - Burning-tile smoke uses `computeSmokeProfile(heat, lod)` to cap base opacity at 0.58, lift cards at least 0.42 world units, and provide 2.2–3.0 world units of rise with wind drift.
+    - Burning-tile smoke uses `computeSmokeProfile(heat, lod, out)` to cap base opacity at 0.58, lift cards at least 0.42 world units, and provide 2.2–3.0 world units of rise with wind drift; the reusable `out` profile avoids per-tile update allocations.
     - Distance LOD throttles emission; hard cap via `mesh.count`.
   - Perimeter ribbon strip (`src/particles/ribbon.ts`): expanded line rendered as one mesh with animated UV flow; UI exposes `visible/width/opacity/speed`.
   - Wired in `src/main.ts`: created once, updated every frame; ribbon controls in Debug UI Fire panel.

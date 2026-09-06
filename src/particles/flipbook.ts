@@ -91,15 +91,14 @@ export type SmokeProfile = {
  * Keeping these values together prevents smoke from becoming a large opaque
  * layer at the same height as the terrain as fire intensity changes.
  */
-export function computeSmokeProfile(heat: number, lod: number): SmokeProfile {
+export function computeSmokeProfile(heat: number, lod: number, out: SmokeProfile): SmokeProfile {
   const h = Math.max(0, Math.min(1, heat));
   const l = Math.max(0, Math.min(1, lod));
-  return {
-    baseLift: 0.42 + 0.06 * (1 - h),
-    rise: 2.2 + 0.55 * l + 0.25 * h,
-    opacity: 0.46 + 0.12 * h,
-    drift: 1.05 + 0.1 * l,
-  };
+  out.baseLift = 0.42 + 0.06 * (1 - h);
+  out.rise = 2.2 + 0.55 * l + 0.25 * h;
+  out.opacity = 0.46 + 0.12 * h;
+  out.drift = 1.05 + 0.1 * l;
+  return out;
 }
 
 function makeMaterial(atlas: Texture, frames: number) {
@@ -213,6 +212,7 @@ export function createFlipbookParticles(hm: Heightmap) {
   const iPack3 = new Float32Array(caps.total * 4); // rise, colorR, colorG, colorB
   const iDrift = new Float32Array(caps.total);     // wind shear multiplier
   const iOpacity = new Float32Array(caps.total);   // lifecycle base opacity
+  const smokeProfile: SmokeProfile = { baseLift: 0, rise: 0, opacity: 0, drift: 0 };
   mesh.geometry.setAttribute('iOffset', new InstancedBufferAttribute(iOffset, 3));
   mesh.geometry.setAttribute('iPack1', new InstancedBufferAttribute(iPack1, 4));
   mesh.geometry.setAttribute('iPack2', new InstancedBufferAttribute(iPack2, 4));
@@ -294,7 +294,7 @@ export function createFlipbookParticles(hm: Heightmap) {
           const i3 = alive * 3;
           const i4 = alive * 4;
           iOffset[i3 + 0] = wx + ox;
-          const smokeProfile = computeSmokeProfile(heat, lod);
+          computeSmokeProfile(heat, lod, smokeProfile);
           iOffset[i3 + 1] = hm.sample(wx + ox, wz + oz) + smokeProfile.baseLift;
           iOffset[i3 + 2] = wz + oz;
           // Pack attributes into vec4s
