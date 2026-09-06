@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DoubleSide, Line, Mesh } from 'three';
+import { DoubleSide, Line, Mesh, Vector3 } from 'three';
 import { generateHeightmap } from '../../terrain/heightmap';
 import { RoadsVisual } from '../visual';
 
@@ -149,6 +149,21 @@ describe('RoadsVisual debug diagnostics', () => {
     }
 
     const apron = roads.group.getObjectsByProperty('name', 'road-intersection-apron')[0] as Mesh;
-    expect(apron.position.y).toBeCloseTo(hm.sample(apron.position.x, apron.position.z) + 0.324, 4);
+    apron.updateMatrixWorld(true);
+    const positions = apron.geometry.getAttribute('position');
+    const terrainNormalY = 1 / Math.sqrt(1 + 0.8 * 0.8 + 0.2 * 0.2);
+    const worldPoint = new Vector3();
+    const worldHeights: number[] = [];
+    for (let i = 0; i < positions.count; i++) {
+      worldPoint.fromBufferAttribute(positions, i).applyMatrix4(apron.matrixWorld);
+      worldHeights.push(worldPoint.y);
+      expect(worldPoint.y).toBeCloseTo(hm.sample(worldPoint.x, worldPoint.z) + 0.324 / terrainNormalY, 3);
+    }
+    expect(Math.max(...worldHeights) - Math.min(...worldHeights)).toBeGreaterThan(0.5);
+
+    let disposed = false;
+    apron.geometry.addEventListener('dispose', () => { disposed = true; });
+    roads.buildIntersections();
+    expect(disposed).toBe(true);
   });
 });

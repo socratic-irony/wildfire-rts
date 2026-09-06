@@ -1,7 +1,6 @@
 import { INTERSECTION_STOP_DISTANCE } from './trafficRules';
 import {
   BufferGeometry,
-  CircleGeometry,
   CylinderGeometry,
   DoubleSide,
   Float32BufferAttribute,
@@ -84,7 +83,6 @@ export class RoadsVisual {
   private intersections: Array<{ id: number; pos: Vector2; a:{path:number;s:number;seg:number;t:number}; b:{path:number;s:number;seg:number;t:number} }> = [];
   private perPathIntersections: Array<Array<{ id:number; s:number; pos: Vector2; otherPath:number; otherS:number }>> = [];
   private intersectionGroup = new Group();
-  private intersectionGeo?: CircleGeometry;
   private intersectionMat = new MeshStandardMaterial({
     color: 0x2a3035,
     roughness: 0.85,
@@ -134,7 +132,6 @@ export class RoadsVisual {
     while (this.intersectionGroup.children.length) {
       this.intersectionGroup.remove(this.intersectionGroup.children[0]);
     }
-    this.intersectionGeo = undefined;
     this.clearStopSignMeshes();
     this.disposeStopSignResources();
     this.midlineIndex.build([], this.hm.scale * 3);
@@ -335,7 +332,6 @@ export class RoadsVisual {
       const geo = (child as Mesh | Line).geometry as BufferGeometry | undefined;
       if (geo) geometries.add(geo);
     });
-    if (this.intersectionGeo) geometries.add(this.intersectionGeo);
     for (const geo of geometries) geo.dispose();
   }
 
@@ -455,22 +451,21 @@ export class RoadsVisual {
     this.clearPathMarkings();
     for (let pathIndex = 0; pathIndex < this.paths.length; pathIndex++) this.rebuildPathMarkings(pathIndex);
 
-    while (this.intersectionGroup.children.length) this.intersectionGroup.remove(this.intersectionGroup.children[0]);
+    this.clearIntersectionMeshes();
     this.stopSignApproaches = this.computeStopSignApproaches();
     if (!this.intersections.length) {
       this.clearStopSignMeshes();
       this.disposeStopSignResources();
       return;
     }
-    if (!this.intersectionGeo) {
-      this.intersectionGeo = new CircleGeometry(Math.max(this.hm.scale * 1.8, this.roadWidth * 1.15), 20);
-      this.intersectionGeo.rotateX(-Math.PI / 2);
-    }
     if (!this.group.children.includes(this.intersectionGroup)) this.group.add(this.intersectionGroup);
+    const intersectionRadius = Math.max(this.hm.scale * 1.8, this.roadWidth * 1.15);
     for (const inter of this.intersections) {
-      const apron = new Mesh(this.intersectionGeo, this.intersectionMat);
+      const apron = new Mesh(
+        buildIntersectionApronGeometry(inter.pos, intersectionRadius, this.hm, this.yOffset * 1.08),
+        this.intersectionMat,
+      );
       apron.name = 'road-intersection-apron';
-      apron.position.set(inter.pos.x, this.hm.sample(inter.pos.x, inter.pos.y) + this.yOffset * 1.08, inter.pos.y);
       apron.renderOrder = 7;
       apron.receiveShadow = true;
       apron.castShadow = false;
@@ -487,6 +482,15 @@ export class RoadsVisual {
       }
     }
     this.pathMarkings = this.paths.map(() => []);
+  }
+
+  private clearIntersectionMeshes() {
+    while (this.intersectionGroup.children.length) {
+      const child = this.intersectionGroup.children[0];
+      this.intersectionGroup.remove(child);
+      const mesh = child as Mesh;
+      mesh.geometry?.dispose();
+    }
   }
 
   private clearStopSignMeshes() {
@@ -905,6 +909,32 @@ function sampleNormal(hm: Heightmap, wx: number, wz: number) {
   const n = new Vector3(-Hx, 1, -Hz);
   n.normalize();
   return n;
+}
+
+function buildIntersectionApronGeometry(center: Vector2, radius: number, hm: Heightmap, yOffset: number) {
+  const segments = 20;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const addSurfacePoint = (wx: number, wz: number) => {
+    const point = new Vector3(wx, hm.sample(wx, wz), wz)
+      .addScaledVector(sampleNormal(hm, wx, wz), yOffset);
+    positions.push(point.x, point.y, point.z);
+  };
+  addSurfacePoint(center.x, center.y);
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    addSurfacePoint(center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius);
+  }
+  for (let i = 0; i < segments; i++) {
+    const next = (i + 1) % segments;
+    indices.push(0, 1 + next, 1 + i);
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
 // Build faint shoulder bands outside the road surface
