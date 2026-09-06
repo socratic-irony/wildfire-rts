@@ -93,4 +93,35 @@ describe('RoadsVisual debug diagnostics', () => {
     expect(material.depthTest).toBe(true);
     expect(material.depthWrite).toBe(true);
   });
+
+  it('adds asphalt variation and rural edge markings to the production road', () => {
+    const hm = generateHeightmap(16, 16, 1, { seed: 'flat', frequency: 0, amplitude: 0, octaves: 1, persistence: 1 });
+    const roads = new RoadsVisual(hm);
+
+    roads.addPath([
+      { x: 2, z: 2 },
+      { x: 12, z: 2 },
+    ]);
+
+    const surface = roads.group.children.find((child) => child.name === 'road-surface') as Mesh;
+    expect(surface.geometry.getAttribute('color')).toBeDefined();
+    const surfaceMaterial = Array.isArray(surface.material) ? surface.material[0] : surface.material;
+    expect(surfaceMaterial.vertexColors).toBe(true);
+    expect(roads.group.getObjectByName('road-edge-markings')).toBeDefined();
+  });
+
+  it('suppresses center and edge markings across an intersection apron', () => {
+    const hm = generateHeightmap(64, 64, 1, { seed: 'flat', frequency: 0, amplitude: 0, octaves: 1, persistence: 1 });
+    const roads = new RoadsVisual(hm);
+
+    roads.addPath([{ x: 8, z: 32 }, { x: 56, z: 32 }]);
+    roads.addPath([{ x: 32, z: 8 }, { x: 32, z: 56 }]);
+    const before = (roads.group.getObjectByName('road-center-stripe') as Mesh).geometry.getAttribute('position').count;
+
+    roads.buildIntersections();
+
+    const after = (roads.group.getObjectByName('road-center-stripe') as Mesh).geometry.getAttribute('position').count;
+    expect(after).toBeLessThan(before);
+    expect(roads.group.getObjectsByProperty('name', 'road-intersection-apron')).toHaveLength(1);
+  });
 });

@@ -1,14 +1,19 @@
 import {
   BufferGeometry,
   CircleGeometry,
+  CylinderGeometry,
   DoubleSide,
   Float32BufferAttribute,
   Group,
+  InstancedMesh,
   Line,
   LineBasicMaterial,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Quaternion,
+  RingGeometry,
   Vector2,
   Vector3
 } from 'three';
@@ -25,6 +30,7 @@ type RoadFrame = {
   tangent: Vector3;
   terrainNormal: Vector3;
   rawHeight: number;
+  asphaltTone: number;
 };
 
 type ClosestHit = {
@@ -37,11 +43,24 @@ type ClosestHit = {
   d2: number;
 };
 
+export type StopSignApproach = {
+  intersectionId: number;
+  pathIndex: number;
+  s: number;
+  intersectionPos: { x: number; z: number };
+  stopPos: { x: number; z: number };
+  signPos: { x: number; z: number };
+  direction: { x: number; z: number };
+};
+
+type SuppressedRange = { start: number; end: number };
+
 export class RoadsVisual {
   public group = new Group();
-  private mat = new MeshStandardMaterial({ color: 0x1b1f24, roughness: 0.95, metalness: 0.05, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: true, depthTest: true, side: DoubleSide });
+  private mat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0.05, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: true, depthTest: true, side: DoubleSide });
   private shoulderMat = new MeshBasicMaterial({ color: 0x7a6247, transparent: true, opacity: 0.38, depthWrite: false, depthTest: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, side: DoubleSide });
-  private stripeMat = new MeshBasicMaterial({ color: 0xf5f5f5, transparent: false, opacity: 1.0, depthWrite: false, depthTest: true, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, vertexColors: false, side: DoubleSide });
+  private stripeMat = new MeshBasicMaterial({ color: 0xf1c84b, transparent: false, opacity: 1.0, depthWrite: false, depthTest: true, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, vertexColors: false, side: DoubleSide });
+  private edgeMat = new MeshBasicMaterial({ color: 0xdfe3dc, transparent: false, opacity: 0.92, depthWrite: false, depthTest: true, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, side: DoubleSide });
   private debugLineMat = new LineBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.75, depthWrite: false, depthTest: false });
   private debugRibbonMat = new MeshBasicMaterial({ color: 0x0b1a2b, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, wireframe: true });
   private yOffset: number;
@@ -50,6 +69,8 @@ export class RoadsVisual {
   private frames: RoadFrame[][] = [];
   private cumS: number[][] = [];
   private closedFlags: boolean[] = [];
+  private roadWidth = 0;
+  private pathMarkings: Array<Mesh[]> = [];
   private diagnosticsVisible = false;
   private readonly diagnosticsGroup = new Group();
 
@@ -64,7 +85,7 @@ export class RoadsVisual {
   private intersectionGroup = new Group();
   private intersectionGeo?: CircleGeometry;
   private intersectionMat = new MeshStandardMaterial({
-    color: 0x7a7a7a,
+    color: 0x2a3035,
     roughness: 0.85,
     metalness: 0.05,
     transparent: true,
@@ -73,6 +94,15 @@ export class RoadsVisual {
     polygonOffsetFactor: -4,
     polygonOffsetUnits: -4
   });
+  private readonly stopSignGroup = new Group();
+  private stopSignApproaches: StopSignApproach[] = [];
+  private stopBoardGeo?: CylinderGeometry;
+  private stopBorderGeo?: RingGeometry;
+  private stopPoleGeo?: CylinderGeometry;
+  private stopGlyphGeo?: BufferGeometry;
+  private stopRedMat = new MeshBasicMaterial({ color: 0xd9272e, side: DoubleSide });
+  private stopWhiteMat = new MeshBasicMaterial({ color: 0xf5f0dc, side: DoubleSide });
+  private stopPoleMat = new MeshStandardMaterial({ color: 0x4e5558, roughness: 0.85, metalness: 0.15 });
 
   /** Midline spatial index — rebuilt whenever paths change. */
   public readonly midlineIndex = new MidlineIndex();
@@ -86,6 +116,7 @@ export class RoadsVisual {
   }
 
   clear() {
+    this.disposeChildGeometries();
     for (const c of [...this.group.children]) this.group.remove(c);
     this.clearDiagnostics();
     this.group.add(this.diagnosticsGroup);
@@ -93,6 +124,8 @@ export class RoadsVisual {
     this.frames = [];
     this.cumS = [];
     this.closedFlags = [];
+    this.pathMarkings = [];
+    this.stopSignApproaches = [];
     this.grid = [];
     this.segs = [];
     this.intersections = [];
@@ -101,6 +134,8 @@ export class RoadsVisual {
       this.intersectionGroup.remove(this.intersectionGroup.children[0]);
     }
     this.intersectionGeo = undefined;
+    this.clearStopSignMeshes();
+    this.disposeStopSignResources();
     this.midlineIndex.build([], this.hm.scale * 3);
   }
 
@@ -114,13 +149,6 @@ export class RoadsVisual {
    * and materials). The instance must not be rendered again afterwards.
    */
   dispose() {
-    const geometries = new Set<BufferGeometry>();
-    this.group.traverse((child) => {
-      const geo = (child as Mesh | Line).geometry as BufferGeometry | undefined;
-      if (geo) geometries.add(geo);
-    });
-    if (this.intersectionGeo) geometries.add(this.intersectionGeo);
-    for (const geo of geometries) geo.dispose();
     this.clear();
     this.mat.dispose();
     this.shoulderMat.dispose();
@@ -128,6 +156,10 @@ export class RoadsVisual {
     this.debugLineMat.dispose();
     this.debugRibbonMat.dispose();
     this.intersectionMat.dispose();
+    this.edgeMat.dispose();
+    this.stopRedMat.dispose();
+    this.stopWhiteMat.dispose();
+    this.stopPoleMat.dispose();
   }
 
   // Expose smoothed midlines as world XZ arrays for controllers
@@ -140,15 +172,9 @@ export class RoadsVisual {
     if (!points || points.length < 2) return;
     const angular = makeAngularPath(points);
     if (angular.length < 2) return;
-    if (!this.intersectionGeo) {
-      this.intersectionGeo = new CircleGeometry(this.hm.scale * 0.75, 24);
-      this.intersectionGeo.rotateX(-Math.PI / 2);
-      this.group.add(this.intersectionGroup);
-    } else if (!this.group.children.includes(this.intersectionGroup)) {
-      this.group.add(this.intersectionGroup);
-    }
     const scale = this.hm.scale;
     const width = Math.max(scale * 1.6, scale * 1.1); // visible surface spanning ~2 tiles
+    this.roadWidth = width;
     let centers = angular.map(p => snapToTileCenter(new Vector2((p.x + 0.5) * scale, (p.z + 0.5) * scale), scale));
     const initialClosed = centers.length > 2 && centers[0].distanceTo(centers[centers.length - 1]) < scale * 0.4;
     centers = dedupeVec2(centers);
@@ -198,6 +224,7 @@ export class RoadsVisual {
       this.segs.push({ path: pathIndex, i, a, b, len });
     }
     this.perPathIntersections[pathIndex] = [];
+    this.pathMarkings[pathIndex] = [];
     // Main road surface
     {
       const { positions, colors, indices } = buildRibbonStrip(frames, width, this.yOffset, closed);
@@ -231,18 +258,7 @@ export class RoadsVisual {
       mesh.renderOrder = 7;
       this.group.add(mesh);
     }
-    // Center stripe: dashed gray line along midline
-    {
-      const stripeWidth = Math.max(0.14 * scale, 0.08 * width);
-      const dash = Math.max(1.6 * scale, width * 0.9);
-      const gap = Math.max(1.0 * scale, width * 0.55);
-      const stripeYOffset = this.yOffset + Math.max(0.02, 0.04 * scale);
-      const geo = buildCenterDashed(frames, stripeWidth, dash, gap, stripeYOffset, closed);
-      const mesh = new Mesh(geo, this.stripeMat);
-      mesh.name = 'road-center-stripe';
-      mesh.renderOrder = 8;
-      this.group.add(mesh);
-    }
+    this.rebuildPathMarkings(pathIndex);
     // Debug visibility line along midline to ensure roads stay visible
     {
       const linePoints = frames.map(frame => frame.center.clone().addScaledVector(frame.up, this.yOffset * 1.25));
@@ -256,6 +272,81 @@ export class RoadsVisual {
     // Rebuild midline spatial index to include the newly added path
     const allMidlines = this.paths.map(p => p.map(v => ({ x: v.x, z: v.y })));
     this.midlineIndex.build(allMidlines, this.hm.scale * 3);
+  }
+
+  private rebuildPathMarkings(pathIndex: number) {
+    const old = this.pathMarkings[pathIndex] || [];
+    for (const mesh of old) {
+      this.group.remove(mesh);
+      mesh.geometry.dispose();
+    }
+    this.pathMarkings[pathIndex] = [];
+    const frames = this.frames[pathIndex];
+    if (!frames || frames.length < 2) return;
+    const scale = this.hm.scale;
+    const width = this.roadWidth || Math.max(scale * 1.6, scale * 1.1);
+    const closed = this.closedFlags[pathIndex];
+    const suppressRanges = this.getSuppressedRanges(pathIndex);
+    const stripeYOffset = this.yOffset + Math.max(0.02, 0.04 * scale);
+    const center = new Mesh(
+      buildCenterDashed(frames, Math.max(0.14 * scale, 0.08 * width), Math.max(1.6 * scale, width * 0.9), Math.max(1.0 * scale, width * 0.55), stripeYOffset, closed, suppressRanges),
+      this.stripeMat,
+    );
+    center.name = 'road-center-stripe';
+    center.userData.roadPath = pathIndex;
+    center.renderOrder = 8;
+    this.group.add(center);
+
+    const edge = new Mesh(
+      buildRoadEdgeStrips(frames, width, Math.max(0.11 * scale, 0.06 * width), stripeYOffset, closed, suppressRanges),
+      this.edgeMat,
+    );
+    edge.name = 'road-edge-markings';
+    edge.userData.roadPath = pathIndex;
+    edge.renderOrder = 8;
+    this.group.add(edge);
+    this.pathMarkings[pathIndex].push(center, edge);
+  }
+
+  private getSuppressedRanges(pathIndex: number): SuppressedRange[] {
+    const occurrences = this.perPathIntersections[pathIndex] || [];
+    const length = this.getPathLength(pathIndex);
+    const radius = Math.max(this.hm.scale * 1.9, this.roadWidth * 1.15);
+    if (length <= 0 || occurrences.length === 0) return [];
+    const ranges: SuppressedRange[] = [];
+    for (const occurrence of occurrences) {
+      const start = occurrence.s - radius;
+      const end = occurrence.s + radius;
+      if (this.closedFlags[pathIndex]) {
+        if (start < 0) ranges.push({ start: length + start, end: length });
+        if (end > length) ranges.push({ start: 0, end: end - length });
+        ranges.push({ start: Math.max(0, start), end: Math.min(length, end) });
+      } else {
+        ranges.push({ start: Math.max(0, start), end: Math.min(length, end) });
+      }
+    }
+    return ranges;
+  }
+
+  private disposeChildGeometries() {
+    const geometries = new Set<BufferGeometry>();
+    this.group.traverse((child) => {
+      const geo = (child as Mesh | Line).geometry as BufferGeometry | undefined;
+      if (geo) geometries.add(geo);
+    });
+    if (this.intersectionGeo) geometries.add(this.intersectionGeo);
+    for (const geo of geometries) geo.dispose();
+  }
+
+  private disposeStopSignResources() {
+    this.stopBoardGeo?.dispose();
+    this.stopBorderGeo?.dispose();
+    this.stopPoleGeo?.dispose();
+    this.stopGlyphGeo?.dispose();
+    this.stopBoardGeo = undefined;
+    this.stopBorderGeo = undefined;
+    this.stopPoleGeo = undefined;
+    this.stopGlyphGeo = undefined;
   }
 
   // Build or rebuild the spatial index and compute segment intersections
@@ -346,29 +437,171 @@ export class RoadsVisual {
     }
     // sort per path by s
     for (let p = 0; p < this.perPathIntersections.length; p++) this.perPathIntersections[p].sort((a,b)=>a.s-b.s);
+    this.refreshIntersectionVisuals();
+  }
 
-    // Refresh intersection markers so they read distinctly from ribbons
-    while (this.intersectionGroup.children.length) {
-      this.intersectionGroup.remove(this.intersectionGroup.children[0]);
+  getStopSignApproaches() {
+    return this.stopSignApproaches.map((approach) => ({
+      ...approach,
+      intersectionPos: { ...approach.intersectionPos },
+      stopPos: { ...approach.stopPos },
+      signPos: { ...approach.signPos },
+      direction: { ...approach.direction },
+    }));
+  }
+
+  private refreshIntersectionVisuals() {
+    this.clearPathMarkings();
+    for (let pathIndex = 0; pathIndex < this.paths.length; pathIndex++) this.rebuildPathMarkings(pathIndex);
+
+    while (this.intersectionGroup.children.length) this.intersectionGroup.remove(this.intersectionGroup.children[0]);
+    this.stopSignApproaches = this.computeStopSignApproaches();
+    if (!this.intersections.length) {
+      this.clearStopSignMeshes();
+      this.disposeStopSignResources();
+      return;
     }
-    if (this.intersections.length) {
-      if (!this.intersectionGeo) {
-        this.intersectionGeo = new CircleGeometry(this.hm.scale * 0.75, 24);
-        this.intersectionGeo.rotateX(-Math.PI / 2);
-      }
-      if (!this.group.children.includes(this.intersectionGroup)) {
-        this.group.add(this.intersectionGroup);
-      }
-      for (const inter of this.intersections) {
-        const marker = new Mesh(this.intersectionGeo!, this.intersectionMat);
-        const wy = this.hm.sample(inter.pos.x, inter.pos.y) + this.yOffset * 1.15;
-        marker.position.set(inter.pos.x, wy, inter.pos.y);
-        marker.renderOrder = 9;
-        marker.receiveShadow = false;
-        marker.castShadow = false;
-        this.intersectionGroup.add(marker);
+    if (!this.intersectionGeo) {
+      this.intersectionGeo = new CircleGeometry(Math.max(this.hm.scale * 1.8, this.roadWidth * 1.15), 20);
+      this.intersectionGeo.rotateX(-Math.PI / 2);
+    }
+    if (!this.group.children.includes(this.intersectionGroup)) this.group.add(this.intersectionGroup);
+    for (const inter of this.intersections) {
+      const apron = new Mesh(this.intersectionGeo, this.intersectionMat);
+      apron.name = 'road-intersection-apron';
+      apron.position.set(inter.pos.x, this.hm.sample(inter.pos.x, inter.pos.y) + this.yOffset * 1.08, inter.pos.y);
+      apron.renderOrder = 7;
+      apron.receiveShadow = true;
+      apron.castShadow = false;
+      this.intersectionGroup.add(apron);
+    }
+    this.buildStopSignMeshes();
+  }
+
+  private clearPathMarkings() {
+    for (const markings of this.pathMarkings) {
+      for (const mesh of markings) {
+        this.group.remove(mesh);
+        mesh.geometry.dispose();
       }
     }
+    this.pathMarkings = this.paths.map(() => []);
+  }
+
+  private clearStopSignMeshes() {
+    while (this.stopSignGroup.children.length) this.stopSignGroup.remove(this.stopSignGroup.children[0]);
+  }
+
+  private computeStopSignApproaches(): StopSignApproach[] {
+    const scale = this.hm.scale;
+    const roadWidth = this.roadWidth || Math.max(scale * 1.6, scale * 1.1);
+    const stopDistance = Math.max(scale * 2.2, roadWidth * 1.45);
+    const shoulder = Math.max(scale * 0.45, roadWidth * 0.35);
+    const lateralOffset = roadWidth * 0.5 + shoulder + scale * 0.55;
+    const result: StopSignApproach[] = [];
+    const seen = new Set<string>();
+    for (const inter of this.intersections) {
+      for (const occurrence of this.perPathIntersections.flatMap((list) => list.filter((entry) => entry.id === inter.id))) {
+        const pathIndex = this.perPathIntersections.findIndex((list) => list.includes(occurrence));
+        if (pathIndex < 0) continue;
+        const tangent = this.tangentAtS(pathIndex, occurrence.s);
+        if (!tangent) continue;
+        const length = this.getPathLength(pathIndex);
+        const endpointEps = Math.max(scale * 0.35, 0.05);
+        const directions = occurrence.s <= endpointEps
+          ? [tangent]
+          : (occurrence.s >= length - endpointEps && !this.closedFlags[pathIndex] ? [tangent.clone().multiplyScalar(-1)] : [tangent, tangent.clone().multiplyScalar(-1)]);
+        for (const direction of directions) {
+          direction.normalize();
+          const key = `${inter.id}:${Math.round(inter.pos.x * 100)}:${Math.round(inter.pos.y * 100)}:${Math.round(direction.x * 1000)}:${Math.round(direction.z * 1000)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const right = new Vector3(direction.z, 0, -direction.x).normalize();
+          const stop = new Vector2(inter.pos.x - direction.x * stopDistance, inter.pos.y - direction.z * stopDistance);
+          const sign = stop.clone().add(new Vector2(right.x, right.z).multiplyScalar(lateralOffset));
+          result.push({
+            intersectionId: inter.id,
+            pathIndex,
+            s: occurrence.s,
+            intersectionPos: { x: inter.pos.x, z: inter.pos.y },
+            stopPos: { x: stop.x, z: stop.y },
+            signPos: { x: sign.x, z: sign.y },
+            direction: { x: direction.x, z: direction.z },
+          });
+        }
+      }
+    }
+    return result;
+  }
+
+  private tangentAtS(pathIndex: number, s: number) {
+    const path = this.paths[pathIndex];
+    const closed = this.closedFlags[pathIndex];
+    const length = this.getPathLength(pathIndex);
+    if (!path || path.length < 2 || length <= 0) return null;
+    let target = Math.max(0, Math.min(length, s));
+    if (closed && target >= length) target = 0;
+    const segCount = closed ? path.length : path.length - 1;
+    let seg = 0;
+    while (seg < segCount - 1 && this.cumS[pathIndex][seg + 1] <= target) seg++;
+    const next = (seg + 1) % path.length;
+    const tangent = new Vector3(path[next].x - path[seg].x, 0, path[next].y - path[seg].y);
+    return tangent.lengthSq() > 1e-6 ? tangent.normalize() : null;
+  }
+
+  private buildStopSignMeshes() {
+    this.clearStopSignMeshes();
+    this.disposeStopSignResources();
+    if (!this.stopSignApproaches.length) return;
+    const scale = this.hm.scale;
+    const radius = Math.max(scale * 0.55, 0.48);
+    const boardDepth = Math.max(scale * 0.08, 0.07);
+    const signHeight = Math.max(scale * 2.0, 1.7);
+    this.stopBoardGeo = new CylinderGeometry(radius, radius, boardDepth, 8);
+    this.stopBorderGeo = new RingGeometry(radius * 0.76, radius * 0.88, 8);
+    this.stopPoleGeo = new CylinderGeometry(Math.max(scale * 0.055, 0.045), Math.max(scale * 0.055, 0.045), signHeight, 8);
+    this.stopGlyphGeo = buildStopGlyphGeometry(radius * 0.88, radius * 0.52);
+    const count = this.stopSignApproaches.length;
+    const boards = new InstancedMesh(this.stopBoardGeo, this.stopRedMat, count);
+    const borders = new InstancedMesh(this.stopBorderGeo, this.stopWhiteMat, count);
+    const glyphs = new InstancedMesh(this.stopGlyphGeo, this.stopWhiteMat, count);
+    const poles = new InstancedMesh(this.stopPoleGeo, this.stopPoleMat, count);
+    boards.name = 'road-stop-sign-boards';
+    borders.name = 'road-stop-sign-borders';
+    glyphs.name = 'road-stop-sign-glyphs';
+    poles.name = 'road-stop-sign-poles';
+    boards.renderOrder = borders.renderOrder = glyphs.renderOrder = 13;
+    poles.renderOrder = 12;
+    const boardMatrix = new Matrix4();
+    const faceMatrix = new Matrix4();
+    const poleMatrix = new Matrix4();
+    const normal = new Vector3();
+    const horizontal = new Vector3();
+    const quaternion = new Quaternion();
+    const scaleOne = new Vector3(1, 1, 1);
+    const yAxis = new Vector3(0, 1, 0);
+    for (let i = 0; i < count; i++) {
+      const approach = this.stopSignApproaches[i];
+      const terrainY = this.hm.sample(approach.signPos.x, approach.signPos.z);
+      const boardCenter = new Vector3(approach.signPos.x, terrainY + signHeight * 0.82, approach.signPos.z);
+      normal.set(-approach.direction.x, 0, -approach.direction.z).normalize();
+      quaternion.setFromUnitVectors(yAxis, normal);
+      boardMatrix.compose(boardCenter, quaternion, scaleOne);
+      boards.setMatrixAt(i, boardMatrix);
+      horizontal.copy(yAxis).cross(normal).normalize();
+      faceMatrix.makeBasis(horizontal, yAxis, normal);
+      faceMatrix.setPosition(boardCenter.clone().addScaledVector(normal, boardDepth * 0.5 + 0.008));
+      borders.setMatrixAt(i, faceMatrix);
+      glyphs.setMatrixAt(i, faceMatrix);
+      poleMatrix.compose(new Vector3(approach.signPos.x, terrainY + signHeight * 0.5, approach.signPos.z), new Quaternion(), scaleOne);
+      poles.setMatrixAt(i, poleMatrix);
+    }
+    boards.instanceMatrix.needsUpdate = true;
+    borders.instanceMatrix.needsUpdate = true;
+    glyphs.instanceMatrix.needsUpdate = true;
+    poles.instanceMatrix.needsUpdate = true;
+    this.stopSignGroup.add(poles, boards, borders, glyphs);
+    this.group.add(this.stopSignGroup);
   }
 
   getNextIntersection(pathIndex: number, s: number, lookahead = 6): { id:number; s:number; dist:number; pos:{x:number;z:number} } | null {
@@ -636,6 +869,12 @@ function buildRibbonStrip(frames: RoadFrame[], width: number, yOffset: number, c
     const mid = frame.center.clone().addScaledVector(frame.up, yOffset);
     const right = frame.center.clone().addScaledVector(frame.left, -half).addScaledVector(frame.up, yOffset);
     positions.push(left.x, left.y, left.z, mid.x, mid.y, mid.z, right.x, right.y, right.z);
+    const tone = frame.asphaltTone;
+    colors.push(
+      0.105 * tone, 0.12 * tone, 0.135 * tone,
+      0.125 * tone, 0.14 * tone, 0.155 * tone,
+      0.105 * tone, 0.12 * tone, 0.135 * tone,
+    );
   }
   const segCount = closed ? N : Math.max(0, N - 1);
   for (let i = 0; i < segCount; i++) {
@@ -719,7 +958,7 @@ function buildShoulderBands(frames: RoadFrame[], width: number, shoulder: number
 }
 
 // Build a dashed center stripe along the midline
-function buildCenterDashed(frames: RoadFrame[], stripeWidth: number, dashLen: number, gapLen: number, yOffset: number, closed = false) {
+function buildCenterDashed(frames: RoadFrame[], stripeWidth: number, dashLen: number, gapLen: number, yOffset: number, closed = false, suppressRanges: SuppressedRange[] = []) {
   const geo = new BufferGeometry();
   const pos: number[] = [];
   const idx: number[] = [];
@@ -730,6 +969,7 @@ function buildCenterDashed(frames: RoadFrame[], stripeWidth: number, dashLen: nu
   const N = frames.length;
   const segCount = closed ? N : Math.max(0, N - 1);
   let vert = 0;
+  let segmentStart = 0;
   for (let si = 0; si < segCount; si++) {
     const aIdx = si;
     const bIdx = closed ? (si + 1) % N : si + 1;
@@ -743,7 +983,7 @@ function buildCenterDashed(frames: RoadFrame[], stripeWidth: number, dashLen: nu
       const remainingInPhase = (inDash ? dashLen - phaseDist : cycle - phaseDist);
       let step = Math.min(segLen - progressed, remainingInPhase);
       if (step <= 1e-6) step = Math.min(1e-4, segLen - progressed);
-      if (inDash) {
+      if (inDash && !rangeOverlaps(segmentStart + progressed, segmentStart + progressed + step, suppressRanges)) {
         const t0 = progressed / segLen;
         const t1 = (progressed + step) / segLen;
         const frame0 = interpolateFrame(frames, aIdx, bIdx, t0);
@@ -765,10 +1005,91 @@ function buildCenterDashed(frames: RoadFrame[], stripeWidth: number, dashLen: nu
       progressed += step;
       acc += step;
     }
+    segmentStart += segLen;
   }
   geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
+  return geo;
+}
+
+function buildRoadEdgeStrips(frames: RoadFrame[], roadWidth: number, stripeWidth: number, yOffset: number, closed = false, suppressRanges: SuppressedRange[] = []) {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const halfW = stripeWidth * 0.5;
+  let segmentStart = 0;
+  let vertex = 0;
+  const segCount = closed ? frames.length : Math.max(0, frames.length - 1);
+  for (let si = 0; si < segCount; si++) {
+    const aIdx = si;
+    const bIdx = closed ? (si + 1) % frames.length : si + 1;
+    const a = frames[aIdx];
+    const b = frames[bIdx];
+    const segLen = a.center.distanceTo(b.center);
+    if (segLen <= 1e-6) continue;
+    if (!rangeOverlaps(segmentStart, segmentStart + segLen, suppressRanges)) {
+      const halfRoad = roadWidth * 0.5;
+      const leftA = a.center.clone().addScaledVector(a.left, halfRoad).addScaledVector(a.up, yOffset);
+      const rightA = a.center.clone().addScaledVector(a.left, -halfRoad).addScaledVector(a.up, yOffset);
+      const leftB = b.center.clone().addScaledVector(b.left, halfRoad).addScaledVector(b.up, yOffset);
+      const rightB = b.center.clone().addScaledVector(b.left, -halfRoad).addScaledVector(b.up, yOffset);
+      const leftNormal = a.left.clone().normalize().multiplyScalar(halfW);
+      const rightNormal = b.left.clone().normalize().multiplyScalar(halfW);
+      positions.push(
+        leftA.x + leftNormal.x, leftA.y + leftNormal.y, leftA.z + leftNormal.z,
+        leftA.x - leftNormal.x, leftA.y - leftNormal.y, leftA.z - leftNormal.z,
+        leftB.x + rightNormal.x, leftB.y + rightNormal.y, leftB.z + rightNormal.z,
+        leftB.x - rightNormal.x, leftB.y - rightNormal.y, leftB.z - rightNormal.z,
+        rightA.x + leftNormal.x, rightA.y + leftNormal.y, rightA.z + leftNormal.z,
+        rightA.x - leftNormal.x, rightA.y - leftNormal.y, rightA.z - leftNormal.z,
+        rightB.x + rightNormal.x, rightB.y + rightNormal.y, rightB.z + rightNormal.z,
+        rightB.x - rightNormal.x, rightB.y - rightNormal.y, rightB.z - rightNormal.z,
+      );
+      indices.push(
+        vertex + 0, vertex + 2, vertex + 1, vertex + 1, vertex + 2, vertex + 3,
+        vertex + 4, vertex + 6, vertex + 5, vertex + 5, vertex + 6, vertex + 7,
+      );
+      vertex += 8;
+    }
+    segmentStart += segLen;
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  return geo;
+}
+
+function rangeOverlaps(start: number, end: number, ranges: SuppressedRange[]) {
+  return ranges.some((range) => start < range.end && end > range.start);
+}
+
+function buildStopGlyphGeometry(width: number, height: number) {
+  const geo = new BufferGeometry();
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const stroke = Math.max(width * 0.12, 0.025);
+  const letterW = width * 0.18;
+  const gap = width * 0.045;
+  const totalW = letterW * 4 + gap * 3;
+  const left = -totalW * 0.5;
+  const top = height * 0.5;
+  const addRect = (x: number, y: number, w: number, h: number) => {
+    const base = positions.length / 3;
+    positions.push(x, y, 0, x + w, y, 0, x + w, y - h, 0, x, y - h, 0);
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+  const glyphs: Array<Array<[number, number, number, number]>> = [
+    [[0, 0, stroke, height], [0, 0, letterW, stroke], [0, height * 0.5, letterW, stroke], [0, height - stroke, letterW, stroke], [letterW - stroke, 0, stroke, height * 0.5]],
+    [[0, 0, stroke, height], [0, 0, letterW * 0.8, stroke], [0, height * 0.5, letterW * 0.8, stroke], [0, height - stroke, letterW * 0.8, stroke], [letterW - stroke, height * 0.5, stroke, height * 0.5]],
+    [[0, 0, stroke, height], [0, 0, letterW, stroke], [0, height - stroke, letterW, stroke]],
+    [[0, 0, stroke, height], [0, 0, letterW, stroke], [0, height * 0.5, letterW * 0.85, stroke], [letterW - stroke, height * 0.5, stroke, height * 0.5]],
+  ];
+  glyphs.forEach((glyph, index) => {
+    const x = left + index * (letterW + gap);
+    for (const [dx, dy, w, h] of glyph) addRect(x + dx, top - dy, w, h);
+  });
+  geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
   return geo;
 }
 
@@ -826,6 +1147,7 @@ function computeRoadFrames(path: Vector2[], _width: number, hm: Heightmap, close
       tangent: tangent.clone(),
       terrainNormal,
       rawHeight: rawHeights[i],
+      asphaltTone: Math.max(0.78, Math.min(1.12, 0.94 + 0.08 * Math.sin(i * 0.33) + 0.045 * Math.sin(i * 0.095 + 1.7))),
     });
   }
   return frames;
