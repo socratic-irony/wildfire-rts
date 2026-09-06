@@ -55,6 +55,7 @@ describe('createEnvironment', () => {
     const fog = scene.fog as FogExp2;
     expect(fog.density).toBeCloseTo(FOG_DENSITY, 8);
     expect(fog.color.getHexString()).toBe(HORIZON_COLOR.replace('#', '').toLowerCase());
+    expect(FOG_DENSITY).toBeLessThanOrEqual(0.0025);
 
     // Sky sun uniform matches the existing light's normalized position.
     const u = env.uniforms.sunPosition.value;

@@ -6,8 +6,9 @@ This spec captures the particle FX approach used to visualize wildfire combustio
 
 - Implemented (feature/particles):
   - GPU‑instanced flipbook billboards for flames/smoke using a single atlas and one material (`src/particles/flipbook.ts`).
-    - Per‑instance attributes: `iOffset(vec3)`, `iSize(float)`, `iAngle(float)`, `iF0(float)`, `iRate(float)`, `iFBase(float)`, `iFCount(float)`, `iColor(vec3)`, `iAspect(float)`, `iPhase(float)`, `iRise(float)`.
-    - Billboarding done in vertex shader using camera right/up; simple size‑over‑life; placeholder atlas generated on the fly.
+    - Per‑instance attributes: `iOffset(vec3)`, `iSize(float)`, `iAngle(float)`, `iF0(float)`, `iRate(float)`, `iFBase(float)`, `iFCount(float)`, `iColor(vec3)`, `iAspect(float)`, `iPhase(float)`, `iRise(float)`, `iOpacity(float)`.
+    - Billboarding done in vertex shader using camera right/up; flames pulse while smoke grows, rises from a lifted base, and fades in/out over its cyclic age; placeholder atlas generated on the fly.
+    - Burning-tile smoke uses `computeSmokeProfile(heat, lod)` to cap base opacity at 0.58, lift cards at least 0.42 world units, and provide 2.2–3.0 world units of rise with wind drift.
     - Distance LOD throttles emission; hard cap via `mesh.count`.
   - Perimeter ribbon strip (`src/particles/ribbon.ts`): expanded line rendered as one mesh with animated UV flow; UI exposes `visible/width/opacity/speed`.
   - Wired in `src/main.ts`: created once, updated every frame; ribbon controls in Debug UI Fire panel.
@@ -127,8 +128,8 @@ Per active tile we maintain an emitter accumulator to convert continuous rates t
 - Flipbook sprites — `src/particles/flipbook.ts`
   - `createFlipbookParticles(hm)` → `{ group, update(grid, env, dt, camera), setQuality(q), setEnabled(part), updateTerrain(newHeightmap) }`.
   - `updateTerrain` is a live integration hook called by `main.ts` during terrain regeneration so subsequent particle placement samples the replacement heightmap.
-  - Attributes written each frame: `iOffset, iSize, iAngle, iF0, iRate, iFBase, iFCount, iAspect, iPhase, iRise, iColor, iDrift`.
-  - Uniforms: `uTime, uFrames, uAtlas, cameraRight, cameraUp, uWindDir, uWindSpeed`. Wind shear offsets smoke world positions downwind in the vertex shader (`offset ∝ lifeT * windSpeed * 0.22 * iDrift`); smolder smoke color is lightened (0.87 gray) and the atlas smoke alpha falloff softened (pow exponent 1.7) for a hazier read.
+  - Attributes written each frame: `iOffset, iSize, iAngle, iF0, iRate, iFBase, iFCount, iAspect, iPhase, iRise, iColor, iDrift, iOpacity`.
+  - Uniforms: `uTime, uFrames, uAtlas, cameraRight, cameraUp, uWindDir, uWindSpeed`. Wind shear offsets smoke world positions downwind in the vertex shader (`offset ∝ lifeT * windSpeed * 0.28 * iDrift`); smoke alpha is lifecycle-faded and base opacity is per-instance; smolder smoke color is lightened (0.87 gray) and the atlas smoke alpha falloff softened (pow exponent 1.7) for a hazier read.
   - Atlas layout: vertical stack with flames frames first, then smoke frames; per-instance `iFBase/iFCount` select the sub‑range.
   - Quality presets map to total cap (default 8k). One atlas/material keeps batching to one draw.
 
@@ -185,8 +186,8 @@ Quality presets (total pooled capacity across all systems):
 3) Atlas + material unification (next)
    - Replace placeholder with a 2k atlas containing flames/smoke rows; keep one material to batch both.
    - Add per‑instance state to select row range if needed.
-4) Soft particles + wind (next)
-   - Add optional depth‑fade; modulate offsets by wind to drift smoke.
+4) Soft particles + wind (partial)
+   - Wind drift, lifted smoke, age fade, and smoke growth are implemented; optional depth‑fade remains for hiding terrain intersections.
 5) Embers GPU update (later)
    - TF update + additive points for 2–8k embers.
 6) Hero plumes (later)
@@ -195,6 +196,7 @@ Quality presets (total pooled capacity across all systems):
 ## Testing
 
 - Flipbook: headless update exercises instanced count ≤ cap and >0 when burning tiles exist (`src/__tests__/particles_flipbook.test.ts`).
+- Smoke tuning: `computeSmokeProfile` is covered for lifted placement, bounded opacity, rise, and wind drift (`src/__tests__/particles_flipbook.test.ts`).
 - Performance: verify frame time ≤ 3–4 ms for particles at medium quality on mid‑range laptop; check draw calls remain minimal (1–2 for sprites + 1 for ribbon).
 
 ## Budgets & Tuning

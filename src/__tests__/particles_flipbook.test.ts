@@ -1,9 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { createFlipbookParticles } from '../particles/flipbook';
+import { computeSmokeProfile, createFlipbookParticles } from '../particles/flipbook';
 import { buildFireGrid, ignite } from '../fire/grid';
 import { generateHeightmap } from '../terrain/heightmap';
 
 describe('flipbook particles', () => {
+  it('keeps smoke lifted, translucent, and wind-ready instead of blanket-like', () => {
+    const profile = computeSmokeProfile(0.85, 1);
+
+    expect(profile.baseLift).toBeGreaterThanOrEqual(0.4);
+    expect(profile.rise).toBeGreaterThanOrEqual(2.2);
+    expect(profile.opacity).toBeLessThanOrEqual(0.6);
+    expect(profile.drift).toBeGreaterThan(0.9);
+  });
+
   it('creates an instanced mesh and respects caps', () => {
     const hm = generateHeightmap(16, 16, 1, { seed: 't', frequency: 1, amplitude: 1, octaves: 1, persistence: 0.5 });
     const grid = buildFireGrid(hm as any, { rock: new Uint8Array((hm.width+1)*(hm.height+1)), forest: new Uint8Array((hm.width+1)*(hm.height+1)), chaparral: new Uint8Array((hm.width+1)*(hm.height+1)) } as any, { cellSize: hm.scale });

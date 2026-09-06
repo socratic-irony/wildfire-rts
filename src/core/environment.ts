@@ -13,8 +13,8 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js';
 
 /** Warm late-afternoon horizon tint; fog and scene background align to it. */
 export const HORIZON_COLOR = '#e6d9bd';
-/** Replaces the boot-time FogExp2 density (0.008) so terrain reads clearer. */
-export const FOG_DENSITY = 0.0045;
+/** Replaces the boot-time FogExp2 density (0.008) with distant haze. */
+export const FOG_DENSITY = 0.0018;
 /** Default sky-dome half extent (world units); must stay inside the camera far plane. */
 export const DEFAULT_WORLD_RADIUS = 900;
 

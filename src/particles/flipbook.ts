@@ -75,6 +75,33 @@ function makeProceduralAtlas(opts = { flameFrames: 16, smokeFrames: 8, size: 48 
   return { tex, totalFrames, flameBase: 0, smokeBase: flameFrames, flameFrames, smokeFrames };
 }
 
+export type SmokeProfile = {
+  /** Lift above the terrain before the card is visible. */
+  baseLift: number;
+  /** Vertical distance traveled over the card's lifetime. */
+  rise: number;
+  /** Base alpha before the shader's age fade is applied. */
+  opacity: number;
+  /** Wind multiplier; values above 1 make smoke visibly trail the flame. */
+  drift: number;
+};
+
+/**
+ * Tuned smoke placement shared by burning-tile emission and headless tests.
+ * Keeping these values together prevents smoke from becoming a large opaque
+ * layer at the same height as the terrain as fire intensity changes.
+ */
+export function computeSmokeProfile(heat: number, lod: number): SmokeProfile {
+  const h = Math.max(0, Math.min(1, heat));
+  const l = Math.max(0, Math.min(1, lod));
+  return {
+    baseLift: 0.42 + 0.06 * (1 - h),
+    rise: 2.2 + 0.55 * l + 0.25 * h,
+    opacity: 0.46 + 0.12 * h,
+    drift: 1.05 + 0.1 * l,
+  };
+}
+
 function makeMaterial(atlas: Texture, frames: number) {
   return new ShaderMaterial({
     transparent: true,
@@ -99,8 +126,10 @@ function makeMaterial(atlas: Texture, frames: number) {
       attribute vec4 iPack2; // x=fBase, y=fCount, z=aspect, w=phase
       attribute vec4 iPack3; // x=rise, y=colorR, z=colorG, w=colorB
       attribute float iDrift; // wind shear multiplier (smoke >> flames)
+      attribute float iOpacity; // base opacity before lifecycle fade
       varying vec2 vUv;
       varying vec3 vColor;
+      varying float vOpacity;
       varying float vFrame;
       void main() {
         // Unpack attributes
@@ -114,6 +143,7 @@ function makeMaterial(atlas: Texture, frames: number) {
         float iPhase = iPack2.w;
         float iRise = iPack3.x;
         vec3 iColor = iPack3.yzw;
+        float smokeLike = step(0.5, iDrift);
 
         vec2 p = position.xy; // -0.5..0.5
         float c = cos(iAngle), s = sin(iAngle);
@@ -121,14 +151,19 @@ function makeMaterial(atlas: Texture, frames: number) {
         // size-over-life driven by time and per-instance phase
         float lifeT = fract(iPhase + uTime * (iRate * 0.08));
         float lifeS = 1.0 - abs(lifeT * 2.0 - 1.0);
-        float sMul = mix(0.7, 1.2, lifeS);
+        float flameScale = mix(0.68, 1.15, lifeS);
+        float smokeScale = mix(0.82, 1.5, smoothstep(0.04, 0.8, lifeT));
+        float sMul = mix(flameScale, smokeScale, smokeLike);
         vec3 world = iOffset + cameraRight * (r.x * iSize) + cameraUp * (r.y * iSize * iAspect * sMul);
         // vertical rise over lifetime in world space
         world.y += iRise * lifeT;
         // wind shear: drift downwind with age (dominates smoke, negligible for flames)
-        world.xz += uWindDir * (uWindSpeed * 0.22 * lifeT * iDrift);
+        world.xz += uWindDir * (uWindSpeed * 0.28 * lifeT * iDrift);
         vUv = p + 0.5;
         vColor = iColor;
+        float tailStart = mix(0.78, 0.58, smokeLike);
+        float ageFade = smoothstep(0.02, 0.14, lifeT) * (1.0 - smoothstep(tailStart, 1.0, lifeT));
+        vOpacity = iOpacity * ageFade;
         // Choose frame within the per-instance frame range, then offset by base
         float localF = mod(iF0 + uTime * iRate, iFCount);
         vFrame = floor(iFBase + localF);
@@ -141,6 +176,7 @@ function makeMaterial(atlas: Texture, frames: number) {
       uniform float uFrames;
       varying vec2 vUv;
       varying vec3 vColor;
+      varying float vOpacity;
       varying float vFrame;
       void main(){
         // vertical stack of frames (vFrame already in 0..uFrames-1)
@@ -148,7 +184,7 @@ function makeMaterial(atlas: Texture, frames: number) {
         vec2 uv = vec2(vUv.x, (vUv.y + f) / uFrames);
         vec4 tex = texture2D(uAtlas, uv);
         vec3 col = tex.rgb * vColor;
-        float a = tex.a;
+        float a = tex.a * vOpacity;
         if (a < 0.02) discard;
         gl_FragColor = vec4(col, a);
       }
@@ -176,11 +212,13 @@ export function createFlipbookParticles(hm: Heightmap) {
   const iPack2 = new Float32Array(caps.total * 4); // fBase, fCount, aspect, phase
   const iPack3 = new Float32Array(caps.total * 4); // rise, colorR, colorG, colorB
   const iDrift = new Float32Array(caps.total);     // wind shear multiplier
+  const iOpacity = new Float32Array(caps.total);   // lifecycle base opacity
   mesh.geometry.setAttribute('iOffset', new InstancedBufferAttribute(iOffset, 3));
   mesh.geometry.setAttribute('iPack1', new InstancedBufferAttribute(iPack1, 4));
   mesh.geometry.setAttribute('iPack2', new InstancedBufferAttribute(iPack2, 4));
   mesh.geometry.setAttribute('iPack3', new InstancedBufferAttribute(iPack3, 4));
   mesh.geometry.setAttribute('iDrift', new InstancedBufferAttribute(iDrift, 1));
+  mesh.geometry.setAttribute('iOpacity', new InstancedBufferAttribute(iOpacity, 1));
 
   group.add(mesh);
 
@@ -244,6 +282,7 @@ export function createFlipbookParticles(hm: Heightmap) {
             iPack3[i4 + 2] = 0.85;                    // colorG
             iPack3[i4 + 3] = 0.6;                     // colorB
             iDrift[alive] = 0.15;                     // flames hug the front
+            iOpacity[alive] = 1.0;
             alive++;
           }
         }
@@ -255,10 +294,11 @@ export function createFlipbookParticles(hm: Heightmap) {
           const i3 = alive * 3;
           const i4 = alive * 4;
           iOffset[i3 + 0] = wx + ox;
-          iOffset[i3 + 1] = hm.sample(wx + ox, wz + oz) + 0.2;
+          const smokeProfile = computeSmokeProfile(heat, lod);
+          iOffset[i3 + 1] = hm.sample(wx + ox, wz + oz) + smokeProfile.baseLift;
           iOffset[i3 + 2] = wz + oz;
           // Pack attributes into vec4s
-          iPack1[i4 + 0] = 0.8 + 1.2 * heat;          // size
+          iPack1[i4 + 0] = 0.65 + 0.9 * heat;          // size
           iPack1[i4 + 1] = h2 * Math.PI * 2;          // angle
           iPack1[i4 + 2] = Math.floor(h2 * atlasInfo.smokeFrames); // f0
           iPack1[i4 + 3] = 6 + 4 * lod;               // rate
@@ -266,11 +306,12 @@ export function createFlipbookParticles(hm: Heightmap) {
           iPack2[i4 + 1] = atlasInfo.smokeFrames;      // fCount
           iPack2[i4 + 2] = 1.2 + 0.3 * (1.0 - heat);  // aspect
           iPack2[i4 + 3] = h2;                         // phase
-          iPack3[i4 + 0] = 1.2 + 0.8 * lod;           // rise
+          iPack3[i4 + 0] = smokeProfile.rise;          // rise
           iPack3[i4 + 1] = 0.7;                        // colorR
           iPack3[i4 + 2] = 0.7;                        // colorG
           iPack3[i4 + 3] = 0.7;                        // colorB
-          iDrift[alive] = 1.0;                         // smoke shears downwind
+          iDrift[alive] = smokeProfile.drift;          // smoke shears downwind
+          iOpacity[alive] = smokeProfile.opacity;
           alive++;
         }
       }
@@ -308,6 +349,7 @@ export function createFlipbookParticles(hm: Heightmap) {
         iPack3[i4 + 2] = 0.87;                            // colorG
         iPack3[i4 + 3] = 0.87;                            // colorB
         iDrift[alive] = 1.0;                              // smolder smoke shears downwind too
+        iOpacity[alive] = 0.38 + 0.08 * lod;              // thinner than active-fire smoke
         alive++;
       }
     }
@@ -318,6 +360,7 @@ export function createFlipbookParticles(hm: Heightmap) {
     (mesh.geometry.getAttribute('iPack2') as any).needsUpdate = true;
     (mesh.geometry.getAttribute('iPack3') as any).needsUpdate = true;
     (mesh.geometry.getAttribute('iDrift') as any).needsUpdate = true;
+    (mesh.geometry.getAttribute('iOpacity') as any).needsUpdate = true;
   }
 
   return { 
