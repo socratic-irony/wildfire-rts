@@ -18,6 +18,9 @@ Implemented in `src/buildings/buildings.ts` and `src/buildings/visual.ts`.
   chimneys, and terrain-hugging driveway strips. House variants use hip or
   gable roof batches; barns and cabins use full-footprint gable roofs.
   Fire-state tinting and the existing fire/scoring state machine remain intact.
+- Roof geometry is authored as full-footprint hip/gable solids with outward
+  triangle winding; its local base is seated at the wall top after applying
+  the building scale.
 - Placement and rendering use tile centers in `(x,z)` and `Heightmap.sample`
   for world elevation; no per-frame geometry allocation is introduced.
 

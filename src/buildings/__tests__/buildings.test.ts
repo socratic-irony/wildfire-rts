@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Matrix4, type InstancedMesh } from 'three';
+import { Matrix4, Quaternion, Vector3, type InstancedMesh } from 'three';
 import { generateHeightmap } from '../../terrain/heightmap';
 import { computeBiomes } from '../../terrain/biomes';
 import { buildFireGrid, FireState, ignite } from '../../fire/grid';
@@ -255,7 +255,20 @@ describe('BuildingsVisual', () => {
       expect(mesh.geometry.boundingBox?.max.x).toBeGreaterThanOrEqual(0.5);
       expect(mesh.geometry.boundingBox?.min.z).toBeLessThanOrEqual(-0.5);
       expect(mesh.geometry.boundingBox?.max.z).toBeGreaterThanOrEqual(0.5);
+      expectRoofTrianglesFaceOutward(mesh);
     }
+    visual.dispose();
+  });
+
+  it('seats every transformed roof directly on its wall top', () => {
+    const { hm } = makeWorld();
+    const visual = new BuildingsVisual(hm);
+    visual.update([makeBuilding('house', 0), makeBuilding('house', 1, { x: 30, z: 20 })]);
+    const walls = visual.group.children.find((child) => child.name === 'houseWalls') as InstancedMesh;
+    const hip = visual.group.children.find((child) => child.name === 'houseRoofs') as InstancedMesh;
+    const gable = visual.group.children.find((child) => child.name === 'houseGableRoofs') as InstancedMesh;
+    expect(instanceYBounds(hip, 0).min).toBeCloseTo(instanceYBounds(walls, 0).max, 5);
+    expect(instanceYBounds(gable, 0).min).toBeCloseTo(instanceYBounds(walls, 1).max, 5);
     visual.dispose();
   });
 
@@ -275,3 +288,42 @@ describe('BuildingsVisual', () => {
     }
   });
 });
+
+function instanceYBounds(mesh: InstancedMesh, index: number): { min: number; max: number } {
+  const matrix = new Matrix4();
+  const position = new Vector3();
+  const rotation = new Quaternion();
+  const scale = new Vector3();
+  mesh.geometry.computeBoundingBox();
+  mesh.getMatrixAt(index, matrix);
+  matrix.decompose(position, rotation, scale);
+  return {
+    min: position.y + (mesh.geometry.boundingBox?.min.y ?? 0) * scale.y,
+    max: position.y + (mesh.geometry.boundingBox?.max.y ?? 0) * scale.y,
+  };
+}
+
+function expectRoofTrianglesFaceOutward(mesh: InstancedMesh): void {
+  const position = mesh.geometry.getAttribute('position');
+  const index = mesh.geometry.getIndex();
+  expect(index).not.toBeNull();
+  if (!index) return;
+  const center = new Vector3(0, 0.3, 0);
+  const a = new Vector3();
+  const b = new Vector3();
+  const c = new Vector3();
+  const edgeA = new Vector3();
+  const edgeB = new Vector3();
+  const normal = new Vector3();
+  const centroid = new Vector3();
+  for (let i = 0; i < index.count; i += 3) {
+    a.fromBufferAttribute(position, index.getX(i));
+    b.fromBufferAttribute(position, index.getX(i + 1));
+    c.fromBufferAttribute(position, index.getX(i + 2));
+    edgeA.subVectors(b, a);
+    edgeB.subVectors(c, a);
+    normal.crossVectors(edgeA, edgeB);
+    centroid.copy(a).add(b).add(c).multiplyScalar(1 / 3);
+    expect(normal.dot(centroid.clone().sub(center))).toBeGreaterThan(0);
+  }
+}
