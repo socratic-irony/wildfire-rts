@@ -109,7 +109,36 @@ describe('RoadsVisual intersection metadata', () => {
     for (const sign of roads.getStopSignApproaches()) {
       expect(Math.hypot(sign.stopPos.x - sign.intersectionPos.x, sign.stopPos.z - sign.intersectionPos.z)).toBeCloseTo(INTERSECTION_STOP_DISTANCE, 5);
       expect(Math.hypot(sign.signPos.x - sign.stopPos.x, sign.signPos.z - sign.stopPos.z)).toBeGreaterThan(0.8);
+      const expectedRight = new Vector3(-sign.direction.z, 0, sign.direction.x);
+      const lateralOffset = new Vector3(sign.signPos.x - sign.stopPos.x, 0, sign.signPos.z - sign.stopPos.z);
+      expect(lateralOffset.dot(expectedRight)).toBeGreaterThan(0.8);
     }
+  });
+
+  it('keeps the opaque support pole behind the sign face', () => {
+    const roads = new RoadsVisual(flatHeightmap());
+    roads.addPath([{ x: 8, z: 32 }, { x: 56, z: 32 }]);
+    roads.addPath([{ x: 32, z: 8 }, { x: 32, z: 56 }]);
+    roads.buildIntersections();
+
+    const approaches = roads.getStopSignApproaches();
+    const poles = roads.group.getObjectByName('road-stop-sign-poles') as InstancedMesh;
+    const poleMatrix = new Matrix4();
+    const polePosition = new Vector3();
+    for (let i = 0; i < approaches.length; i++) {
+      poles.getMatrixAt(i, poleMatrix);
+      polePosition.setFromMatrixPosition(poleMatrix);
+      const behind = new Vector3(approaches[i].direction.x, 0, approaches[i].direction.z);
+      expect(new Vector3(
+        polePosition.x - approaches[i].signPos.x,
+        0,
+        polePosition.z - approaches[i].signPos.z,
+      ).dot(behind)).toBeGreaterThan(0.03);
+    }
+    const material = poles.material as { transparent?: boolean; opacity?: number; depthWrite?: boolean };
+    expect(material.transparent).toBe(false);
+    expect(material.opacity).toBe(1);
+    expect(material.depthWrite).toBe(true);
   });
 
   it('orients every octagonal board and border toward its incoming approach', () => {

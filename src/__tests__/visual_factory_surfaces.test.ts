@@ -48,6 +48,8 @@ describe('visual factory callable surfaces', () => {
       'updateTerrain',
     ]);
     expect(decals.updateTerrain).toBeTypeOf('function');
+    expect((decals.water.inst.material as { depthTest?: boolean }).depthTest).toBe(true);
+    expect((decals.retardant.inst.material as { depthTest?: boolean }).depthTest).toBe(true);
 
     disposeObject(root);
   });

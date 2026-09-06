@@ -212,6 +212,9 @@ describe('BuildingsVisual', () => {
     expect((children.get('buildingDoors') as unknown as InstancedMesh).count).toBeGreaterThan(0);
     expect((children.get('buildingWindows') as unknown as InstancedMesh).count).toBeGreaterThan(0);
     expect((children.get('buildingDriveways') as unknown as InstancedMesh).count).toBeGreaterThan(0);
+    for (const mesh of visual.group.children as InstancedMesh[]) {
+      expect(mesh.geometry.getAttribute('color')).toBeDefined();
+    }
     visual.dispose();
   });
 

@@ -641,7 +641,7 @@ let fireViz = createFireViz(hm, chunked.group);
 fireViz.addToScene(scene as any);
 fireViz.setMode('vertex');
 // Water and retardant decal overlays
-let suppressionDecals = createSuppressionDecals(hm, { offsetY: 0.05, depthTest: false });
+let suppressionDecals = createSuppressionDecals(hm, { offsetY: 0.05, depthTest: true });
 suppressionDecals.addToScene(scene);
 // Fireline overlay — visualizes bulldozer-cut firebreaks
 let firelineOverlay = createFirelineOverlay(hm);

@@ -46,3 +46,9 @@ Original prompt: I've been having a hell of a time getting the roads to generate
 - Confirmed that the four terrain-regeneration `updateTerrain` methods are live call points. Flipbook particles fully swap their sampled heightmap; the ribbon, suppression decals, and fire visualization still have partial compatibility behavior documented as outstanding work in the fire/particle specs.
 - Removed incidental success/debug output from barrier and terrain-regeneration tests without weakening existing assertions, and added two barrier setup assertions for retardant and line strength. Intentional logger-sink and expected-warning tests still emit through their tested channels.
 - Final verification: `npm run check` passes 60 files / 239 tests and the 76-module production build; asset validation accepts 9/9 assets with six advisory oversized-image warnings; all 18 Playwright audit scenarios pass.
+
+## 2026-09-06 Visual artifact follow-up
+
+- User screenshots reproduced three render defects: suppression decals were created with `depthTest: false`, procedural building meshes requested vertex colors without a white geometry color attribute (so lit materials rendered black), and stop signs used the left-hand lateral offset while their support poles intersected the sign faces.
+- Fixed decal depth testing in the main scene, added white base color attributes to procedural building geometries, corrected stop-sign right-side placement, brightened/explicitly opaque metal poles, and offset poles behind the sign board.
+- Added focused regressions for all three paths. Full `npm run audit:game` passes all 19 scenarios; fresh baseline, aircraft, buildings, and traffic screenshots were inspected. No audit Chromium/Vite/test workers remain; the user-facing dev server on port 5173 remains running.

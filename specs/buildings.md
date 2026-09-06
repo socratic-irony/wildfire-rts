@@ -21,6 +21,10 @@ Implemented in `src/buildings/buildings.ts` and `src/buildings/visual.ts`.
 - Roof geometry is authored as full-footprint hip/gable solids with outward
   triangle winding; its local base is seated at the wall top after applying
   the building scale.
+- All procedural building geometries carry a white vertex-color base so the
+  lit material can multiply safely with each instance's wall/roof/detail tint;
+  this prevents unlit black silhouettes when the `InstancedMesh` color buffer
+  is used.
 - Placement and rendering use tile centers in `(x,z)` and `Heightmap.sample`
   for world elevation; no per-frame geometry allocation is introduced.
 

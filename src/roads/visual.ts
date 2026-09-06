@@ -91,7 +91,7 @@ export class RoadsVisual {
   private stopGlyphGeo?: BufferGeometry;
   private stopRedMat = new MeshBasicMaterial({ color: 0xd9272e, side: DoubleSide });
   private stopWhiteMat = new MeshBasicMaterial({ color: 0xf5f0dc, side: DoubleSide });
-  private stopPoleMat = new MeshStandardMaterial({ color: 0x4e5558, roughness: 0.85, metalness: 0.15 });
+  private stopPoleMat = new MeshStandardMaterial({ color: 0x718087, roughness: 0.55, metalness: 0.55, transparent: false, opacity: 1, depthTest: true, depthWrite: true });
 
   /** Midline spatial index — rebuilt whenever paths change. */
   public readonly midlineIndex = new MidlineIndex();
@@ -510,7 +510,9 @@ export class RoadsVisual {
           const key = `${inter.id}:${Math.round(inter.pos.x * 100)}:${Math.round(inter.pos.y * 100)}:${Math.round(direction.x * 1000)}:${Math.round(direction.z * 1000)}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          const right = new Vector3(direction.z, 0, -direction.x).normalize();
+          // With +Z pointing south on the map, this is the vehicle's
+          // right-hand side for an incoming travel direction.
+          const right = new Vector3(-direction.z, 0, direction.x).normalize();
           const stop = new Vector2(inter.pos.x - direction.x * stopDistance, inter.pos.y - direction.z * stopDistance);
           const sign = stop.clone().add(new Vector2(right.x, right.z).multiplyScalar(lateralOffset));
           result.push({
@@ -550,13 +552,14 @@ export class RoadsVisual {
     const scale = this.hm.scale;
     const radius = Math.max(scale * 0.55, 0.48);
     const boardDepth = Math.max(scale * 0.08, 0.07);
+    const poleRadius = Math.max(scale * 0.055, 0.045);
     const signHeight = Math.max(scale * 2.0, 1.7);
     this.stopBoardGeo = new CylinderGeometry(radius, radius, boardDepth, 8);
     this.stopBoardGeo.rotateX(Math.PI / 2);
     this.stopBoardGeo.rotateZ(Math.PI / 8);
     this.stopBorderGeo = new RingGeometry(radius * 0.76, radius * 0.88, 8);
     this.stopBorderGeo.rotateZ(Math.PI / 8);
-    this.stopPoleGeo = new CylinderGeometry(Math.max(scale * 0.055, 0.045), Math.max(scale * 0.055, 0.045), signHeight, 8);
+    this.stopPoleGeo = new CylinderGeometry(poleRadius, poleRadius, signHeight, 8);
     this.stopGlyphGeo = buildStopGlyphGeometry(radius * 0.88, radius * 0.52);
     const count = this.stopSignApproaches.length;
     const boards = new InstancedMesh(this.stopBoardGeo, this.stopRedMat, count);
@@ -588,7 +591,12 @@ export class RoadsVisual {
       faceMatrix.setPosition(boardCenter.clone().addScaledVector(normal, boardDepth * 0.5 + 0.008));
       borders.setMatrixAt(i, faceMatrix);
       glyphs.setMatrixAt(i, faceMatrix);
-      poleMatrix.compose(new Vector3(approach.signPos.x, terrainY + signHeight * 0.5, approach.signPos.z), new Quaternion(), scaleOne);
+      // Keep the support behind the board along its viewing normal. Centering
+      // the pole in the thin sign disk makes the dark cylinder show through
+      // the STOP face from the approach camera.
+      const poleBase = new Vector3(approach.signPos.x, terrainY + signHeight * 0.5, approach.signPos.z)
+        .addScaledVector(normal, -(boardDepth * 0.5 + poleRadius + 0.01));
+      poleMatrix.compose(poleBase, new Quaternion(), scaleOne);
       poles.setMatrixAt(i, poleMatrix);
     }
     boards.instanceMatrix.needsUpdate = true;

@@ -50,6 +50,16 @@ function material(): MeshStandardMaterial {
 }
 
 function createMesh(name: string, geometry: BufferGeometry, count: number): BuildingMesh {
+  // MeshStandardMaterial multiplies the per-instance tint by the geometry's
+  // vertex color. InstancedMesh provides the tint, but these procedural meshes
+  // have no authored vertex colors; a white base preserves the palette under
+  // lighting instead of multiplying the building to black.
+  if (!geometry.getAttribute('color')) {
+    const vertexCount = geometry.getAttribute('position')?.count ?? 0;
+    const colors = new Float32Array(vertexCount * 3);
+    colors.fill(1);
+    geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
+  }
   const mesh = new InstancedMesh(geometry, material(), count);
   mesh.name = name;
   mesh.castShadow = true;

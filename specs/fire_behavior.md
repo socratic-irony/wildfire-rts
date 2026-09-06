@@ -8,7 +8,7 @@ specs/fire_behavior.md
 - Deterministic `FireSim` stepping at 4 Hz with humidity drift toward ambient conditions, moisture gating (`fuelMoisture` + `wetness` + retardant), and early extinguish when heat falls below `thresholds.extinguishHeat`
 - Suppression hooks: `applyWaterAoE` and `applyWaterAoEWithHydrants` share one radius/application core, with exact base behavior when no hydrant system is supplied and a per-tile 1.5× boost under active coverage; `applyRetardantLine` and tile-based `writeFirelineEdges` remain available
 - Spotting pass (single-hop downwind), ignition queue promotion, burning→smoldering progression, and containment heuristic (`isContained`)
-- Visualization stack: overlay instancing, vertex tint mode, water/retardant decals, perimeter ribbon, and menubar stats powered by `computeFireStats`
+- Visualization stack: overlay instancing, vertex tint mode, water/retardant decals, perimeter ribbon, and menubar stats powered by `computeFireStats`. Suppression decals use depth testing in the main scene, so transparent ground tiles cannot draw over aircraft or other units; their `depthWrite` remains disabled to avoid masking later terrain decals.
 - Fire visualization and suppression decal factories expose live `updateTerrain` call points used by terrain regeneration, but current compatibility behavior is limited: decals perform a no-op, while fire visualization swaps only its chunk group and retains construction-time heightmap state in the overlay/perimeter paths
 - Player tooling: unified menubar actions plus paint system for ignition, water, and retardant applications directly on the fire grid
 - Helper queries (`sampleTile`, `isContained`) covered by unit tests to lock down API behavior

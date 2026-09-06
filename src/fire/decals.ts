@@ -11,10 +11,11 @@ function createWaterDecals(hm: Heightmap, opts?: { offsetY?: number; depthTest?:
     transparent: true, 
     opacity: 0.6, 
     depthWrite: false,
+    // Ground decals must still participate in depth testing so aircraft and
+    // other units render in front of painted tiles.
+    depthTest: opts?.depthTest ?? true,
     side: DoubleSide
   });
-  
-  if (opts && typeof opts.depthTest === 'boolean') mat.depthTest = opts.depthTest;
   
   // Preallocate capacity for all grid tiles
   const capacity = hm.width * hm.height;
@@ -76,10 +77,9 @@ function createRetardantDecals(hm: Heightmap, opts?: { offsetY?: number; depthTe
     transparent: true, 
     opacity: 0.7, 
     depthWrite: false,
+    depthTest: opts?.depthTest ?? true,
     side: DoubleSide
   });
-  
-  if (opts && typeof opts.depthTest === 'boolean') mat.depthTest = opts.depthTest;
   
   // Preallocate capacity for all grid tiles
   const capacity = hm.width * hm.height;
