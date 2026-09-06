@@ -62,7 +62,8 @@ const LOT_MARGIN = 4;
 const KIND_FOOTPRINTS: Record<BuildingKind, BuildingFootprint> = {
   house: { width: 3, depth: 3 },
   barn: { width: 5, depth: 3 },
-  cabin: { width: 3, depth: 2 },
+  // Keep both axes odd so the integer tile anchor is the geometric center.
+  cabin: { width: 3, depth: 3 },
 };
 
 function slopeAt(hm: Heightmap, x: number, z: number): number {

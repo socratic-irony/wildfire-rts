@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { InstancedMesh } from 'three';
+import { Matrix4, type InstancedMesh } from 'three';
 import { generateHeightmap } from '../../terrain/heightmap';
 import { computeBiomes } from '../../terrain/biomes';
 import { buildFireGrid, FireState, ignite } from '../../fire/grid';
@@ -11,7 +11,7 @@ import {
   reportStructures,
   computeStructureScore,
 } from '../buildings';
-import { BuildingsVisual } from '../visual';
+import { BuildingsVisual, buildingDrivewayPath } from '../visual';
 
 function makeWorld(size = 64) {
   const hm = generateHeightmap(size, size, 1, {
@@ -27,6 +27,19 @@ function makeWorld(size = 64) {
   // A straight road across the middle.
   rasterizePolyline(roadMask, [{ x: 8, z: 32 }, { x: 56, z: 32 }], 0.9);
   return { hm, grid, roadMask };
+}
+
+function makeBuilding(kind: 'house' | 'barn' | 'cabin', variant = 0, tile = { x: 20, z: 20 }) {
+  return {
+    id: variant + 1,
+    kind,
+    tile,
+    footprint: kind === 'barn' ? { width: 5, depth: 3 } : { width: 3, depth: 3 },
+    orientation: Math.PI,
+    variant,
+    driveway: { entrance: { x: tile.x, z: tile.z - 2 }, road: { x: tile.x, z: tile.z - 4 } },
+    state: 'intact' as const,
+  };
 }
 
 describe('generateBuildings', () => {
@@ -99,6 +112,17 @@ describe('generateBuildings', () => {
       };
       const facing = { x: Math.sin(building.orientation), z: Math.cos(building.orientation) };
       expect(toRoad.x * facing.x + toRoad.z * facing.z).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps grid footprints centered on the rendered rectangular envelopes', () => {
+    for (const kind of ['house', 'barn', 'cabin'] as const) {
+      const building = makeBuilding(kind);
+      const cells = buildingFootprintCells(building);
+      const xs = cells.map((cell) => cell.x);
+      const zs = cells.map((cell) => cell.z);
+      expect(Math.min(...xs) + Math.max(...xs)).toBe(building.tile.x * 2);
+      expect(Math.min(...zs) + Math.max(...zs)).toBe(building.tile.z * 2);
     }
   });
 });
@@ -189,5 +213,65 @@ describe('BuildingsVisual', () => {
     expect((children.get('buildingWindows') as unknown as InstancedMesh).count).toBeGreaterThan(0);
     expect((children.get('buildingDriveways') as unknown as InstancedMesh).count).toBeGreaterThan(0);
     visual.dispose();
+  });
+
+  it('uses white instanced bases and scales vertical offsets with tile size', () => {
+    const hm = generateHeightmap(32, 32, 2, {
+      seed: 'flat-scale-2',
+      frequency: 0,
+      amplitude: 0,
+      octaves: 1,
+      persistence: 1,
+    });
+    const visual = new BuildingsVisual(hm);
+    visual.update([makeBuilding('house')]);
+    const walls = visual.group.children.find((child) => child.name === 'houseWalls') as InstancedMesh;
+    const material = walls.material as unknown as { color: { getHex: () => number } };
+    const matrix = new Matrix4();
+    walls.getMatrixAt(0, matrix);
+    expect(material.color.getHex()).toBe(0xffffff);
+    expect(matrix.elements[13]).toBeCloseTo(0.78, 5);
+    visual.dispose();
+  });
+
+  it('keeps porch instances dense across mixed kinds and rebuilds', () => {
+    const { hm } = makeWorld();
+    const visual = new BuildingsVisual(hm);
+    visual.update([makeBuilding('barn'), makeBuilding('house', 1, { x: 30, z: 20 })]);
+    const porch = visual.group.children.find((child) => child.name === 'buildingPorches') as InstancedMesh;
+    expect(porch.count).toBe(1);
+    visual.update([makeBuilding('house')]);
+    expect(porch.count).toBe(1);
+    visual.dispose();
+  });
+
+  it('uses roof geometries that cover the full wall footprint', () => {
+    const { hm } = makeWorld();
+    const visual = new BuildingsVisual(hm);
+    for (const name of ['houseRoofs', 'houseGableRoofs', 'barnRoofs', 'cabinRoofs']) {
+      const mesh = visual.group.children.find((child) => child.name === name) as InstancedMesh;
+      mesh.geometry.computeBoundingBox();
+      expect(mesh.geometry.boundingBox?.min.x).toBeLessThanOrEqual(-0.5);
+      expect(mesh.geometry.boundingBox?.max.x).toBeGreaterThanOrEqual(0.5);
+      expect(mesh.geometry.boundingBox?.min.z).toBeLessThanOrEqual(-0.5);
+      expect(mesh.geometry.boundingBox?.max.z).toBeGreaterThanOrEqual(0.5);
+    }
+    visual.dispose();
+  });
+
+  it('builds a terrain-hugging driveway from the porch front to the road', () => {
+    const { hm } = makeWorld();
+    const building = makeBuilding('house');
+    const path = buildingDrivewayPath(hm, building);
+    expect(path.length).toBeGreaterThan(1);
+    const expectedStart = (building.footprint.depth * 0.82) / 2 + 0.05 + 0.18;
+    expect(path[0].x).toBeCloseTo(building.tile.x + 0.5, 5);
+    expect(path[0].z).toBeCloseTo(building.tile.z + 0.5 - expectedStart, 5);
+    expect(path[path.length - 1].x).toBeCloseTo(building.driveway.road!.x + 0.5, 5);
+    expect(path[path.length - 1].z).toBeCloseTo(building.driveway.road!.z + 0.5, 5);
+    for (let i = 0; i < path.length - 1; i++) {
+      expect(Math.hypot(path[i + 1].x - path[i].x, path[i + 1].z - path[i].z)).toBeGreaterThan(0);
+      expect(path[i].y).toBeCloseTo(hm.sample(path[i].x, path[i].z) + 0.025, 5);
+    }
   });
 });

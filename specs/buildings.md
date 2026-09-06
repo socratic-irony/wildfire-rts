@@ -15,8 +15,9 @@ Implemented in `src/buildings/buildings.ts` and `src/buildings/visual.ts`.
   so structures do not touch or overlap.
 - `BuildingsVisual` keeps instanced low-poly batches for house, barn, and cabin
   walls/roofs, plus shared instanced details for doors, windows, porches,
-  chimneys, and driveways. Fire-state tinting and the existing fire/scoring
-  state machine remain intact.
+  chimneys, and terrain-hugging driveway strips. House variants use hip or
+  gable roof batches; barns and cabins use full-footprint gable roofs.
+  Fire-state tinting and the existing fire/scoring state machine remain intact.
 - Placement and rendering use tile centers in `(x,z)` and `Heightmap.sample`
   for world elevation; no per-frame geometry allocation is introduced.
 
@@ -26,6 +27,8 @@ Implemented in `src/buildings/buildings.ts` and `src/buildings/visual.ts`.
 
 - `footprint: { width, depth }`: cell dimensions, with width along the local
   road tangent and depth along the local front axis.
+- Footprint dimensions are odd in both axes so the integer `tile` remains the
+  geometric center used by both occupancy validation and the rendered box.
 - `orientation`: radians; local `+Z` points to the entrance/driveway.
 - `variant`: deterministic low-poly silhouette/material variation within a
   building kind.
@@ -50,5 +53,8 @@ destroyed structure.
 - Cabins remain intentionally isolated and do not render long forest driveway
   ribbons. A future access-road system can add those connections without
   changing the footprint or fire-state contracts.
+- Driveway centerlines begin at the visible porch/door front, use sampled
+  terrain heights at each segment endpoint, and terminate at the declared road
+  tile.
 - The browser audit should continue to include a screenshot inspection after
   any change to the camera, terrain, or building palette.
