@@ -36,6 +36,16 @@ Improve the existing procedural low-poly aesthetic and Frenet architecture. Asse
 
 ## Execution status
 
+### Latest integration review — 2026-09-05 21:04 PDT
+
+- Main includes reviewed vehicle, road/sign, vegetation/clearance, building/roof, smoke/fog, and hydrant changes. The integrated gate passed 70 files / 316 tests before the latest terrain/dispatch corrections. Nothing has been pushed; fetched origin was zero behind, with 70 local commits ahead at that checkpoint.
+- **Correction to the earlier turning report:** `48cd277` was integrated without its `1276ffc` prerequisite. Compile-only declarations hid missing runtime wiring: the router was never populated and turn handoff/occupancy logic was absent. The existing turning task is preparing a scoped repair against the integrated checkout. Passing old intersection tests does not prove physical turns.
+- Black default rendering is fixed in `c6d6043`. Terrain chunk base-color snapshots omitted skirt vertices; fire tinting read past the snapshots and wrote NaNs. Bloom spread those pixels across the frame. Saving the complete geometry color attributes fixes a regression covering both LODs and four fire states. Default fire screenshot `/tmp/wildfire-default-fire.png` is visible; isolated scene render target now contains zero non-finite values. The original composer remains unchanged; the fog task's speculative filtering workaround was rejected.
+- Hydrant ground-supply browser acceptance still fails. `0d99bb0` fixes bounded backward dispatch from open endpoints; the first proposed correction was rejected because it teleported. The latest audit confirms movement but the incident clears before the fixture observes engagement. The hydrant task has the sole browser slot to diagnose this lifecycle/fixture interaction and verify actual sustained supply and source removal.
+- Browser validation stays serialized, with cleanup after each probe. Full audit previously passed scenarios through hydrant-refill, then failed hydrant-ground-supply; later scenarios were not reached. Do not report a complete browser pass yet.
+
+The older notes below retain the original task IDs and review history; this latest section supersedes their status claims.
+
 Diagnosis complete; all seven Luna tasks started successfully. The sidebar listing omitted them, but local session headers resolved their real IDs and `wait_threads` verified their state. Use the IDs below directly on future reviews; do not duplicate tasks. The missing matching Playwright Chromium was installed and the full baseline browser audit PASSED, with artifacts under `/var/folders/b3/hppdf3jn0rx_j5sfr77bqhfr0000gp/T/wildfire-rts-audit-rbciR2`. Baseline visual inspection confirms the listed shape/placement problems. New implementation acceptance remains pending.
 
 | Scope | Task ID | Worktree | Review status |
