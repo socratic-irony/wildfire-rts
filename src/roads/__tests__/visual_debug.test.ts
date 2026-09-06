@@ -166,4 +166,33 @@ describe('RoadsVisual debug diagnostics', () => {
     roads.buildIntersections();
     expect(disposed).toBe(true);
   });
+
+  it('keeps the interior of curved intersection surfaces close to the ground', () => {
+    const hm = {
+      width: 64, height: 64, scale: 1, data: new Float32Array(65 * 65),
+      sample: (x: number, z: number) => 0.3 * (x - 32) ** 2 + 0.18 * (z - 32) ** 2,
+    };
+    const roads = new RoadsVisual(hm);
+    roads.addPath([{ x: 8, z: 32 }, { x: 56, z: 32 }]);
+    roads.addPath([{ x: 32, z: 8 }, { x: 32, z: 56 }]);
+    roads.buildIntersections();
+    const apron = roads.group.getObjectByName('road-intersection-apron') as Mesh;
+    const positions = apron.geometry.getAttribute('position');
+    const indices = apron.geometry.getIndex()!;
+    for (let i = 0; i < indices.count; i += 3) {
+      const center = new Vector3();
+      for (let j = 0; j < 3; j++) {
+        center.add(new Vector3().fromBufferAttribute(positions, indices.getX(i + j)));
+      }
+      center.divideScalar(3);
+      const normalLength = Math.hypot(1, 0.6 * (center.x - 32), 0.36 * (center.z - 32));
+      const clearance = (center.y - hm.sample(center.x, center.z)) / normalLength;
+      expect(clearance).toBeGreaterThan(0.25);
+      expect(clearance).toBeLessThan(0.42);
+    }
+    const road = roads.group.getObjectByName('road-surface') as Mesh;
+    expect(apron.material).toBe(road.material);
+    expect(apron.geometry.getAttribute('color')).toBeDefined();
+    roads.dispose();
+  });
 });

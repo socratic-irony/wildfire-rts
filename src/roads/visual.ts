@@ -83,16 +83,6 @@ export class RoadsVisual {
   private intersections: Array<{ id: number; pos: Vector2; a:{path:number;s:number;seg:number;t:number}; b:{path:number;s:number;seg:number;t:number} }> = [];
   private perPathIntersections: Array<Array<{ id:number; s:number; pos: Vector2; otherPath:number; otherS:number }>> = [];
   private intersectionGroup = new Group();
-  private intersectionMat = new MeshStandardMaterial({
-    color: 0x2a3035,
-    roughness: 0.85,
-    metalness: 0.05,
-    transparent: true,
-    opacity: 0.92,
-    polygonOffset: true,
-    polygonOffsetFactor: -4,
-    polygonOffsetUnits: -4
-  });
   private readonly stopSignGroup = new Group();
   private stopSignApproaches: StopSignApproach[] = [];
   private stopBoardGeo?: CylinderGeometry;
@@ -153,7 +143,6 @@ export class RoadsVisual {
     this.stripeMat.dispose();
     this.debugLineMat.dispose();
     this.debugRibbonMat.dispose();
-    this.intersectionMat.dispose();
     this.edgeMat.dispose();
     this.stopRedMat.dispose();
     this.stopWhiteMat.dispose();
@@ -463,7 +452,7 @@ export class RoadsVisual {
     for (const inter of this.intersections) {
       const apron = new Mesh(
         buildIntersectionApronGeometry(inter.pos, intersectionRadius, this.hm, this.yOffset * 1.08),
-        this.intersectionMat,
+        this.mat,
       );
       apron.name = 'road-intersection-apron';
       apron.renderOrder = 7;
@@ -913,24 +902,36 @@ function sampleNormal(hm: Heightmap, wx: number, wz: number) {
 
 function buildIntersectionApronGeometry(center: Vector2, radius: number, hm: Heightmap, yOffset: number) {
   const segments = 20;
+  // Sample inside the patch too: a single center-to-rim fan bridges curved terrain.
+  const rings = Math.max(1, Math.ceil(radius / (hm.scale * 0.35)));
   const positions: number[] = [];
+  const colors: number[] = [];
   const indices: number[] = [];
   const addSurfacePoint = (wx: number, wz: number) => {
     const point = new Vector3(wx, hm.sample(wx, wz), wz)
       .addScaledVector(sampleNormal(hm, wx, wz), yOffset);
     positions.push(point.x, point.y, point.z);
+    colors.push(0.115, 0.13, 0.145);
   };
   addSurfacePoint(center.x, center.y);
-  for (let i = 0; i < segments; i++) {
-    const angle = (i / segments) * Math.PI * 2;
-    addSurfacePoint(center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius);
-  }
-  for (let i = 0; i < segments; i++) {
-    const next = (i + 1) % segments;
-    indices.push(0, 1 + next, 1 + i);
+  for (let ring = 1; ring <= rings; ring++) {
+    const ringRadius = radius * ring / rings;
+    const start = 1 + (ring - 1) * segments;
+    for (let i = 0; i < segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      addSurfacePoint(center.x + Math.cos(angle) * ringRadius, center.y + Math.sin(angle) * ringRadius);
+      const next = (i + 1) % segments;
+      if (ring === 1) {
+        indices.push(0, start + next, start + i);
+      } else {
+        const inner = start - segments;
+        indices.push(inner + i, inner + next, start + i, start + i, inner + next, start + next);
+      }
+    }
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();

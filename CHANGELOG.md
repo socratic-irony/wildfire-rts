@@ -6,6 +6,12 @@ Each entry is dated and, when relevant, notes the `audit:game` / `npm test` stat
 
 ---
 
+## 2026-09-06 — World fidelity, hydrant supply, and connected traffic
+
+Seven Luna tasks were reviewed and integrated: detailed vehicle silhouettes/equipment; asphalt, markings and stop signs; instanced tree/shrub families; road-facing buildings, cleared lots and driveways; visible active hydrant supply; connected civilian turns with full-stop intersection queues; and lighter fog with rising, fading smoke. Parent review corrected turn handoffs, zero-time redraws interrupting hydrant suppression, terrain color NaNs blacking out bloom, and dark intersection patches bridging curved ground. Validation runs use at most two Vitest workers and one browser at a time, with cleanup afterward.
+
+**Verification**: final `npm run check` passes (72 files / 320 tests and production build). The full `audit:game` suite passed all 19 scenarios before the final road visual correction; the focused traffic audit passed again afterward and its screenshot was inspected. Real dispatched ground suppression draws 4,224 L beyond an empty tank and falls back when its source is removed. Specs and Roadmap Phase 4 reflect the integrated behavior.
+
 ## 2026-08-22 — Audit harness hardening: deterministic sim-time pumping
 
 The Playwright suite's timing-sensitive scenarios coupled assertions to wall-clock × fps: under SwiftShader the rAF loop advances only ~0.1 sim-s per wall second, leaving auto-dispatch's 18 s deadline racing incident resolution (it resolved at fireT ≈ 2.0 — sometimes inside the wire, sometimes not) and letting payload-round-trip's strict `water === 0` assert race the hydrant-refill loop across evaluate roundtrips. Fixes in [scripts/qa/playwright_audit.ts](scripts/qa/playwright_audit.ts): timing-sensitive polls now pump simulated time via `window.advanceTime(ms)` (rendering suppressed) with wall deadlines as backstops only; the payload drain and its readback happen inside a single evaluate; audit pages load with `?nofx=1` to skip the composer under software GL; and the dev server spawns with `--strictPort` so a zombie server squatting the port fails loudly instead of silently auditing stale code (the failure mode that muddied this investigation). **Verification**: `npm run check` green (66 files / 280 tests) and two consecutive full `audit:game` runs pass 18/18.
