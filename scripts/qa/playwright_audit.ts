@@ -40,6 +40,9 @@ type GameState = {
       busy: boolean;
       returningToBase: boolean;
       assignedIncidentId: number | null;
+      hydrantStatus: 'none' | 'en-route' | 'refilling' | 'connected' | 'unavailable';
+      hydrantSupplyId: number | null;
+      refillTargetHydrantId: number | null;
       water: number;
       fuel: number;
       offroadTarget: { x: number; z: number } | null;
@@ -767,6 +770,110 @@ async function hydrantRefillScenario(baseUrl: string, artifactDir: string) {
   }
 }
 
+async function hydrantGroundSupplyScenario(baseUrl: string, artifactDir: string) {
+  const { browser, page } = await createPage(baseUrl);
+  try {
+    await page.evaluate(() => {
+      const api = window.__wildfireTestApi!;
+      api.setAutoDispatch(false);
+      api.clearFire();
+      api.clearVehicles();
+      api.clearRoads();
+      api.updateHydrants();
+      api.addRoad(35, 20, 20, 20);
+      api.updateHydrants();
+      api.spawnVehicle('firetruck');
+    });
+    const start = await getState(page);
+    const truck = start.vehicles.followers.find((f) => f.type === 'firetruck');
+    const source = start.hydrants.positions.find((h) => h.active);
+    assert(truck && source, 'Ground-supply setup lacks a firetruck or active hydrant');
+
+    // Ignite a compact road-side cluster so one real incident keeps the truck
+    // engaged long enough to cross its tank boundary.
+    await page.evaluate(({ x, z }) => {
+      const api = window.__wildfireTestApi!;
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dx = -2; dx <= 2; dx++) api.igniteTile(x + dx, z + dz, 0.95);
+      }
+      api.advanceTime(1_200);
+    }, { x: source.x, z: source.z });
+    let state = await getState(page);
+    const incident = state.dispatch.incidents
+      .filter((entry) => entry.status === 'detected')
+      .sort((a, b) => Math.hypot(a.x - source.x, a.z - source.z) - Math.hypot(b.x - source.x, b.z - source.z))[0];
+    assert(incident, 'No detected incident was created for hydrant supply');
+    const dispatchedIncidentId = await page.evaluate(({ incidents, followerId }) => {
+      const api = window.__wildfireTestApi!;
+      for (const candidate of incidents) {
+        if (api.manualDispatch(candidate.id, followerId)) return candidate.id;
+      }
+      return null;
+    }, {
+      incidents: state.dispatch.incidents
+        .filter((entry) => entry.status === 'detected')
+        .sort((a, b) => Math.hypot(a.x - source.x, a.z - source.z) - Math.hypot(b.x - source.x, b.z - source.z)),
+      followerId: truck.id,
+    });
+    assert(dispatchedIncidentId != null, 'Manual dispatch rejected every reachable hydrant-side incident');
+    const dispatchedIncident = state.dispatch.incidents.find((entry) => entry.id === dispatchedIncidentId)!;
+
+    // Let the dispatched truck arrive while it still has water, then exhaust
+    // the tank so only the nearby hydrant can keep suppression running.
+    let sawEngaged = false;
+    for (let i = 0; i < 30; i++) {
+      await page.evaluate(({ x, z }) => {
+        const api = window.__wildfireTestApi!;
+        api.igniteTile(x, z, 0.95);
+        api.advanceTime(250);
+      }, { x: dispatchedIncident.x, z: dispatchedIncident.z });
+      state = await getState(page);
+      const current = state.vehicles.followers.find((f) => f.id === truck.id);
+      if (current?.assignedIncidentId === dispatchedIncidentId && state.dispatch.incidents.some((entry) => entry.id === dispatchedIncidentId && entry.status === 'engaged')) {
+        sawEngaged = true;
+        break;
+      }
+    }
+    assert(sawEngaged, `Dispatched truck never engaged before tank exhaustion: ${JSON.stringify(state.vehicles.followers.find((f) => f.id === truck.id))}`);
+    await page.evaluate((id) => window.__wildfireTestApi!.exhaustFollowerWater(id), truck.id);
+    let sawConnected = false;
+    for (let i = 0; i < 8; i++) {
+      await page.evaluate(({ x, z }) => {
+        const api = window.__wildfireTestApi!;
+        api.igniteTile(x, z, 0.95);
+        api.advanceTime(50);
+      }, { x: dispatchedIncident.x, z: dispatchedIncident.z });
+      state = await getState(page);
+      const current = state.vehicles.followers.find((f) => f.id === truck.id);
+      if (current?.hydrantSupplyId === source.id && current.hydrantStatus === 'connected') {
+        sawConnected = true;
+        break;
+      }
+    }
+    assert(
+      sawConnected,
+      `Dispatched ground unit never sustained suppression from the nearby hydrant: ${JSON.stringify({
+        source,
+        truck: state.vehicles.followers.find((f) => f.id === truck.id),
+        incidents: state.dispatch.incidents,
+      })}`,
+    );
+
+    // Removing the connected source must immediately revoke unlimited supply
+    // and send the unit into the normal no-source fallback.
+    await page.evaluate((id) => window.__wildfireTestApi!.removeHydrant(id), source.id);
+    await page.evaluate(() => window.__wildfireTestApi!.advanceTime(500));
+    state = await getState(page);
+    const fallback = state.vehicles.followers.find((f) => f.id === truck.id);
+    assert(fallback, 'Truck disappeared during hydrant source removal');
+    assert(fallback.hydrantSupplyId == null, 'Removed hydrant continued supplying the truck');
+    assert(fallback.returningToBase || fallback.hydrantStatus === 'unavailable', 'Removed hydrant did not trigger fallback');
+    await screenshot(page, artifactDir, 'hydrant-ground-supply');
+  } finally {
+    await browser.close();
+  }
+}
+
 async function civilianTrafficScenario(baseUrl: string, artifactDir: string) {
   const { browser, page } = await createPage(baseUrl);
   try {
@@ -1001,6 +1108,11 @@ async function main() {
       process.stdout.write('\n[game-audit] PASS\n');
       return;
     }
+    if (process.env.GAME_AUDIT_SCENARIO === 'hydrant-ground-supply') {
+      await scenario('hydrant-ground-supply', artifacts, () => hydrantGroundSupplyScenario(baseUrl, artifacts));
+      process.stdout.write('\n[game-audit] PASS\n');
+      return;
+    }
 
     await scenario('baseline', artifacts, () => baselineScenario(baseUrl, artifacts));
     await scenario('roads', artifacts, () => roadScenario(baseUrl, artifacts));
@@ -1018,6 +1130,7 @@ async function main() {
     await scenario('random-events', artifacts, () => randomEventsScenario(baseUrl, artifacts));
     await scenario('aircraft-drops', artifacts, () => aircraftDropsScenario(baseUrl, artifacts));
     await scenario('hydrant-refill', artifacts, () => hydrantRefillScenario(baseUrl, artifacts));
+    await scenario('hydrant-ground-supply', artifacts, () => hydrantGroundSupplyScenario(baseUrl, artifacts));
     await scenario('buildings-protection', artifacts, () => buildingsProtectionScenario(baseUrl, artifacts));
     await scenario('civilian-traffic', artifacts, () => civilianTrafficScenario(baseUrl, artifacts));
 

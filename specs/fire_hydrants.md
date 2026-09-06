@@ -1,18 +1,20 @@
-# Fire Hydrant System Specification (v0.2)
+# Fire Hydrant System Specification (v0.3)
 
 ## Status
 
 ### ✅ Implemented
 - Automatic placement along rasterized road masks with a minimum spacing of **8 tiles (~16 m)** and an ideal spacing target of **10 tiles (~20 m)**
-- Alternating roadside offsets sampled from the local road tangent with a **0.7 tile lateral shift** baked into `worldPos`
+- Alternating roadside offsets sampled from the local road tangent with a **1.4 tile lateral shift** baked into `worldPos`; a bounded extra-clearance fallback handles wide rasterized roads
 - Hydrant coverage radius of **25 tiles (~50 m)** enforced by `isInHydrantCoverage` and consumed by `applyWaterAoEWithHydrants`
 - Suppression integration that boosts water application by **1.5× intensity** for tiles under active hydrant coverage
 - Visual instancing via `HydrantVisual` that mirrors the data in `HydrantSystem`
 - Query helpers (`canSuppressAt`, `findNearestHydrant`, `getHydrantCoverage`) covered by unit tests alongside placement/removal flows
 - **Truck refill (2026-06-09)**: a water-empty firetruck with adequate fuel reroutes to the nearest hydrant reachable from its current road and refills at 400 L/s within a 6 m draw radius (`sendFollowerToHydrant` + refill branch in `updateFollowerLogistics`, [src/main.ts](../src/main.ts)); covered by the `hydrant-refill` audit scenario. Low fuel still forces a home RTB.
+- **Ground-unit supply (2026-09-05)**: dispatched ground suppression units can draw direct water from an active hydrant within a bounded 6 m roadside reach after their onboard tank is exhausted. Aircraft never use hydrant supply. The selected-unit HUD reports `Driving to hydrant`, `Refilling at hydrant`, `Hydrant connected`, or `No active hydrant — returning`; a lightweight cyan link renders while connected/refilling.
+- **Source revalidation (2026-09-05)**: refill and direct-supply paths store the hydrant id, re-check that the source is still active and reachable, and fall back to normal tank exhaustion/return-to-base behavior when the source is disabled or removed.
 
 ### ⏳ Outstanding
-- Gameplay tuning for coverage falloff, hydrant damage/disable states, and roadside clearance rules
+- Gameplay tuning for coverage falloff and hydrant pressure/damage remains outstanding
 - UI overlays and menubar controls for manual placement/removal beyond the debug toggle set
 - Firefighter deployment hooks that differentiate between hydrant-supplied operations and limited truck tanks
 
@@ -25,6 +27,7 @@ Design a fire hydrant system that provides strategic water access points along r
 ### 1. Automatic Placement
 - ✅ **Spacing**: Hydrants spawn during `updateHydrantPlacement` with an ideal spacing target of ~20 m (10 tiles) and a hard minimum of ~16 m (8 tiles)
 - ✅ **Road Integration**: Placement only occurs on road-mask tiles and hydrants are culled if the underlying tile is cleared
+- ✅ **Roadside clearance**: Straight-road direction detection has a deterministic cardinal fallback when opposite neighbors cancel; hydrants use the 1.4-tile lateral offset and a bounded wider-road clearance fallback.
 - ⏳ **Adaptive tuning**: Future work may vary spacing based on road class or nearby structures
 
 ### 2. Coverage Areas
@@ -34,6 +37,7 @@ Design a fire hydrant system that provides strategic water access points along r
 
 ### 3. Suppression Integration
 - ✅ **Water Source**: `applyWaterAoEWithHydrants` boosts wetness/heat knockdown by 1.5× inside coverage while honoring base logic outside
+- ✅ **Ground-unit draw**: A dispatched firetruck/firefighter uses an active hydrant only when the unit itself is within 6 m of the roadside source and its tank cannot meet demand. This does not replenish an aircraft or provide remote/unbounded coverage.
 - ⏳ **Combined Coverage**: Additional stacking rules for vehicles + hydrants are planned but not yet modeled
 
 ## Data Model
@@ -61,9 +65,9 @@ type HydrantSystem = {
 
 - Data lives in plain arrays (array-of-structs). Performance has been adequate; migrate to typed arrays only if profiling calls for it.
 - `updateHydrantPlacement` recomputes candidates from the full road mask, then `placeHydrant` enforces minimum spacing before committing. This double check keeps legacy hydrants compatible with new spacing rules.
-- Offsets alternate left/right by sampling the local road tangent (`findRoadDirection`) and shifting 0.7 tiles perpendicular before converting to meters (`cellSize`).
+- Offsets alternate left/right by sampling the local road tangent (`findRoadDirection`) and shifting 1.4 tiles perpendicular before converting to meters (`cellSize`); a clearance fallback moves farther out when the rounded roadside cell is still part of a wide road stamp.
 - `HydrantVisual` consumes `worldPos` directly, so any change to offset math must keep that contract intact.
-- Suppression uses `applyWaterAoEWithHydrants`, multiplying wetness/heat knockdown by 1.5× when coverage is active and leaving off-coverage tiles at base intensity.
+- Suppression uses `applyWaterAoEWithHydrants`, multiplying wetness/heat knockdown by 1.5× when coverage is active and leaving off-coverage tiles at base intensity. Ground-unit logistics uses `findActiveHydrantWithinReach` with a 6 m draw bound; direct supply is source-id based and revalidated every update.
 
 ## Placement Algorithm
 
@@ -208,6 +212,12 @@ function canSuppressAt(system: HydrantSystem, roadMask: RoadMask, pos: {x: numbe
 function createHydrantVisual(system: HydrantSystem): HydrantVisual;
 function updateHydrantVisual(visual: HydrantVisual, system: HydrantSystem): void;
 ```
+
+## Current Acceptance / Outstanding Work
+
+- ✅ Unit tests cover straight-road roadside placement, active draw-radius lookup, coverage behavior, source removal, and HUD supply labels.
+- ✅ Browser audit fixture `hydrant-ground-supply` exercises a dispatched truck, sustained direct supply, and removed-source fallback; run it on an isolated port in the integrated checkout.
+- ⏳ The browser audit still needs a fresh integrated run after parallel task merges; this isolated task has not claimed that run as passing.
 
 ## Outstanding Questions
 

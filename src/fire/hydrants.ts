@@ -18,13 +18,19 @@ export type HydrantSystem = {
   cellSize: number;                     // World units per tile (typically 2.0)
 };
 
+/** Roadside placement and truck draw constants are intentionally explicit. */
+export const HYDRANT_MIN_SPACING_TILES = 8;
+export const HYDRANT_IDEAL_SPACING_TILES = 10;
+export const HYDRANT_ROADSIDE_OFFSET_TILES = 1.4;
+export const HYDRANT_COVERAGE_RADIUS_TILES = 25;
+
 export function createHydrantSystem(roadMask: RoadMask, cellSize = 2.0): HydrantSystem {
   return {
     hydrants: [],
     roadMask,
     nextId: 1,
-    minSpacingTiles: 8,        // Minimum 16m spacing (8 tiles * 2m = 16m)
-    idealSpacingTiles: 10,     // Ideal ~20m spacing (10 tiles * 2m = 20m)
+    minSpacingTiles: HYDRANT_MIN_SPACING_TILES,
+    idealSpacingTiles: HYDRANT_IDEAL_SPACING_TILES,
     cellSize,
   };
 }
@@ -59,6 +65,37 @@ export function findNearestHydrant(system: HydrantSystem, pos: { x: number; z: n
   }
   
   return nearest;
+}
+
+/**
+ * Find an active source close enough for a ground unit to draw directly.
+ * `worldPos` is used here instead of grid coordinates because a hydrant is
+ * deliberately placed beside the road rather than on its centerline.
+ */
+export function findActiveHydrantWithinReach(
+  system: HydrantSystem,
+  worldPos: { x: number; z: number },
+  maxDistance: number,
+): FireHydrant | null {
+  const maxDistanceSq = maxDistance * maxDistance;
+  let nearest: FireHydrant | null = null;
+  let nearestDistanceSq = maxDistanceSq;
+  for (const hydrant of system.hydrants) {
+    if (!hydrant.active) continue;
+    const dx = hydrant.worldPos.x - worldPos.x;
+    const dz = hydrant.worldPos.z - worldPos.z;
+    const distanceSq = dx * dx + dz * dz;
+    if (distanceSq <= nearestDistanceSq) {
+      nearestDistanceSq = distanceSq;
+      nearest = hydrant;
+    }
+  }
+  return nearest;
+}
+
+export function findActiveHydrantById(system: HydrantSystem, id: number): FireHydrant | null {
+  const hydrant = system.hydrants.find((candidate) => candidate.id === id);
+  return hydrant?.active ? hydrant : null;
 }
 
 export function getHydrantCoverage(hydrant: FireHydrant): Array<{ x: number; z: number }> {
@@ -112,7 +149,7 @@ export function placeHydrant(system: HydrantSystem, pos: { x: number; z: number 
       x: placementPos.x * system.cellSize, 
       z: placementPos.z * system.cellSize 
     },
-    coverageRadius: 25, // ~50m at 2m/tile (increased for better coverage)
+    coverageRadius: HYDRANT_COVERAGE_RADIUS_TILES,
     active: true,
     waterPressure: 1.0,
   };
@@ -168,8 +205,26 @@ function findRoadDirection(roadMask: RoadMask, x: number, z: number): { dx: numb
     avgDz += neighbor.dz;
   }
   
-  const len = Math.sqrt(avgDx * avgDx + avgDz * avgDz);
-  if (len === 0) return null;
+  let len = Math.sqrt(avgDx * avgDx + avgDz * avgDz);
+  if (len === 0) {
+    // Opposite neighbors on a straight road cancel in the average. Prefer a
+    // cardinal axis in that case so hydrants never fall back to the road
+    // centerline. At a four-way junction the x axis is a stable tie-breaker.
+    const hasEastWest = neighbors.some((neighbor) => neighbor.dz === 0 && neighbor.dx !== 0);
+    const hasNorthSouth = neighbors.some((neighbor) => neighbor.dx === 0 && neighbor.dz !== 0);
+    if (hasEastWest) {
+      avgDx = 1;
+      avgDz = 0;
+    } else if (hasNorthSouth) {
+      avgDx = 0;
+      avgDz = 1;
+    } else {
+      const first = neighbors[0];
+      avgDx = first.dx;
+      avgDz = first.dz;
+    }
+    len = Math.sqrt(avgDx * avgDx + avgDz * avgDz);
+  }
   
   return { dx: avgDx / len, dz: avgDz / len };
 }
@@ -178,7 +233,7 @@ function getHydrantOffsetPosition(
   roadMask: RoadMask, 
   centerPos: { x: number; z: number }, 
   isLeftSide: boolean,
-  offsetDistance = 1.4
+  offsetDistance = HYDRANT_ROADSIDE_OFFSET_TILES
 ): { x: number; z: number } {
   const direction = findRoadDirection(roadMask, centerPos.x, centerPos.z);
   if (!direction) {
@@ -192,8 +247,18 @@ function getHydrantOffsetPosition(
   
   // Apply offset to left or right side
   const sideMultiplier = isLeftSide ? -1 : 1;
-  const offsetX = centerPos.x + (perpDx * offsetDistance * sideMultiplier);
-  const offsetZ = centerPos.z + (perpDz * offsetDistance * sideMultiplier);
+  let offsetX = centerPos.x + (perpDx * offsetDistance * sideMultiplier);
+  let offsetZ = centerPos.z + (perpDz * offsetDistance * sideMultiplier);
+
+  // Keep the roadside fixture clear of the rasterized road where a wide or
+  // diagonal stamp reaches the first candidate offset. The normal road mask
+  // uses a sub-two-tile radius, so the first candidate remains the usual
+  // 1.4-tile placement; the bounded fallback handles wider custom roads.
+  if (isRoad(roadMask, Math.round(offsetX), Math.round(offsetZ))) {
+    const clearance = offsetDistance + 0.75;
+    offsetX = centerPos.x + (perpDx * clearance * sideMultiplier);
+    offsetZ = centerPos.z + (perpDz * clearance * sideMultiplier);
+  }
   
   return { 
     x: Math.round(offsetX * 10) / 10, // Round to 0.1 precision for sub-tile placement

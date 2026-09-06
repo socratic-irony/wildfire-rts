@@ -16,7 +16,20 @@ export type VehicleHudEntry = {
   };
   returningToBase: boolean;
   assignedIncidentId: number | null;
+  hydrantStatus?: HydrantStatus;
 };
+
+export type HydrantStatus = 'none' | 'en-route' | 'refilling' | 'connected' | 'unavailable';
+
+export function getHydrantStatusLabel(status: HydrantStatus): string {
+  switch (status) {
+    case 'connected': return 'Hydrant connected';
+    case 'refilling': return 'Refilling at hydrant';
+    case 'en-route': return 'Driving to hydrant';
+    case 'unavailable': return 'No active hydrant — returning';
+    default: return 'No hydrant connection';
+  }
+}
 
 export type VehicleHud = {
   /** Update the HUD display. Pass null to hide it. */
@@ -65,12 +78,14 @@ export function createVehicleHud(container: HTMLElement): VehicleHud {
         entry.returningToBase ? 'Returning to base' :
         entry.assignedIncidentId !== null ? `Incident #${entry.assignedIncidentId}` :
         'Idle';
+      const hydrantStatus = getHydrantStatusLabel(entry.hydrantStatus ?? 'none');
 
       el.innerHTML =
         `<div style="font-weight:600;margin-bottom:6px;">${entry.type}</div>` +
         `<div>Fuel:&nbsp; ${fuelPct}%</div>` +
         `<div>Water: ${waterPct}%</div>` +
-        `<div>Status: ${status}</div>`;
+        `<div>Status: ${status}</div>` +
+        `<div>Supply: ${hydrantStatus}</div>`;
     },
 
     dispose() {

@@ -3,6 +3,7 @@ import { createRoadMask } from '../roads/state';
 import {
   canSuppressAt,
   createHydrantSystem,
+  findActiveHydrantWithinReach,
   findNearestHydrant,
   getHydrantCoverage,
   isInHydrantCoverage,
@@ -49,10 +50,8 @@ describe('fire hydrant placement', () => {
     for (const hydrant of hydrants) {
       expect(hydrant.coverageRadius).toBe(25);
       const offset = hydrant.worldPos.z - hydrant.gridPos.z * system.cellSize;
-      if (Math.abs(offset) > 0.05) {
-        expect(Math.abs(offset)).toBeCloseTo(lateralOffset, 1);
-        offsetSampled++;
-      }
+      expect(Math.abs(offset)).toBeCloseTo(lateralOffset, 1);
+      offsetSampled++;
     }
     expect(offsetSampled).toBeGreaterThan(0);
 
@@ -195,5 +194,19 @@ describe('hydrant utility helpers', () => {
 
     expect(removeHydrant(system, hydrant.id)).toBe(true);
     expect(system.hydrants.length).toBe(0);
+  });
+
+  it('finds only active hydrants within the bounded roadside draw reach', () => {
+    const mask = createRoadMask(20, 3);
+    mask.mask[1 * mask.width + 5] = 1;
+    const system = createHydrantSystem(mask, 2);
+    expect(placeHydrant(system, { x: 5, z: 1 })).toBe(true);
+    const source = system.hydrants[0];
+
+    expect(findActiveHydrantWithinReach(system, source.worldPos, 6)?.id).toBe(source.id);
+    expect(findActiveHydrantWithinReach(system, { x: source.worldPos.x + 6.1, z: source.worldPos.z }, 6)).toBeNull();
+
+    source.active = false;
+    expect(findActiveHydrantWithinReach(system, source.worldPos, 6)).toBeNull();
   });
 });

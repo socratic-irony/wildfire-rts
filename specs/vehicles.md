@@ -14,6 +14,7 @@
 - **Vehicle model fidelity pass (2026-09-05)**: retained the merged low-poly resource model while adding chamfered body/cab shells, inset front/side glazing, outer-face wheel hubs and arches, bumpers/grilles/lights, firetruck compartments/reel/hose equipment, dozer tread rollers and hydraulic details, aircraft cockpit/tank/engine detail, and firefighter reflective gear. Named animation/test hooks (`ladder`, `blade`, `rotor`, `skid`, `wings`, `tailFin`, `helmet`, `lightbar`, `mainRotor`, `yieldIndicator`) remain intact; `src/vehicles/__tests__/meshes.test.ts` covers hooks, material detail buckets, wheel-hub placement, and resource-count ceilings.
 - **Aircraft roles (2026-06-09)**: helicopters and airplanes are spawnable followers that fly directly to any target at cruise altitude (10 m / 16 m) via the airborne branch in `followerOrders.ts`; helicopters drop water, airplanes drop a retardant line along their flight direction plus a cooling water component. Firefighters walk off-road at type speed. Dispatch assignment is routeability-aware (`canService` in `dispatch/cost.ts`) so off-road fires go to aircraft instead of starving on an unroutable truck. Covered by the `aircraft-drops` audit scenario.
 - **Road traffic reliability (2026-07-12)**: visible Frenet followers now share deterministic batch intersection arbitration, closed-loop seam spacing, braking-distance approach caps, full-stop FIFO queues, occupant/clearance gating, and spillback checks. Vehicles ride above one depth-tested asphalt ribbon and render after its overlays; stopped/creeping vehicles show an above-road gold yield ring. Covered by focused unit tests and the `traffic-intersection` browser audit.
+- **Hydrant-supplied ground suppression (2026-09-05)**: dispatched firetrucks and firefighters can draw directly from an active roadside hydrant within a bounded 6 m reach after their onboard water is exhausted; aircraft remain tank-limited. Refill targets are source-id revalidated, and the selected-unit HUD plus cyan connection line expose en-route/refilling/connected/no-source states. Covered by focused hydrant/HUD tests and the `hydrant-ground-supply` browser fixture.
 
 ### ⏳ Outstanding
 - Replace assigned-centerline traversal with a directed lane graph so vehicles can choose left/through/right movements and route between road components
@@ -136,6 +137,7 @@ UI
 - Debug controls:
   - Roads: toggle placement On/Off; Clear roads.
   - Vehicles: Spawn at camera vicinity; Move mode On/Off (click sets shared destination); Clear.
+  - Selected-unit HUD: shows onboard fuel/water, assignment, and hydrant supply state; a cyan line appears while a ground unit is connected or refilling.
 
 Performance Targets
 

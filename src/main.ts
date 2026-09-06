@@ -1,4 +1,4 @@
-import { Object3D, PerspectiveCamera, Vector3, Quaternion, Raycaster, Vector2 } from 'three';
+import { Object3D, PerspectiveCamera, Vector3, Quaternion, Raycaster, Vector2, BufferGeometry, Float32BufferAttribute, Line, LineBasicMaterial } from 'three';
 import { createRenderer, resizeRenderer, createComposer, resizeComposer, type ComposerRig } from './core/renderer';
 import { createEnvironment } from './core/environment';
 import { createScene } from './core/scene';
@@ -32,7 +32,7 @@ import { createFireRibbon } from './particles/ribbon';
 import { createFlipbookParticles } from './particles/flipbook';
 import { createEmbers } from './particles/embers';
 import { createSuppressionDecals } from './fire/decals';
-import { createHydrantSystem, updateHydrantPlacement, clearHydrants } from './fire/hydrants';
+import { createHydrantSystem, updateHydrantPlacement, clearHydrants, findActiveHydrantById, findActiveHydrantWithinReach } from './fire/hydrants';
 import { HydrantVisual } from './fire/hydrantVisual';
 import { createHydrantCoverageRings } from './fire/hydrantCoverage';
 import { buildTerrainCost } from './roads/cost';
@@ -52,7 +52,7 @@ import { mapMenubarToVehicleType } from './vehicles/menubarMapping';
 import { createIncidentRegistry } from './dispatch/incident';
 import { createDispatchLoop, type FollowerRef } from './systems/dispatchLoop';
 import { DispatchPanel } from './ui/dispatchPanel';
-import { createVehicleHud } from './ui/vehicleHud';
+import { createVehicleHud, type HydrantStatus } from './ui/vehicleHud';
 
 // Config and console system
 import { isFeatureEnabled } from './config/features';
@@ -94,6 +94,8 @@ declare global {
         lineStrength: number;
       } | null;
       exhaustFollowerWater: (id: number) => boolean;
+      setHydrantActive: (id: number, active: boolean) => boolean;
+      removeHydrant: (id: number) => boolean;
       loadScenario: (def?: ScenarioDef) => { id: string; containmentBudget: number; timeLimitSec: number };
       getScenarioResult: () => { id: string; result: ScenarioResult; elapsedSec: number; footprint: number; budget: number; timeLimitSec: number; structures: StructureReport; score: number } | null;
       clearScenario: () => void;
@@ -393,6 +395,7 @@ loop.add((dt) => {
         }
       }
     }
+    updateHydrantLink(entry);
     followerFxStates.push(fx);
   }
   vehicles.updateExternalFx(dt, followerFxStates);
@@ -434,6 +437,7 @@ loop.add((dt) => {
         payload: selectedFollower.payload,
         returningToBase: selectedFollower.returningToBase,
         assignedIncidentId: selectedFollower.assignedIncidentId,
+        hydrantStatus: selectedFollower.hydrantStatus,
       });
     }
   }
@@ -689,7 +693,11 @@ type ActiveFollower = {
   homePos: { x: number; z: number };
   offroadTarget?: Vector3 | null;
   /** Set while the unit is driving to / refilling at a hydrant. */
-  refillTarget: { x: number; z: number } | null;
+  refillTarget: { hydrantId: number; x: number; z: number } | null;
+  /** Active source used for direct ground-unit suppression. */
+  hydrantSupplyId: number | null;
+  hydrantStatus: HydrantStatus;
+  hydrantLink: Line;
   /** Civilian body style + paint color; null for service vehicles. */
   style: CivilianStyle | null;
   color: number | null;
@@ -939,12 +947,22 @@ function spawnFollowerOnPath(p: Path2D, startS: number, vehicleType: VManagerVeh
     sprayingWater: false,
     siren: vehicleType === VManagerVehicleType.FIRETRUCK,
   };
+  const hydrantLinkGeometry = new BufferGeometry();
+  hydrantLinkGeometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(6), 3));
+  const hydrantLink = new Line(
+    hydrantLinkGeometry,
+    new LineBasicMaterial({ color: 0x55ddff, transparent: true, opacity: 0.8, depthWrite: false }),
+  );
+  hydrantLink.visible = false;
+  hydrantLink.renderOrder = 18;
+  scene.add(hydrantLink);
   const p0 = obj.getWorldPosition(new Vector3());
   followers.push({
     id, follower, object: obj, mesh, type: vehicleType, fxState,
     payload: createPayload(vehicleType), busy: false, assignedIncidentId: null,
     returningToBase: false, homePos: { x: p0.x, z: p0.z }, offroadTarget: null,
-    refillTarget: null, style: look?.style ?? null, color: look?.color ?? null,
+    refillTarget: null, hydrantSupplyId: null, hydrantStatus: 'none', hydrantLink,
+    style: look?.style ?? null, color: look?.color ?? null,
   });
   markFollowerMembershipChanged();
 }
@@ -997,7 +1015,12 @@ function reseedRoadsAndVehicles(count = 2) {
   vegetationDirty = true;
 }
 function clearFollowers() {
-  for (const f of followers) scene.remove(f.object);
+  for (const f of followers) {
+    scene.remove(f.object);
+    scene.remove(f.hydrantLink);
+    f.hydrantLink.geometry.dispose();
+    (f.hydrantLink.material as LineBasicMaterial).dispose();
+  }
   followers = [];
   followerFxStates.length = 0;
   followerIdCounter = 0;
@@ -1062,11 +1085,14 @@ const SUPPRESSION_RANGE_METERS = 10;
 /** Distance (meters) from home position at which a returning unit is considered arrived. */
 const HOME_ARRIVAL_THRESHOLD = 6;
 
-/** Distance (meters) from a hydrant within which a firetruck can draw water. */
-const HYDRANT_REFILL_RADIUS = 6;
+/** Distance (meters) from a hydrant within which a ground unit can draw water. */
+const HYDRANT_DRAW_RADIUS = 6;
 
 /** Hydrant water transfer rate, liters/sec. A 4000 L tank fills in ~10 s. */
 const HYDRANT_REFILL_RATE = 400;
+
+/** Maximum direct hydrant flow used after a ground unit's tank is exhausted. */
+const HYDRANT_SUPPLY_RATE = 400;
 
 function syncFollowerAssignments() {
   const assigned = new Map<number, number>();
@@ -1079,13 +1105,15 @@ function syncFollowerAssignments() {
   }
 }
 
-function sendFollowerHome(entry: ActiveFollower) {
+function sendFollowerHome(entry: ActiveFollower, hydrantStatus: HydrantStatus = 'none') {
   if (!entry.returningToBase && entry.assignedIncidentId != null) {
     dispatchLoop.registry.reopen(entry.assignedIncidentId);
   }
   entry.assignedIncidentId = null;
   entry.returningToBase = true;
   entry.refillTarget = null;
+  entry.hydrantSupplyId = null;
+  entry.hydrantStatus = hydrantStatus;
   entry.fxState.sprayingWater = false;
   issueMoveOrder(entry as unknown as FollowerEntry, path2ds, new Vector3(entry.homePos.x, 0, entry.homePos.z));
 }
@@ -1097,14 +1125,14 @@ function sendFollowerHome(entry: ActiveFollower) {
  */
 function sendFollowerToHydrant(entry: ActiveFollower): boolean {
   const p = entry.object.getWorldPosition(tmpFollowerWorld);
-  let best: { x: number; z: number } | null = null;
+  let best: { hydrantId: number; x: number; z: number } | null = null;
   let bestD = Infinity;
   for (const h of hydrantSystem.hydrants) {
     if (!h.active) continue;
     const pos = { x: h.worldPos.x, z: h.worldPos.z };
     if (!canSetTargetOnCurrentPath(entry as unknown as FollowerEntry, path2ds, pos)) continue;
     const d = Math.hypot(pos.x - p.x, pos.z - p.z);
-    if (d < bestD) { bestD = d; best = pos; }
+    if (d < bestD) { bestD = d; best = { hydrantId: h.id, ...pos }; }
   }
   if (!best) return false;
   if (!setTargetOnCurrentPath(entry as unknown as FollowerEntry, path2ds, best)) return false;
@@ -1114,12 +1142,40 @@ function sendFollowerToHydrant(entry: ActiveFollower): boolean {
   entry.assignedIncidentId = null;
   entry.fxState.sprayingWater = false;
   entry.refillTarget = best;
+  entry.hydrantSupplyId = null;
+  entry.hydrantStatus = 'en-route';
   return true;
+}
+
+function isGroundHydrantUnit(entry: ActiveFollower): boolean {
+  return (
+    entry.payload.waterCapacity > 0 &&
+    entry.type !== VManagerVehicleType.HELICOPTER &&
+    entry.type !== VManagerVehicleType.AIRPLANE
+  );
+}
+
+function updateHydrantLink(entry: ActiveFollower) {
+  const sourceId = entry.refillTarget?.hydrantId ?? entry.hydrantSupplyId;
+  const source = sourceId == null ? null : findActiveHydrantById(hydrantSystem, sourceId);
+  if (!source) {
+    entry.hydrantLink.visible = false;
+    return;
+  }
+
+  const p = entry.object.getWorldPosition(tmpFollowerWorld);
+  const positions = entry.hydrantLink.geometry.getAttribute('position') as Float32BufferAttribute;
+  positions.setXYZ(0, p.x, p.y + 0.35, p.z);
+  positions.setXYZ(1, source.worldPos.x, hm.sample(source.worldPos.x, source.worldPos.z) + 0.35, source.worldPos.z);
+  positions.needsUpdate = true;
+  entry.hydrantLink.visible = entry.hydrantStatus === 'connected' || entry.hydrantStatus === 'refilling';
 }
 
 function updateFollowerSuppression(dt: number) {
   for (const entry of followers) {
     entry.fxState.sprayingWater = false;
+    entry.hydrantSupplyId = null;
+    if (!entry.refillTarget && !entry.returningToBase) entry.hydrantStatus = 'none';
 
     const incId = entry.assignedIncidentId;
     if (incId == null) continue;
@@ -1140,9 +1196,19 @@ function updateFollowerSuppression(dt: number) {
 
     if (litersPerSec <= 0) continue;
 
-    const drawn = consumeWater(entry.payload, litersPerSec * dt);
+    const requested = litersPerSec * dt;
+    let drawn = consumeWater(entry.payload, requested);
+    if (isGroundHydrantUnit(entry) && drawn < requested) {
+      const source = findActiveHydrantWithinReach(hydrantSystem, pos, HYDRANT_DRAW_RADIUS);
+      if (source) {
+        const supplied = Math.min(requested - drawn, HYDRANT_SUPPLY_RATE * dt);
+        drawn += supplied;
+        entry.hydrantSupplyId = source.id;
+        entry.hydrantStatus = 'connected';
+      }
+    }
     if (drawn <= 0) {
-      sendFollowerHome(entry);
+      sendFollowerHome(entry, isGroundHydrantUnit(entry) ? 'unavailable' : 'none');
       continue;
     }
 
@@ -1193,34 +1259,49 @@ function updateFollowerLogistics(dt: number) {
       tickFuel(entry.payload, dt, loadFactor);
     }
 
-    if (!entry.returningToBase && !entry.refillTarget && needsReturnToBase(entry.payload)) {
+    const fuelLow =
+      entry.payload.fuelCapacity > 0 &&
+      entry.payload.fuel / entry.payload.fuelCapacity <= LOW_FUEL_FRACTION;
+    const hydrantCanSustain = entry.hydrantSupplyId != null && !fuelLow;
+    if (!entry.returningToBase && !entry.refillTarget && !hydrantCanSustain && needsReturnToBase(entry.payload)) {
       const waterEmpty = entry.payload.waterCapacity > 0 && entry.payload.water <= 0;
-      const fuelLow =
-        entry.payload.fuelCapacity > 0 &&
-        entry.payload.fuel / entry.payload.fuelCapacity <= LOW_FUEL_FRACTION;
       // Firetrucks that only need water top up at the nearest hydrant instead
       // of driving all the way home; anything else (or low fuel) goes home.
       const usedHydrant =
         entry.type === VManagerVehicleType.FIRETRUCK && waterEmpty && !fuelLow
           ? sendFollowerToHydrant(entry)
           : false;
-      if (!usedHydrant) sendFollowerHome(entry);
+      if (!usedHydrant) sendFollowerHome(entry, waterEmpty ? 'unavailable' : 'none');
       continue;
     }
 
     if (entry.refillTarget) {
+      const source = findActiveHydrantById(hydrantSystem, entry.refillTarget.hydrantId);
+      if (!source || !canSetTargetOnCurrentPath(
+        entry as unknown as FollowerEntry,
+        path2ds,
+        { x: source.worldPos.x, z: source.worldPos.z },
+      )) {
+        entry.refillTarget = null;
+        sendFollowerHome(entry, 'unavailable');
+        continue;
+      }
       const p = entry.object.getWorldPosition(tmpFollowerWorld);
       const d = Math.hypot(p.x - entry.refillTarget.x, p.z - entry.refillTarget.z);
-      if (d <= HYDRANT_REFILL_RADIUS) {
+      if (d <= HYDRANT_DRAW_RADIUS) {
+        entry.hydrantStatus = 'refilling';
         entry.payload.water = Math.min(
           entry.payload.waterCapacity,
           entry.payload.water + HYDRANT_REFILL_RATE * dt,
         );
         if (entry.payload.water >= entry.payload.waterCapacity) {
           entry.refillTarget = null;
+          entry.hydrantStatus = 'none';
           entry.busy = false;
           entry.assignedIncidentId = null;
         }
+      } else {
+        entry.hydrantStatus = 'en-route';
       }
       continue;
     }
@@ -1234,6 +1315,8 @@ function updateFollowerLogistics(dt: number) {
         entry.returningToBase = false;
         entry.busy = false;
         entry.assignedIncidentId = null;
+        entry.hydrantSupplyId = null;
+        entry.hydrantStatus = 'none';
       }
     }
   }
@@ -1411,6 +1494,9 @@ function buildGameState() {
           busy: entry.busy,
           returningToBase: entry.returningToBase,
           assignedIncidentId: entry.assignedIncidentId,
+          hydrantStatus: entry.hydrantStatus,
+          hydrantSupplyId: entry.hydrantSupplyId,
+          refillTargetHydrantId: entry.refillTarget?.hydrantId ?? null,
           water: Number(entry.payload.water.toFixed(1)),
           fuel: Number(entry.payload.fuel.toFixed(1)),
           offroadTarget: entry.offroadTarget
@@ -1538,6 +1624,22 @@ window.__wildfireTestApi = {
     const entry = followers.find((f) => f.id === id);
     if (!entry) return false;
     entry.payload.water = 0;
+    return true;
+  },
+  setHydrantActive: (id, active) => {
+    const hydrant = hydrantSystem.hydrants.find((candidate) => candidate.id === id);
+    if (!hydrant) return false;
+    hydrant.active = active;
+    hydrantVisual.update(hydrantSystem);
+    hydrantCoverageRings.update(hydrantSystem);
+    return true;
+  },
+  removeHydrant: (id) => {
+    const index = hydrantSystem.hydrants.findIndex((candidate) => candidate.id === id);
+    if (index < 0) return false;
+    hydrantSystem.hydrants.splice(index, 1);
+    hydrantVisual.update(hydrantSystem);
+    hydrantCoverageRings.update(hydrantSystem);
     return true;
   },
   getTileAt: (x, z) => {
