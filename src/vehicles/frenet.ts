@@ -17,6 +17,7 @@ const _m = new Matrix4();
 const _rotY = new Matrix4();
 const _ft = new Vector3();
 const _fr = new Vector3();
+const _travelTan = { x: 0, z: 0 };
 
 function terrainNormal(hm: Heightmap, wx: number, wz: number) {
   const eps = hm.scale * 0.35;
@@ -103,15 +104,27 @@ export class PathFollower {
   }
 
   update(dt: number) {
+    let travelDirection = 1;
     // For closed paths, wrap S; for open, clamp at end
     if (this.path.closed) {
       if (this.s >= this.path.length) this.s -= this.path.length;
       if (this.s < 0) this.s += this.path.length;
     } else {
-      if (this.s >= this.path.length) return;
+      if (this.s >= this.path.length) {
+        // Open-road dispatch can target a point behind a unit that spawned at
+        // the terminal endpoint. Nudge it onto the final segment so the
+        // target-distance logic can complete the order instead of leaving the
+        // follower permanently frozen at the endpoint.
+        if (this.targetS != null && this.targetS < this.path.length) {
+          this.s = Math.max(0, this.path.length - 1e-4);
+        } else {
+          return;
+        }
+      }
+      if (this.targetS != null && this.targetS < this.s) travelDirection = -1;
     }
     const L = Math.min(this.Lmax, Math.max(this.Lmin, this.Lmin + this.kLook * this.v));
-    const sampL = this.path.sample(this.s + L);
+    const sampL = this.path.sample(this.s + travelDirection * L);
     const target = sampL.p;
     const pos = _pos; this.object.matrix.decompose(pos, _q, _scl);
     const toT = { x: target.x - pos.x, z: target.z - pos.z } as V2;
@@ -129,11 +142,13 @@ export class PathFollower {
     const samples = [0, Math.min(2, L * 0.33), Math.min(4, L * 0.66), Math.min(6, L)];
     let kappaMax = 0;
     for (const ds of samples) {
-      const k = Math.abs(this.path.curvature(this.s + ds));
+      const k = Math.abs(this.path.curvature(this.s + travelDirection * ds));
       if (k > kappaMax) kappaMax = k;
     }
     const vCurve = Math.sqrt(Math.max(0.1, this.aLatMax / Math.max(kappaMax, 1e-3)));
-    const vArrive = this.path.closed ? this.vMaxClamp : ((this.path.length - this.s < this.arriveDist) ? 2 : this.vMaxClamp);
+    const vArrive = this.path.closed || travelDirection < 0
+      ? this.vMaxClamp
+      : ((this.path.length - this.s < this.arriveDist) ? 2 : this.vMaxClamp);
     let vTarget = Math.min(this.vMaxClamp, vCurve, vArrive);
 
     // hard slow for near-90° bends within short distance
@@ -151,7 +166,7 @@ export class PathFollower {
     }
 
     // grade-based modulation (downhill a bit faster, uphill slower)
-    const ahead = this.path.sample(this.s + 3.0).p;
+    const ahead = this.path.sample(this.s + travelDirection * 3.0).p;
     const now = this.path.sample(this.s).p;
     const hNow = this.hm.sample(now.x, now.z);
     const hAhead = this.hm.sample(ahead.x, ahead.z);
@@ -169,7 +184,7 @@ export class PathFollower {
       this.extCap = Infinity;
     }
     // Leader following: cap target speed based on gap
-    if (this.leaderS != null && this.leaderS > this.s) {
+    if (travelDirection > 0 && this.leaderS != null && this.leaderS > this.s) {
       const gapS = this.leaderS - this.s;
       const desiredGap = this.spacingMode === 'gap' ? this.minGap
         : this.spacingMode === 'time' ? Math.max(0, this.v * this.timeHeadway)
@@ -186,7 +201,7 @@ export class PathFollower {
         targetDist = this.targetS - this.s;
         if (targetDist < 0) targetDist += this.path.length;
       } else {
-        targetDist = this.targetS - this.s;
+        targetDist = Math.abs(this.targetS - this.s);
       }
       if (targetDist <= this.arriveDist) {
         vTarget = Math.min(vTarget, Math.max(0.1, targetDist * 0.6));
@@ -206,17 +221,23 @@ export class PathFollower {
     this.v += dvClamped;
 
     // advance along path
-    let ds = Math.max(0, this.v * Math.cos(headingErr)) * dt;
+    // Reverse orders still advance along the path while the pose turns to
+    // face the reverse tangent. Forward travel uses the normal heading gate;
+    // reverse travel uses the magnitude so an endpoint-spawned unit does not
+    // wait forever for a heading it cannot reach while stationary.
+    const headingAlignment = Math.cos(headingErr);
+    const alignment = travelDirection < 0 ? Math.abs(headingAlignment) : Math.max(0, headingAlignment);
+    let ds = this.v * alignment * dt;
     if (this.targetS != null && targetDist !== Infinity) {
       ds = Math.min(ds, Math.max(0, targetDist));
     }
-    if (this.leaderS != null && this.leaderS > this.s) {
+    if (travelDirection > 0 && this.leaderS != null && this.leaderS > this.s) {
       const desiredGap = this.spacingMode === 'gap' ? this.minGap
         : this.spacingMode === 'time' ? Math.max(0, this.v * this.timeHeadway)
         : Math.max(this.minGap, this.v * this.timeHeadway);
       ds = Math.min(ds, Math.max(0, (this.leaderS - this.s) - desiredGap));
     }
-    this.s = this.s + ds;
+    this.s = this.s + travelDirection * ds;
     if (this.path.closed) {
       if (this.s >= this.path.length) this.s -= this.path.length;
     } else {
@@ -225,7 +246,7 @@ export class PathFollower {
 
     // If we reached target, stop and clear
     if (this.targetS != null && targetDist !== Infinity) {
-      if (targetDist <= 0.2 || ds <= 1e-4) {
+      if (targetDist <= 0.2) {
         if (this.stopAtTarget) {
           this.v = 0;
         }
@@ -238,7 +259,9 @@ export class PathFollower {
     const { p, t } = this.path.sample(this.s);
     const y = this.hm.sample(p.x, p.z);
     const n = terrainNormal(this.hm, p.x, p.z);
-    const frame = this.groundFrame(t, n);
+    _travelTan.x = t.x * travelDirection;
+    _travelTan.z = t.z * travelDirection;
+    const frame = this.groundFrame(_travelTan, n);
     const lane = _lane.copy(frame.r).multiplyScalar(this.laneOffset);
     const newPos = _newPos.set(p.x, y, p.z).addScaledVector(n, this.roadSurfaceOffset).add(lane);
     const m = _m.makeBasis(frame.r, n, frame.t);

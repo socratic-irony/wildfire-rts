@@ -12,6 +12,29 @@ function makeFollower() {
 }
 
 describe('PathFollower.isYielding', () => {
+  it('leaves an open-path endpoint with bounded reverse travel', () => {
+    const hm = generateHeightmap(16, 16, 1, { seed: 's', frequency: 0, amplitude: 0, octaves: 1, persistence: 1 });
+    const path = new Path2D([{ x: 1, z: 8 }, { x: 14, z: 8 }]);
+    const follower = new PathFollower(path, hm, new Object3D(), path.length);
+
+    follower.setTargetS(0, true);
+    follower.update(0.1);
+
+    expect(follower.s).toBeGreaterThan(0);
+    expect(follower.s).toBeLessThan(path.length);
+    expect(path.length - follower.s).toBeLessThanOrEqual(1.0);
+
+    let previousS = follower.s;
+    for (let i = 0; i < 200 && follower.targetS !== null; i++) {
+      follower.update(0.1);
+      expect(follower.s).toBeLessThanOrEqual(previousS);
+      expect(previousS - follower.s).toBeLessThanOrEqual(1.0);
+      previousS = follower.s;
+    }
+    expect(follower.s).toBe(0);
+    expect(follower.targetS).toBeNull();
+  });
+
   it('rides above the raised road surface instead of being hidden underneath it', () => {
     const f = makeFollower();
     expect(f.object.matrix.elements[13]).toBeGreaterThan(0.3);
