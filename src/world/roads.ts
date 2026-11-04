@@ -1,4 +1,5 @@
 import { clamp } from '../core/math';
+import { Rng } from '../core/rng';
 import { GRID_SIZE, NEIGHBOR_4, inGrid, tileIndex } from './constants';
 import { Heightmap } from './heightmap';
 import { BiomeMap, Terrain } from './biomes';
@@ -13,44 +14,8 @@ interface QueueEntry {
   priority: number;
 }
 
-export const INITIAL_ROADS: ReadonlyArray<ReadonlyArray<TilePoint>> = [
-  [
-    { x: 22, z: 45 },
-    { x: 72, z: 45 },
-  ],
-  [
-    { x: 47, z: 20 },
-    { x: 47, z: 70 },
-  ],
-  [
-    { x: 30, z: 57 },
-    { x: 64, z: 57 },
-  ],
-  [
-    { x: 36, z: 32 },
-    { x: 36, z: 58 },
-  ],
-  [
-    { x: 58, z: 32 },
-    { x: 58, z: 58 },
-  ],
-  [
-    { x: 47, z: 33 },
-    { x: 47, z: 24 },
-    { x: 55, z: 24 },
-    { x: 55, z: 15 },
-    { x: 67, z: 15 },
-    { x: 67, z: 33 },
-  ],
-  [
-    { x: 22, z: 45 },
-    { x: 22, z: 61 },
-  ],
-  [
-    { x: 64, z: 57 },
-    { x: 74, z: 57 },
-  ],
-];
+/** Extra planner cost for changing direction. */
+const TURN_PENALTY = 2.5;
 
 export class RoadNetwork {
   readonly size = GRID_SIZE;
@@ -210,13 +175,74 @@ export class RoadNetwork {
   }
 }
 
-export function createInitialRoads(): RoadNetwork {
+/**
+ * Lay out the starting road network for a seeded map: a town street grid
+ * around the layout's crossroads, plus highways that wind out to the map edge
+ * and a spur up to the highest ground, planned over the raw terrain so they
+ * follow gentle grades.
+ */
+export function generateRoadNetwork(heightmap: Heightmap, seed: number): RoadNetwork {
   const network = new RoadNetwork();
-  for (const route of INITIAL_ROADS) {
-    for (let i = 0; i < route.length - 1; i += 1) {
-      const a = route[i];
-      const b = route[i + 1];
-      if (a && b) network.addLine(a, b);
+  const rng = new Rng(seed ^ 0x510e527f);
+  const { town, side } = heightmap.layout;
+  const cx = town.x;
+  const cz = town.z;
+  const clampTile = (v: number) => clamp(Math.round(v), 2, GRID_SIZE - 3);
+  const line = (ax: number, az: number, bx: number, bz: number) =>
+    network.addLine({ x: clampTile(ax), z: clampTile(az) }, { x: clampTile(bx), z: clampTile(bz) });
+
+  const ewReach = town.rx + 1;
+  const nsReach = town.rz + 1;
+  line(cx - ewReach, cz, cx + ewReach, cz);
+  line(cx, cz - nsReach, cx, cz + nsReach);
+  const sideSpacing = 11;
+  const sideReach = Math.round(town.rz * 0.8);
+  line(cx + sideSpacing, cz - sideReach, cx + sideSpacing, cz + sideReach);
+  line(cx - sideSpacing, cz - sideReach, cx - sideSpacing, cz + sideReach);
+  const crossZ = cz + (rng.next() < 0.5 ? 1 : -1) * (sideReach - 1);
+  line(cx - sideSpacing - 4, crossZ, cx + sideSpacing + 4, crossZ);
+  if (rng.next() < 0.6) {
+    // An occasional back lane on the station side.
+    const laneX = cx + side * (sideSpacing + 6);
+    line(laneX, cz - 6, laneX, cz + 6);
+    line(cx + side * sideSpacing, cz - 6, laneX, cz - 6);
+  }
+
+  // Highways out of town. Always at least two, in random directions.
+  const exits: Array<{ from: TilePoint; to: TilePoint }> = [
+    { from: { x: clampTile(cx + ewReach), z: cz }, to: { x: GRID_SIZE - 2, z: clampTile(cz + rng.range(-24, 24)) } },
+    { from: { x: clampTile(cx - ewReach), z: cz }, to: { x: 1, z: clampTile(cz + rng.range(-24, 24)) } },
+    { from: { x: cx, z: clampTile(cz + nsReach) }, to: { x: clampTile(cx + rng.range(-24, 24)), z: GRID_SIZE - 2 } },
+    { from: { x: cx, z: clampTile(cz - nsReach) }, to: { x: clampTile(cx + rng.range(-24, 24)), z: 1 } },
+  ];
+  for (let i = exits.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng.next() * (i + 1));
+    [exits[i], exits[j]] = [exits[j] as (typeof exits)[number], exits[i] as (typeof exits)[number]];
+  }
+  const exitCount = 2 + Math.floor(rng.next() * 2.2);
+  for (const exit of exits.slice(0, exitCount)) {
+    const path = planRoadPath(heightmap, null, exit.from, exit.to);
+    if (path) network.addPath(path);
+  }
+
+  // Spur to the highest ground away from town (a lookout / repeater site).
+  let peak: TilePoint | null = null;
+  let peakHeight = -Infinity;
+  for (let tz = 6; tz < GRID_SIZE - 6; tz += 2) {
+    for (let tx = 6; tx < GRID_SIZE - 6; tx += 2) {
+      if (Math.hypot((tx - cx) / town.rx, (tz - cz) / town.rz) < 1.5) continue;
+      const h = heightmap.tileHeight(tx, tz) + rng.range(0, 0.5);
+      if (h > peakHeight) {
+        peakHeight = h;
+        peak = { x: tx, z: tz };
+      }
+    }
+  }
+  if (peak) {
+    const start = network.nearest(peak.x, peak.z, GRID_SIZE);
+    if (start) {
+      const path = planRoadPath(heightmap, null, start, peak);
+      if (path) network.addPath(path);
     }
   }
   return network;
@@ -224,17 +250,21 @@ export function createInitialRoads(): RoadNetwork {
 
 export function planRoadPath(
   heightmap: Heightmap,
-  biomes: BiomeMap,
+  biomes: BiomeMap | null,
   start: TilePoint,
   goal: TilePoint,
   blocked?: Uint8Array,
 ): TilePoint[] | null {
+  const terrainAt = (index: number): Terrain => {
+    if (biomes) return (biomes.types[index] ?? Terrain.Grass) as Terrain;
+    return heightmap.isWater(index % GRID_SIZE, Math.floor(index / GRID_SIZE)) ? Terrain.Water : Terrain.Grass;
+  };
   const startX = clamp(start.x, 0, GRID_SIZE - 1);
   const startZ = clamp(start.z, 0, GRID_SIZE - 1);
   const goalX = clamp(goal.x, 0, GRID_SIZE - 1);
   const goalZ = clamp(goal.z, 0, GRID_SIZE - 1);
-  if (biomes.types[tileIndex(startX, startZ)] === Terrain.Water) return null;
-  if (biomes.types[tileIndex(goalX, goalZ)] === Terrain.Water) return null;
+  if (terrainAt(tileIndex(startX, startZ)) === Terrain.Water) return null;
+  if (terrainAt(tileIndex(goalX, goalZ)) === Terrain.Water) return null;
 
   const startIndex = tileIndex(startX, startZ);
   const goalIndex = tileIndex(goalX, goalZ);
@@ -273,12 +303,22 @@ export function planRoadPath(
       const nextIndex = tileIndex(nx, nz);
       if (closed[nextIndex]) continue;
       if (blocked && blocked[nextIndex] === 1) continue;
-      const terrain = biomes.types[nextIndex] ?? Terrain.Grass;
+      const terrain = terrainAt(nextIndex);
       if (terrain === Terrain.Water) continue;
-      const slope = heightmap.slopeTan(nx, nz);
+      // Climbing along the direction of travel is acceptable (it becomes a
+      // ramp); crossing a slope sideways forces a deep cut, so it costs more.
+      const [h00, h10, h01, h11] = heightmap.cornerHeights(nx, nz);
+      const gradX = Math.abs(h10 + h11 - h00 - h01) / (2 * heightmap.tileSize);
+      const gradZ = Math.abs(h01 + h11 - h00 - h10) / (2 * heightmap.tileSize);
+      const along = dx !== 0 ? gradX : gradZ;
+      const lateral = dx !== 0 ? gradZ : gradX;
       const rockPenalty = terrain === Terrain.Rock ? 14 : 0;
-      const townBonus = terrain === Terrain.Urban ? -0.35 : 0;
-      const stepCost = 1 + slope * 12 + rockPenalty + townBonus;
+      // Prefer long straight runs over 1-tile staircases: every bend becomes a
+      // flat pad when graded, so zigzags look jagged and chew up the hillside.
+      const parent = cameFrom[current.index] ?? -1;
+      const turning =
+        parent >= 0 && (parent % GRID_SIZE !== cx - dx || Math.floor(parent / GRID_SIZE) !== cz - dz);
+      const stepCost = 1 + along * 5 + lateral * 14 + rockPenalty + (turning ? TURN_PENALTY : 0);
       const nextCost = (cost[current.index] ?? 0) + stepCost;
       if (nextCost < (cost[nextIndex] ?? Infinity)) {
         cost[nextIndex] = nextCost;

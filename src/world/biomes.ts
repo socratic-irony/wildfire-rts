@@ -1,7 +1,7 @@
 import { clamp, smoothstep } from '../core/math';
 import { fbm2 } from '../core/rng';
 import { GRID_SIZE } from './constants';
-import { Heightmap, LAKE_CENTER, LAKE_RADIUS, TOWN_CENTER, TOWN_RADIUS } from './heightmap';
+import { Heightmap } from './heightmap';
 
 export enum Terrain {
   Water = 0,
@@ -44,6 +44,8 @@ export function classifyTerrain(heightmap: Heightmap): BiomeMap {
   const moisture = new Float32Array(GRID_SIZE * GRID_SIZE);
   const slope = new Float32Array(GRID_SIZE * GRID_SIZE);
   const seed = heightmap.seed;
+  const { town, lake, relief } = heightmap.layout;
+  const highGround = (relief - 1) * heightmap.levelHeight;
 
   for (let tz = 0; tz < GRID_SIZE; tz += 1) {
     for (let tx = 0; tx < GRID_SIZE; tx += 1) {
@@ -58,21 +60,23 @@ export function classifyTerrain(heightmap: Heightmap): BiomeMap {
 
       const edgeNoise = fbm2(tx * 0.11, tz * 0.11, seed + 811, 3, 0.5, 2);
       const localMoisture = fbm2(tx * 0.075, tz * 0.075, seed + 1201, 4, 0.55, 2);
-      const lakeDistance = Math.hypot(tx - LAKE_CENTER.x, tz - LAKE_CENTER.z);
-      const lakeInfluence = 1 - smoothstep(LAKE_RADIUS, LAKE_RADIUS + 22, lakeDistance);
+      const lakeDistance = Math.hypot(tx - lake.x, tz - lake.z);
+      const lakeInfluence = 1 - smoothstep(lake.r, lake.r + 22, lakeDistance);
       const wetness = clamp(localMoisture * 0.78 + lakeInfluence * 0.34, 0, 1);
       moisture[index] = wetness;
 
       const elevation = heightmap.tileHeight(tx, tz);
-      const highRock = elevation > 10 && edgeNoise > 0.52;
-      const steepRock = tileSlope > 0.72;
+      // Terrace faces keep their vegetation (and burn, and carry fire upslope);
+      // only exposed high ground and the sharpest double-step corners are bare.
+      const highRock = elevation >= highGround && edgeNoise > 0.5;
+      const steepRock = tileSlope > 1.3 && edgeNoise > 0.45;
       if (steepRock || highRock) {
         types[index] = Terrain.Rock;
         continue;
       }
 
-      const townDx = (tx - TOWN_CENTER.x) / (TOWN_RADIUS.x * 0.82);
-      const townDz = (tz - TOWN_CENTER.z) / (TOWN_RADIUS.z * 0.82);
+      const townDx = (tx - town.x) / (town.rx * 0.82);
+      const townDz = (tz - town.z) / (town.rz * 0.82);
       if (townDx * townDx + townDz * townDz < 1) {
         types[index] = Terrain.Urban;
         continue;

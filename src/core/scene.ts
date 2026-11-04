@@ -6,7 +6,7 @@ import {
   FogExp2,
   HemisphereLight,
   Mesh,
-  PCFSoftShadowMap,
+  PCFShadowMap,
   Scene,
   ShaderMaterial,
   SphereGeometry,
@@ -23,7 +23,7 @@ export function createRenderer(container: HTMLElement): WebGLRenderer {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = PCFSoftShadowMap;
+  renderer.shadowMap.type = PCFShadowMap;
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
   renderer.outputColorSpace = SRGBColorSpace;

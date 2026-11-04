@@ -15,9 +15,14 @@ const SECTORS = [
   'Ash Flats',
 ];
 
-export function sectorNameFor(tx: number, tz: number): string {
-  const cx = GRID_SIZE / 2;
-  const cz = GRID_SIZE / 2;
+/** Name a tile by its compass sector relative to an origin (the town centre). */
+export function sectorNameFor(
+  tx: number,
+  tz: number,
+  origin: { x: number; z: number } = { x: GRID_SIZE / 2, z: GRID_SIZE / 2 },
+): string {
+  const cx = origin.x;
+  const cz = origin.z;
   if (tz < cz - 15) return tx > cx ? SECTORS[1]! : SECTORS[0]!;
   if (tz > cz + 15) return tx > cx ? SECTORS[2]! : SECTORS[3]!;
   if (tx < cx - 15) return SECTORS[4]!;

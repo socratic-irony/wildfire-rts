@@ -21,7 +21,7 @@ One seeded shift includes:
 - **Auto-dispatch and full manual command**, including right-click move/attack orders and per-incident dispatch.
 - **Road building** on the tile grid. New asphalt becomes a firebreak and triggers hydrant placement.
 - **Fire hydrants** placed along roads. Engines connected to a hydrant get an unlimited water feed; empty engines route to the nearest reachable hydrant by default.
-- **Vegetation and structures**: pine, oak, chaparral, rocks, houses, barns, cabins, a fire station, and a helipad.
+- **Vegetation and structures**: 13 plant/rock species (pine, fir, oak, aspen, manzanita, snags, bunchgrass, wildflowers, logs…), houses, farmhouses, ranch houses, false-front stores, a chapel, barns, cabins, a fire station, helipad, water tower, fire lookout and power lines.
 - **Particles**: flames, embers, smoke, water drops, water spray, retardant drops, steam, and dozer dust.
 - **Win/loss and scoring**: contain all incidents and keep the town standing before the shift ends.
 
@@ -62,7 +62,7 @@ npm run preview
 
 ## Systems
 
-- **Terrain**: 96×96 tiles at 2 m per tile. Integer terrace levels with a slope limiter that keeps cardinal steps to one level, producing flat tops and 45-degree faces. A town plateau, lake, rocky ridges, forest, brush, and grassland are generated from a seed.
+- **Terrain**: 96×96 tiles at 2 m per tile. Every seed generates a new map: rolling fractal hills quantized to terraces (flat tops, 45-degree faces), with the town, lake, highways and lookout road placed per seed. Roads are graded into clean ramps; banks keep their vegetation and show earth strata.
 - **Fire**: deterministic per-tile state machine at 5 Hz. Wind and upslope increase rate-of-spread; moisture, wetness, and retardant reduce it. Spotting throws embers downwind. Roads and cleared firelines are barriers. Structures accumulate damage while their tiles burn.
 - **Units**: engines are road-bound and carry 4,000 L. Dozers can leave the road and cut a permanent line. The helicopter drops water at the downwind head. The tanker lays a perpendicular retardant line. Aircraft return to the helipad to refill.
 - **Dispatch**: incidents track severity and assigned units. Auto-dispatch sends the best available ground unit, aircraft, or dozer. Manual dispatch and direct orders override it.

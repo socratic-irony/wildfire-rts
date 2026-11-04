@@ -24,7 +24,6 @@ import { Incident, IncidentSystem } from './sim/incidents';
 import { Scenario } from './sim/scenario';
 import { NotifyFn, NotifyTone } from './sim/types';
 import { Hud, HudState, Tool } from './ui/hud';
-import { sectorNameFor } from './world/sectors';
 
 interface TestApi {
   getState: () => unknown;
@@ -37,6 +36,7 @@ interface TestApi {
   getTile: (tx: number, tz: number) => unknown;
   findBurnableNear: (tx: number, tz: number, radius: number) => { x: number; z: number } | null;
   focusTile: (tx: number, tz: number) => void;
+  setView: (view: { yaw?: number; pitch?: number; viewSize?: number }) => void;
   focusIncident: (id: number) => void;
   setAutoDispatch: (enabled: boolean) => void;
   buildRoad: (sx: number, sz: number, gx: number, gz: number) => number;
@@ -81,6 +81,7 @@ export class Game {
   private readonly pointer = new Vector2();
   private readonly tileHighlight: LineLoop;
   private readonly roadPreview: Line;
+  private roadPreviewKey = '';
   private readonly markerGroup = new Group();
   private readonly incidentMarkers = new Map<number, Mesh>();
   private readonly destroyedBuildings = new Set<number>();
@@ -174,6 +175,7 @@ export class Game {
     this.tool = tool;
     this.roadStart = null;
     this.roadPreview.visible = false;
+    this.roadPreviewKey = '';
     this.hud.setTool(tool);
     this.hud.update(this.hudState(), true);
   }
@@ -212,7 +214,7 @@ export class Game {
   private dispatchIncident(id: number): void {
     if (this.incidents.dispatchOne(id, this.fleet)) {
       const incident = this.incidents.incidents.find((item) => item.id === id);
-      const sector = incident ? sectorNameFor(incident.tx, incident.tz) : 'the fire';
+      const sector = incident ? this.world.sectorName(incident.tx, incident.tz) : 'the fire';
       this.notify(`Dispatch ordered to ${sector}.`, 'info');
       this.hud.update(this.hudState(), true);
     }
@@ -256,13 +258,9 @@ export class Game {
       this.notify(`${unit.name} cannot reach that fire by road. Try an aircraft.`, 'warning');
       return;
     }
-    if (uniqueAssignedCount(this.fleet, incident.id) >= 3) {
-      this.notify('This incident already has a full response.', 'warning');
-      return;
-    }
     this.fleet.assignToIncident(unitId, incident);
     incident.assigned.add(unitId);
-    this.notify(`${unit.name} attacking ${sectorNameFor(incident.tx, incident.tz)}.`, 'info');
+    this.notify(`${unit.name} attacking ${this.world.sectorName(incident.tx, incident.tz)}.`, 'info');
   }
 
   private frame = (now: number): void => {
@@ -310,7 +308,7 @@ export class Game {
       if (building.state === 'destroyed' && !this.destroyedBuildings.has(building.id)) {
         this.destroyedBuildings.add(building.id);
         this.hud.refreshMinimapBase();
-        this.notify(`${labelBuilding(building.kind)} lost near ${sectorNameFor(building.x0, building.z0)}.`, 'danger');
+        this.notify(`${labelBuilding(building.kind)} lost near ${this.world.sectorName(building.x0, building.z0)}.`, 'danger');
       }
     }
     this.world.terrain.updateBurnTint(this.fire.state, dt, this.fire.wetness, this.fire.retardant);
@@ -379,6 +377,7 @@ export class Game {
       this.hoverTile = null;
       this.tileHighlight.visible = false;
       this.roadPreview.visible = false;
+      this.roadPreviewKey = '';
       this.hud.setTooltip(null);
     });
   }
@@ -465,8 +464,7 @@ export class Game {
       this.renderer.domElement.setPointerCapture(event.pointerId);
     } else if (event.button === 0) {
       this.pointerDown = true;
-    } else if (event.button === 2) {
-      }
+    }
   }
 
   private onPointerMove(event: PointerEvent): void {
@@ -534,14 +532,14 @@ export class Game {
     const state = this.fire.state[index] ?? FireState.Unburned;
     const fireLabel = fireStateLabel(state);
     const structure = this.world.buildings.buildingAt(tile.x, tile.z);
-    const building = structure ? ` · ${capitalize(structure.kind)} (${structure.state})` : '';
+    const building = structure ? ` · ${labelBuilding(structure.kind)} (${structure.state})` : '';
     const fuel = this.fire.fuelAt(tile.x, tile.z).name;
     const extra = state !== FireState.Unburned ? ` · ${fireLabel}` : '';
     const wet = this.fire.wetness[index] ?? 0;
     const retardant = this.fire.retardant[index] ?? 0;
     const mods = `${wet > 0.08 ? ` · wet ${Math.round(wet * 100)}%` : ''}${retardant > 0.08 ? ` · retardant ${Math.round(retardant * 100)}%` : ''}`;
     this.hud.setTooltip(
-      `${sectorNameFor(tile.x, tile.z)} · ${info.terrain}${building}${extra} · ${fuel} · slope ${info.slope.toFixed(2)}${mods}`,
+      `${this.world.sectorName(tile.x, tile.z)} · ${info.terrain}${building}${extra} · ${fuel} · slope ${info.slope.toFixed(2)}${mods}`,
       event.clientX,
       event.clientY,
     );
@@ -608,20 +606,17 @@ export class Game {
 
   private orderAttack(tx: number, tz: number): void {
     if (this.selectedUnitId === null) return;
-    const incident = this.incidents.createAt(tx, tz, 'manual');
-    if (uniqueAssignedCount(this.fleet, incident.id) >= 3) {
-      this.notify('This incident already has a full response.', 'warning');
-      return;
-    }
     const unit = this.fleet.unitById(this.selectedUnitId);
     if (!unit) return;
+    // Direct orders are never capped: the player may commit the whole fleet.
+    const incident = this.incidents.createAt(tx, tz, 'manual');
     if (unit.kind === 'firetruck' && !this.fleet.canReach(this.selectedUnitId, incident)) {
       this.notify(`${unit.name} cannot reach that fire by road. Use an aircraft.`, 'warning');
       return;
     }
     this.fleet.assignToIncident(this.selectedUnitId, incident);
     incident.assigned.add(this.selectedUnitId);
-    this.notify(`${unit.name} ordered to ${sectorNameFor(tx, tz)}.`, 'info');
+    this.notify(`${unit.name} ordered to ${this.world.sectorName(tx, tz)}.`, 'info');
     this.hud.update(this.hudState(), true);
   }
 
@@ -642,7 +637,7 @@ export class Game {
     }
     this.incidents.createAt(tx, tz, 'manual');
     this.scenario.registerFireStarted();
-    this.notify(`Fire started in ${sectorNameFor(tx, tz)}.`, 'danger');
+    this.notify(`Fire started in ${this.world.sectorName(tx, tz)}.`, 'danger');
     this.hud.update(this.hudState(), true);
   }
 
@@ -657,17 +652,35 @@ export class Game {
       this.hud.update(this.hudState(), true);
       return;
     }
-    const path = this.world.buildRoad(this.roadStart, tile);
+    const path = this.layRoad(this.roadStart, tile);
     if (path) {
-      this.fire.refreshRoadMask(this.world.roads.mask);
       this.notify(`Road laid: ${path.length} tiles.`, 'success');
-      this.hud.refreshMinimapBase();
       this.roadStart = null;
     } else {
-      this.notify('No viable road route to that tile.', 'warning');
+      this.notify('No viable road route to that tile (crews will not pave through active fire).', 'warning');
     }
     this.roadPreview.visible = false;
     this.hud.update(this.hudState(), true);
+  }
+
+  /** Tiles a road crew cannot work: anything currently on fire. */
+  private activeFireMask(): Uint8Array {
+    const mask = new Uint8Array(this.fire.state.length);
+    for (let i = 0; i < mask.length; i += 1) {
+      const state = this.fire.state[i];
+      if (state === FireState.Igniting || state === FireState.Burning || state === FireState.Smoldering) mask[i] = 1;
+    }
+    return mask;
+  }
+
+  private layRoad(start: { x: number; z: number }, goal: { x: number; z: number }): { x: number; z: number }[] | null {
+    const revision = this.world.terrainRevision;
+    const path = this.world.buildRoad(start, goal, this.activeFireMask());
+    if (!path) return null;
+    this.fire.refreshRoadMask(this.world.roads.mask);
+    if (this.world.terrainRevision !== revision) this.fire.refreshTerrain(this.world.heightmap);
+    this.hud.refreshMinimapBase();
+    return path;
   }
 
   private updateTileHighlight(tile: { x: number; z: number }): void {
@@ -702,9 +715,13 @@ export class Game {
       this.world.isReservedForRoad(tile.x, tile.z)
     ) {
       this.roadPreview.visible = false;
+      this.roadPreviewKey = '';
       return;
     }
-    const path = this.world.findOffroadPath(this.roadStart, tile);
+    const key = `${this.roadStart.x},${this.roadStart.z}>${tile.x},${tile.z}`;
+    if (key === this.roadPreviewKey && this.roadPreview.visible) return;
+    this.roadPreviewKey = key;
+    const path = this.world.findOffroadPath(this.roadStart, tile, this.activeFireMask());
     if (!path || path.length < 2) {
       this.roadPreview.visible = false;
       return;
@@ -881,15 +898,11 @@ export class Game {
         const world = tileToWorld(tx, tz);
         this.rig.focus(world.x, world.z);
       },
+      setView: (view) => this.rig.setView(view),
       focusIncident: (id: number) => this.focusIncident(id),
       setAutoDispatch: (enabled: boolean) => this.setAutoDispatch(enabled),
-      buildRoad: (sx: number, sz: number, gx: number, gz: number) => {
-        const path = this.world.buildRoad({ x: sx, z: sz }, { x: gx, z: gz });
-        if (!path) return 0;
-        this.fire.refreshRoadMask(this.world.roads.mask);
-        this.hud.refreshMinimapBase();
-        return path.length;
-      },
+      buildRoad: (sx: number, sz: number, gx: number, gz: number) =>
+        this.layRoad({ x: sx, z: sz }, { x: gx, z: gz })?.length ?? 0,
       screenPosition: (tx: number, tz: number) => {
         const world = tileToWorld(tx, tz);
         return this.projectToScreen(world.x, this.world.heightmap.heightAt(world.x, world.z) + 0.2, world.z);
@@ -983,17 +996,16 @@ function fireStateLabel(state: number): string {
   }
 }
 
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
+const BUILDING_LABELS: Record<string, string> = {
+  barn: 'Barn',
+  cabin: 'Cabin',
+  station: 'Fire station',
+  store: 'Storefront',
+  chapel: 'Chapel',
+  ranch: 'Ranch house',
+  twostory: 'Farmhouse',
+};
 
 function labelBuilding(kind: string): string {
-  if (kind === 'barn') return 'Barn';
-  if (kind === 'cabin') return 'Cabin';
-  if (kind === 'station') return 'Fire station';
-  return 'House';
-}
-
-function uniqueAssignedCount(fleet: Fleet, incidentId: number): number {
-  return fleet.assignedCount(incidentId);
+  return BUILDING_LABELS[kind] ?? 'House';
 }

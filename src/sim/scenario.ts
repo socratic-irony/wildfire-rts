@@ -178,7 +178,7 @@ export class Scenario {
     if (!lit && this.incidents.activeIncidents.some((incident) => Math.hypot(incident.x - (candidate.tx + 0.5) * 2, incident.z - (candidate.tz + 0.5) * 2) < 16)) return;
     this.incidents.createAt(candidate.tx, candidate.tz, 'lightning');
     this.registerFireStarted();
-    this.notify(`Lightning strike — ${this.sectorName(candidate.tx, candidate.tz)}.`, 'danger');
+    this.notify(`Lightning strike — ${this.world.sectorName(candidate.tx, candidate.tz)}.`, 'danger');
   }
 
   private pickCandidate(distanceWindow: [number, number]): { tx: number; tz: number } | null {
@@ -187,7 +187,8 @@ export class Scenario {
       for (let i = 0; i < this.candidates.length; i += 1) {
         const candidate = this.candidates[i];
         if (!candidate) continue;
-        const distanceToTown = Math.hypot(candidate.tx - 47, candidate.tz - 45);
+        const town = this.world.heightmap.layout.town;
+        const distanceToTown = Math.hypot(candidate.tx - town.x, candidate.tz - town.z);
         if (pass === 0 && (distanceToTown < minDistance || distanceToTown > maxDistance)) continue;
         const index = tileIndex(candidate.tx, candidate.tz);
         if (this.fire.state[index] !== 0) continue;
@@ -233,6 +234,7 @@ export class Scenario {
   }
 
   private buildCandidates(): void {
+    const town = this.world.heightmap.layout.town;
     const windX = Math.sin(this.windDirection);
     const windZ = Math.cos(this.windDirection);
     for (let tz = 3; tz < GRID_SIZE - 3; tz += 1) {
@@ -241,12 +243,12 @@ export class Scenario {
         const type = this.world.biomes.types[index] ?? Terrain.Grass;
         if (type !== Terrain.Forest && type !== Terrain.Brush) continue;
         if (this.world.roads.has(tx, tz) || this.world.buildings.isOccupied(tx, tz)) continue;
-        const townDistance = Math.hypot(tx - 47, tz - 45);
+        const townDistance = Math.hypot(tx - town.x, tz - town.z);
         if (townDistance < 13 || townDistance > 48) continue;
         let score = this.rng.range(0, 20);
         if (type === Terrain.Forest) score += 8;
         if (townDistance > 20 && townDistance < 38) score += 6;
-        const upwind = -((tx - 47) * windX + (tz - 45) * windZ);
+        const upwind = -((tx - town.x) * windX + (tz - town.z) * windZ);
         if (upwind > 0) score += upwind * 0.75;
         const edgeDistance = Math.min(tx, tz, GRID_SIZE - tx, GRID_SIZE - tz);
         if (edgeDistance < 10) score -= 8;
@@ -254,16 +256,6 @@ export class Scenario {
       }
     }
     this.candidates.sort((a, b) => b.score - a.score);
-  }
-
-  private sectorName(tx: number, tz: number): string {
-    const cx = GRID_SIZE / 2;
-    const cz = GRID_SIZE / 2;
-    if (tz < cz - 15) return tx > cx ? 'Pine Bench' : 'North Ridge';
-    if (tz > cz + 15) return tx > cx ? 'Cedar Hollow' : 'South Flats';
-    if (tx < cx - 15) return 'West Basin';
-    if (tx > cx + 15) return 'East Draw';
-    return 'Town Rim';
   }
 
   private compass(angle: number): string {

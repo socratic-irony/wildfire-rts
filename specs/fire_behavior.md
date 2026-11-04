@@ -14,6 +14,8 @@ Implemented: tile ignition/spread, wind and slope, moisture, wetness/retardant, 
 - `env: { windDirRad, windSpeed, humidity }`
 - `simTime`, step counter, hashed seed
 
+Balance note: terrace banks now carry fuel (they used to be classed as rock and acted as free firebreaks), so `SPREAD_SCALE = 0.35` and `SPOT_SCALE = 0.3` trim spread and ember spotting. With these values, auto-dispatch alone wins roughly two of five stability seeds; active play (roads, dozer lines, manual orders) is expected to make the difference.
+
 Fire ticks at 5 Hz (`FIXED_STEP = 0.2`) from the frame-driven accumulator, capped at 12 steps per call.
 
 ## State machine
@@ -36,8 +38,10 @@ For every burning tile and its 8 neighbors:
 ```text
 windDot     = dot(dir, normalizedWind)
 upslopeDot  = dot(dir, normalizedHeightGradient)
-ros         = baseROS * (1 + kWind * windSpeed * max(0, windDot) * 1.25)
-                     * (1 + kSlope * slopeTan * max(0, upslopeDot))
+slopeMult   = upslopeDot >= 0 ? 1 + kSlope * slopeTan * upslopeDot
+                                : 1 / (1 + 0.9 * slopeTan * -upslopeDot)   // backing downhill
+ros         = baseROS * SPREAD_SCALE(0.35) * (1 + kWind * windSpeed * max(0, windDot) * 1.25)
+                     * slopeMult
                      * moistureDamp
 p           = clamp(ros * dt / TILE_SIZE, 0, 1)
               * (0.55 + 0.45 * max(0, windDot))

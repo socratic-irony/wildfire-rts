@@ -4,7 +4,7 @@ import { Wildfire } from '../sim/fire';
 import { Incident } from '../sim/incidents';
 import { ScenarioResult } from '../sim/scenario';
 import { NotifyTone, UnitSnapshot } from '../sim/types';
-import { severityClass, severityLabel, sectorNameFor } from '../world/sectors';
+import { severityClass, severityLabel } from '../world/sectors';
 import { TERRAIN_COLORS } from '../world/biomes';
 
 export type Tool = 'select' | 'ignite' | 'road';
@@ -144,7 +144,7 @@ export class Hud {
         <p class="end-reason">${result.reason}</p>
         <div class="end-stats">
           <div><span>STRUCTURES</span><strong>${result.structuresStanding} standing</strong><em>${result.structuresLost} lost</em></div>
-          <div><span>BURNED</span><strong>${result.burnedHectares.toFixed(1)} ha</strong><em>${result.incidentsContained} incidents contained</em></div>
+          <div><span>BURNED</span><strong>${result.burnedHectares.toFixed(2)} ha</strong><em>${result.incidentsContained} incidents contained</em></div>
           <div><span>TIME</span><strong>${formatTime(result.elapsed)}</strong><em>${formatTime(result.remaining)} left</em></div>
           <div><span>SCORE</span><strong>${result.score.toLocaleString()}</strong><em>final tally</em></div>
         </div>
@@ -200,7 +200,7 @@ export class Hud {
     this.topbar.querySelector('[data-metric="time"]')!.textContent = formatTime(state.scenario.remaining);
     this.topbar.querySelector('[data-metric="fires"]')!.textContent = String(state.fireActive);
     this.topbar.querySelector('[data-metric="structures"]')!.textContent = `${state.scenario.structuresStanding}`;
-    this.topbar.querySelector('[data-metric="burned"]')!.textContent = `${state.burnedHectares.toFixed(1)} ha`;
+    this.topbar.querySelector('[data-metric="burned"]')!.textContent = `${state.burnedHectares.toFixed(2)} ha`;
     this.topbar.querySelector('[data-metric="wind"]')!.textContent = `${state.windSpeed.toFixed(1)} m/s ${compassLabel(state.windDirection)}`;
     const windLabel = this.root.querySelector('[data-wind-label]');
     if (windLabel) windLabel.textContent = `${state.windSpeed.toFixed(1)} m/s`;
@@ -244,7 +244,7 @@ export class Hud {
           <div class="metric"><span>${ICONS.clock} SHIFT</span><strong data-metric="time">08:00</strong></div>
           <div class="metric"><span>${ICONS.flame} FIRES</span><strong data-metric="fires">0</strong></div>
           <div class="metric"><span>${ICONS.structure} STRUCTURES</span><strong data-metric="structures">0</strong></div>
-          <div class="metric secondary"><span>BURNED</span><strong data-metric="burned">0.0 ha</strong></div>
+          <div class="metric secondary"><span>BURNED</span><strong data-metric="burned">0.00 ha</strong></div>
           <div class="metric secondary"><span>${ICONS.wind} WIND</span><strong data-metric="wind">0.0 m/s</strong></div>
         </div>
         <div class="time-controls">
@@ -310,7 +310,7 @@ export class Hud {
         <div class="panel-heading compact">
           <div>
             <span class="panel-kicker">SECTOR MAP</span>
-            <h2>Raven Ridge</h2>
+            <h2>${regionName(seed)}</h2>
           </div>
           <span class="seed-label">SEED ${seed}</span>
         </div>
@@ -500,7 +500,7 @@ export class Hud {
         this.incidentCards.set(incident.id, refs);
       }
       refs.root.className = `incident-card ${severityClass(incident.severity)}`;
-      refs.name.textContent = sectorNameFor(incident.tx, incident.tz);
+      refs.name.textContent = this.world.sectorName(incident.tx, incident.tz);
       refs.subtitle.textContent = `${severityLabel(incident.severity)} · ${incident.severity} active cells`;
       const assignedNames = state.units
         .filter((unit) => unit.incidentId === incident.id)
@@ -709,4 +709,12 @@ function formatTime(seconds: number): string {
   const minutes = Math.floor(value / 60);
   const rest = value % 60;
   return `${minutes.toString().padStart(2, '0')}:${rest.toString().padStart(2, '0')}`;
+}
+
+const REGION_FIRST = ['Raven', 'Cedar', 'Coyote', 'Juniper', 'Sawtooth', 'Manzanita', 'Bitterroot', 'Lone Pine', 'Granite', 'Sage'];
+const REGION_LAST = ['Ridge', 'Basin', 'Canyon', 'Flats', 'Bench', 'Hollow', 'Mesa', 'Divide'];
+
+/** Deterministic place name for a seeded map. */
+function regionName(seed: number): string {
+  return `${REGION_FIRST[seed % REGION_FIRST.length]} ${REGION_LAST[Math.floor(seed / REGION_FIRST.length) % REGION_LAST.length]}`;
 }

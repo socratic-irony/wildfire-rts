@@ -5,13 +5,14 @@ import { Wildfire } from './fire';
 import { IncidentView, NotifyFn } from './types';
 
 export interface Incident extends IncidentView {
-  createdAt: number;
   severity: number;
   assigned: Set<number>;
   quietTimer: number;
   source: 'lightning' | 'manual' | 'spot';
-  resolvedAt: number | null;
 }
+
+/** Units auto-dispatch will commit to one incident (manual orders may exceed). */
+const MAX_AUTO_UNITS = 4;
 
 export class IncidentSystem {
   readonly incidents: Incident[] = [];
@@ -49,12 +50,10 @@ export class IncidentSystem {
       tx,
       tz,
       resolved: false,
-      createdAt: performance.now() / 1000,
       severity: 1,
       assigned: new Set(),
       quietTimer: 0,
       source,
-      resolvedAt: null,
     };
     this.nextId += 1;
     this.incidents.push(incident);
@@ -147,7 +146,7 @@ export class IncidentSystem {
     const active = this.activeIncidents.sort((a, b) => b.severity - a.severity);
     for (const incident of active) {
       const assigned = fleet.assignedCount(incident.id);
-      if (assigned >= 3) continue;
+      if (assigned >= MAX_AUTO_UNITS) continue;
       const kinds = fleet.assignedKinds(incident.id);
       if (assigned === 0) {
         if (fleet.bestIdle(incident, 'ground')) {
@@ -166,6 +165,15 @@ export class IncidentSystem {
       if (assigned < 3 && incident.severity >= 28 && !kinds.has('dozer')) {
         if (fleet.assignBest(incident, 'dozer')) this.registerAssignment(incident, fleet);
       }
+      // A large fire gets a second engine once the first wave is committed.
+      if (
+        fleet.assignedCount(incident.id) >= 3 &&
+        fleet.assignedCount(incident.id) < MAX_AUTO_UNITS &&
+        incident.severity >= 20 &&
+        this.activeIncidents.length === 1
+      ) {
+        if (fleet.assignBest(incident, 'ground')) this.registerAssignment(incident, fleet);
+      }
     }
   }
 
@@ -177,7 +185,6 @@ export class IncidentSystem {
 
   private resolve(incident: Incident, fleet: Fleet): void {
     incident.resolved = true;
-    incident.resolvedAt = performance.now() / 1000;
     incident.severity = 0;
     for (const id of incident.assigned) {
       const unit = fleet.unitById(id);

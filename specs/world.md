@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented: terraced heightmap, town plateau, lake, biome classification, roads and road building, building lots, fire station/helipad, vegetation, rocks, hydrants, backdrop. Outstanding: saveable world edits, authored structures, more building variants, bridge/tunnel road operations.
+Implemented: seeded map generator (open rolling hills, per-seed town/lake/road placement), terraced heightmap with road grading, biome classification with vegetated banks, generated road network and player road building, building lots with seven building types plus props (water tower, fire lookout, power poles), 13 vegetation species, hydrants, map-edge skirts, backdrop. Outstanding: saveable world edits, bridge/tunnel road operations.
 
 ## Grid and coordinate system
 
@@ -14,17 +14,20 @@ Implemented: terraced heightmap, town plateau, lake, biome classification, roads
 
 ## Terrain generation
 
-1. Layered value noise (`fbm2`, ridge noise) creates the raw relief.
-2. Levels are quantized, a rim is added around the map, and a central town ellipse is flattened to `TOWN_LEVEL = 3`.
-3. A lake depression is carved near the southwest quadrant and tagged in `waterMask`.
-4. A slope limiter repeatedly lowers high vertices to `min(cardinalNeighbor) + 1` until every cardinal step is at most one level. This produces flat tops and 45-degree faces without raising valleys.
-5. The visual mesh uses two flat-shaded triangles per tile. Per-tile colors vary by terrain and steepness; steep faces read as rock/dirt, tops read as grass/brush/forest/town.
+Every seed produces a different map (the open, rolling-hills generator of the original prototype, terraced):
 
-The heightmap exposes `heightAt`, `tileHeight`, `cornerHeights`, `slopeTan`, `isWater`, and `normalAt`. `tileHeight` is the average of four corners; buildings are placed only on flat footprints.
+1. Domain-warped fractal value noise (`fbm2`) plus ridge noise creates a normalized raw relief, with per-seed frequency, ridge strength and warp.
+2. `chooseLayout` picks the `MapLayout`: the town centre is the smoothest mid-elevation patch in the interior band (random radii, random station side), and the lake goes in the lowest smoothed basin clear of the town. `relief` (6–10) sets how many terrace levels the noise spans.
+3. Levels are quantized; the town ellipse is pinned to its plateau level with a smooth blend outward, and the lake basin is sunk to level 0 and tagged in `waterMask`.
+4. A floor pass keeps everything next to the pinned town within one level of it, then a lower-only slope limiter makes every cardinal step at most one level (flat tops and 45° faces).
+5. After roads are generated, `gradeForRoads` cuts the terrain under them: straight tiles get level cross-sections (ramps along the road), bends/junctions/dead ends become flat pads. It only lowers, re-applies the slope limit, and never moves pinned vertices (building footprints at runtime).
+6. The visual mesh uses two flat-shaded triangles per tile. Flat tiles take their terrain colour; banks are coloured per triangle by blending the terrain's plant cover over earth (or stone) strata cycled by terrace level. Vertical earth skirts close the map edge.
+
+The heightmap exposes `heightAt` (samples the same two triangles the mesh renders, so props and units sit on slopes exactly), `tileHeight`, `cornerHeights`, `slopeTan`, `isWater`, `normalAt`, `layout`, and `gradeForRoads`. Buildings are placed only on flat footprints.
 
 ## Biomes and fuels
 
-`Terrain` values: water, rock, forest, brush, grass, urban, road. Classification uses slope, elevation, a moisture noise channel, lake proximity, and the town ellipse. Fuel mapping for fire:
+`Terrain` values: water, rock, forest, brush, grass, urban, road. Classification uses slope, elevation, a moisture noise channel, lake proximity, and the town ellipse. Terrace banks keep the surrounding vegetation class (so they burn and carry fire upslope); only the highest ground and sharp double-step corners become rock. Fuel mapping for fire:
 
 | Terrain | Fuel | Base ROS (m/s) |
 | --- | --- | --- |
@@ -41,26 +44,27 @@ Building footprint tiles are forced to urban fuel by `BuildingSystem`, so struct
 ## Roads
 
 - `RoadNetwork` stores a `Uint8Array` mask and supports 4-neighbor connectivity.
-- Initial layout: a town grid (main street, north-south spine, south street, two side streets), a forest service road, and a lake spur.
-- `RoadVisual` rebuilds a terrain-conforming asphalt surface, shoulder, and dashed centerline. Intersections with more than one axis suppress center dashes.
-- Road planning uses A* with slope, rock, and town costs; water is blocked, building clearance is blocked, and roads adjacent to buildings remain usable.
-- `World.buildRoad(start, goal)` plans, rasterizes, rebuilds roads/hydrants/vegetation, and returns the path length.
+- `generateRoadNetwork(heightmap, seed)`: a town grid around the layout's crossroads (main streets, two side streets, a cross street, sometimes a back lane), 2–4 highways planned out to random points on the map edge, and a spur to the highest ground (where the fire lookout stands).
+- `RoadVisual` draws asphalt exactly on each graded tile, solid edge lines and a dusty shoulder on every side that does not continue into road (outer shoulder edge draped on the neighbouring terrain), and a centre dash on straight tiles.
+- Road planning uses A* with an along-slope cost, a higher cross-slope cost (side-cuts are expensive), a turn penalty (prefer straight runs to staircases) and a rock penalty; water and building clearance are blocked.
+- `World.buildRoad(start, goal, avoid?)` plans (treating `avoid`, e.g. burning tiles, as blocked), regrades terrain with structures pinned, rebuilds the terrain mesh, roads, hydrants, power poles and vegetation, and returns the path. Crews will not pave through active fire.
 - Game integration calls `Wildfire.refreshRoadMask` after a build so new asphalt is a firebreak.
 
 ## Buildings
 
-- `BuildingSystem` reserves a helipad, places a fixed fire station at the town center, then fills road frontage lots with houses, barns, and cabins.
+- `BuildingSystem` reserves a helipad and places the fire station beside the layout's crossroads (side chosen per seed), then fills road frontage lots: houses, two-storey farmhouses, ranch houses, false-front stores (up to three, near the centre), one chapel, barns (with silo or hay bales) and log cabins (outskirts).
 - Lots are axis-aligned; `front` determines which face points at the road. Footprints are odd dimensions so the anchor tile is the center.
 - Placement rejects water, rock, roads, non-flat footprints, and a one-tile clearance ring. Clearance is tracked in `occupied`.
-- House/barn/cabin/station visuals are procedural low-poly groups with wall/roof/trim materials, doors, windows, porches, garage bays, a station sign, and a helipad with an H.
+- Visuals are procedural low-poly groups: per-building wall/roof/trim materials (they char as the building burns) plus shared detail materials for framed windows, doors, foundations, porches, picket fences, mailboxes, chimneys, dormers, awnings and painted signs. Houses step back from the road so porches stay inside the lot.
+- Props: a water tower at the helipad, a fire lookout tower beside the highest out-of-town road, and instanced power poles along rural straights (rebuilt with the road network).
 - Fire state: `intact → burning` while any footprint tile is igniting/burning, `→ destroyed` at 100 damage. Suppression lets damage decay and returns the structure to intact. Destroyed structures swap to charred rubble.
 - `computeStructureScore` equivalent: +10 per standing structure, −25 per destroyed (surfaced through `BuildingSystem.score`).
 - The helipad is the air-unit home; the road tile in front of the station is the ground-unit home.
 
 ## Vegetation
 
-- Families: pine (three cone tiers), oak (trunk plus three crown blobs), shrub (three lobes), rock (distorted dodecahedron).
-- Per-family geometry is merged with baked vertex colors, then rendered with `InstancedMesh` and per-instance tint/scale/rotation.
+- Species: ponderosa pine, subalpine fir, yard cypress, valley oak, aspen, fire-killed snag, manzanita, shrub, bunchgrass tuft, wildflower patch, rock, boulder cluster, fallen log. Each terrain type has a planting table; wetter ground favours fir and aspen. Trees grow on banks up to 45° and are sunk slightly so the downhill side never floats.
+- Per-species geometry is merged with baked vertex colors, then rendered with `InstancedMesh` and per-instance colour drift, scale, height stretch, lean and rotation.
 - Scatter density follows terrain: dense forest, moderate brush, sparse grass/rock. Roads and building occupancy are excluded.
 - Burn tint updates at 2 Hz and maps fire state to warm/brown/charcoal colors.
 

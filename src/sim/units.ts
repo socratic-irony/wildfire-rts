@@ -9,7 +9,7 @@ import {
   MeshBasicMaterial,
   RingGeometry,
 } from 'three';
-import { angleLerp, distance } from '../core/math';
+import { angleLerp, clamp, distance } from '../core/math';
 import { tileToWorld, worldToTile } from '../world/constants';
 import { World } from '../world/world';
 import { Wildfire } from './fire';
@@ -78,6 +78,8 @@ interface Unit {
   dustTimer: number;
   homeX: number;
   homeZ: number;
+  /** Aircraft only: 0 = flying at cruise altitude, 1 = settled on the pad. */
+  parked: number;
   airBaseX: number;
   airBaseZ: number;
   airBaseGround: number;
@@ -180,7 +182,7 @@ export class Fleet {
         z = station.wz + (config.lane < 0 ? 0.28 : -0.28);
       }
       const ground = world.heightmap.heightAt(x, z);
-      const y = isAir ? ground + config.cruiseAltitude : ground + 0.08;
+      const y = isAir ? ground + (config.kind === 'helicopter' ? 0.12 : 0.3) : ground + 0.08;
       const unit: Unit = {
         id,
         kind: config.kind,
@@ -213,6 +215,7 @@ export class Fleet {
         dustTimer: 0,
         homeX: x,
         homeZ: station.wz,
+        parked: isAir ? 1 : 0,
         airBaseX: x,
         airBaseZ: z,
         airBaseGround: ground,
@@ -452,7 +455,7 @@ export class Fleet {
       else if (unit.state === 'attacking') this.updateAttacking(unit, incidentLookup, dt);
       else if (unit.state === 'refilling') this.updateRefilling(unit, incidentLookup, dt);
       else if (unit.state === 'returning') this.updateReturning(unit, incidentLookup, dt);
-      this.applyTransform(unit);
+      this.applyTransform(unit, dt);
     }
     this.updateMarkers();
   }
@@ -822,11 +825,24 @@ export class Fleet {
     }
   }
 
-  private applyTransform(unit: Unit): void {
+  private applyTransform(unit: Unit, dt: number): void {
+    if (unit.kind === 'helicopter' || unit.kind === 'tanker') {
+      // Idle/refilling aircraft settle onto the pad instead of hovering at
+      // cruise altitude; they climb back out as soon as they are tasked.
+      const atBase = distance(unit.x, unit.z, unit.airBaseX, unit.airBaseZ) < 1.5;
+      const resting = unit.state === 'idle' || (unit.state === 'refilling' && unit.refillMode === 'base');
+      const target = atBase && resting ? 1 : 0;
+      const rate = target > unit.parked ? 0.45 : 1.6;
+      unit.parked = clamp(unit.parked + Math.sign(target - unit.parked) * rate * Math.max(0, dt), 0, 1);
+      const eased = unit.parked * unit.parked * (3 - 2 * unit.parked);
+      const padY = unit.airBaseGround + (unit.kind === 'helicopter' ? 0.12 : 0.3);
+      unit.y = unit.y + (padY - unit.y) * eased;
+      if (unit.model.rotor) unit.model.rotor.rotation.y -= dt * 22 * eased * 0.85;
+    }
     unit.group.position.set(unit.x, unit.y, unit.z);
     unit.group.rotation.y = unit.heading;
     if (unit.kind === 'helicopter' || unit.kind === 'tanker') {
-      unit.group.position.y = unit.y + Math.sin(this.time * 2.2 + unit.id) * 0.12;
+      unit.group.position.y = unit.y + Math.sin(this.time * 2.2 + unit.id) * 0.12 * (1 - unit.parked);
     }
   }
 

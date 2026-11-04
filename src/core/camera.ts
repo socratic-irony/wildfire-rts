@@ -94,6 +94,14 @@ export class CameraRig {
     }
   }
 
+  /** Test/debug helper: jump straight to an explicit view. */
+  setView(view: { yaw?: number; pitch?: number; viewSize?: number }): void {
+    if (view.yaw !== undefined) this.goalYaw = view.yaw;
+    if (view.pitch !== undefined) this.goalPitch = clamp(view.pitch, MIN_PITCH, MAX_PITCH);
+    if (view.viewSize !== undefined) this.goalView = clamp(view.viewSize, MIN_VIEW, MAX_VIEW);
+    this.snap();
+  }
+
   focus(x: number, z: number): void {
     this.goalTarget.x = x;
     this.goalTarget.z = z;

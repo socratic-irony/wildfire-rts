@@ -145,6 +145,16 @@ export interface FireOptions {
 
 const FIXED_STEP = 0.2;
 const MAX_STEPS = 12;
+/**
+ * Global rate-of-spread scale. Terrace banks carry fuel (they used to be
+ * classed as bare rock, which turned every slope into a free firebreak), so
+ * the base rates are trimmed to keep a single start containable.
+ */
+const SPREAD_SCALE = 0.35;
+/** Ember spotting scale; spotting grows with fire size, so it dominates late growth. */
+const SPOT_SCALE = 0.3;
+/** Fire backing downhill spreads slower: 1 / (1 + k · slope · downhill). */
+const DOWNSLOPE_DAMPING = 0.9;
 
 export class Wildfire {
   readonly state = new Uint8Array(GRID_SIZE * GRID_SIZE);
@@ -193,6 +203,19 @@ export class Wildfire {
         this.fuel[index] = fuel;
         const biomeMoisture = biomes.moisture[index] ?? 0.25;
         this.fuelMoisture[index] = clamp(0.08 + biomeMoisture * 0.52, 0.05, 0.7);
+      }
+    }
+  }
+
+  /** Re-read slopes after the terrain was regraded (new road cuts). */
+  refreshTerrain(heightmap: Heightmap): void {
+    for (let tz = 0; tz < GRID_SIZE; tz += 1) {
+      for (let tx = 0; tx < GRID_SIZE; tx += 1) {
+        const index = tileIndex(tx, tz);
+        const [h00, h10, h01, h11] = heightmap.cornerHeights(tx, tz);
+        this.slopeTan[index] = heightmap.slopeTan(tx, tz);
+        this.gradientX[index] = (h10 + h11 - h00 - h01) / (2 * TILE_SIZE);
+        this.gradientZ[index] = (h01 + h11 - h00 - h10) / (2 * TILE_SIZE);
       }
     }
   }
@@ -314,14 +337,18 @@ export class Wildfire {
           ? (dirX * (this.gradientX[index] ?? 0) + dirZ * (this.gradientZ[index] ?? 0)) / gradientLength
           : 0;
       const windMult = 1 + fuel.windFactor * windSpeed * Math.max(0, windDot) * 1.25;
-      const slopeMult = 1 + fuel.slopeFactor * (this.slopeTan[index] ?? 0) * Math.max(0, upSlopeDot);
+      const slope = this.slopeTan[index] ?? 0;
+      const slopeMult =
+        upSlopeDot >= 0
+          ? 1 + fuel.slopeFactor * slope * upSlopeDot
+          : 1 / (1 + DOWNSLOPE_DAMPING * slope * -upSlopeDot);
       const effectiveMoisture = clamp(
         (this.fuelMoisture[index] ?? 0.2) + (this.wetness[neighbor] ?? 0) + (this.retardant[neighbor] ?? 0) * 0.62,
         0,
         1,
       );
       const moistureMult = clamp(1 - fuel.moistureDamp * effectiveMoisture, 0.045, 1);
-      let ros = fuel.baseROS * windMult * slopeMult * moistureMult;
+      let ros = fuel.baseROS * SPREAD_SCALE * windMult * slopeMult * moistureMult;
       if (fuelType === Fuel.Grass && (this.progress[index] ?? 0) > 0.75) ros *= 0.7;
       const advance = ros * dt;
       let probability = clamp(advance / TILE_SIZE, 0, 1);
@@ -344,7 +371,7 @@ export class Wildfire {
 
     if (windSpeed > 2.5 && fuel.spotChance > 0) {
       const spotRoll = hash01_3(index, this.stepIndex + 17, 91, this.seed ^ 0x51ed270b);
-      const chance = fuel.spotChance * (this.heat[index] ?? 0) * (0.45 + windSpeed / 10);
+      const chance = fuel.spotChance * SPOT_SCALE * (this.heat[index] ?? 0) * (0.45 + windSpeed / 10);
       if (spotRoll < chance) this.trySpot(index, windX, windZ, windSpeed);
     }
   }

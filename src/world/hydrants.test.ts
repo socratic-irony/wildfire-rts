@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Heightmap } from './heightmap';
-import { createInitialRoads } from './roads';
+import { generateRoadNetwork } from './roads';
 import { HydrantSystem } from './hydrants';
 import { tileIndex } from './constants';
 
 describe('HydrantSystem', () => {
   const map = new Heightmap(909);
-  const roads = createInitialRoads();
+  const roads = generateRoadNetwork(map, 909);
   const hydrants = new HydrantSystem(map, roads);
 
   it('places spaced hydrants along the road network', () => {
@@ -30,7 +30,7 @@ describe('HydrantSystem', () => {
 
   it('repairs placement when the road network changes', () => {
     const before = hydrants.count;
-    for (let x = 10; x < 18; x += 1) roads.set(x, 80, true);
+    for (let x = 10; x < 30; x += 1) roads.set(x, 3, true);
     hydrants.rebuild(roads);
     expect(hydrants.count).toBeGreaterThan(before);
     for (const hydrant of hydrants.hydrants) {
