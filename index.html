@@ -1,18 +1,22 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <link rel="icon" href="data:," />
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wildfire RTS Prototype</title>
-    <style>
-      html, body, #app { height: 100%; margin: 0; }
-      body { background: #0d0f12; color: #cbd5e1; font-family: system-ui, sans-serif; }
-      #app { position: relative; overflow: hidden; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#101710" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta
+      name="description"
+      content="Cinderline is a low-poly wildfire command RTS. Protect the ridge, build roads, dispatch crews, and hold the line."
+    />
+    <title>Cinderline — Wildfire Command</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div id="viewport" aria-label="Game viewport"></div>
+      <div id="ui"></div>
+    </div>
+    <noscript>This game needs JavaScript and WebGL 2.</noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

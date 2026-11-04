@@ -1,158 +1,111 @@
-# Wildfire RTS Prototype
+# Cinderline
 
-A real-time strategy game prototype featuring procedural terrain, wildfire simulation, road building, and vehicle management built with Three.js and TypeScript.
+A low-poly wildfire command RTS that runs in the browser. Build roads, dispatch engines and aircraft, cut firelines, protect the town, and hold the ridge for one eight-minute shift.
 
-![Wildfire RTS Prototype](https://img.shields.io/badge/status-prototype-yellow) ![Build Status](https://img.shields.io/badge/build-passing-brightgreen) ![Tests](https://img.shields.io/badge/tests-100%20passing-brightgreen)
+![Start screen](docs/screenshots/start.png)
 
-## Features
+![Wildfire and response fleet](docs/screenshots/gameplay.png)
 
-- **Procedural Terrain**: Rolling hills with biome-based vegetation (forest, chaparral, rock)
-- **Wildfire Simulation**: Physics-based fire spread with wind/slope influence, suppression mechanics
-- **Road System**: A*-based pathfinding with valley-preferring cost function and smooth ribbon rendering
-- **Vehicle Management**: Player-facing Frenet `PathFollower` vehicles with deterministic intersection control, plus an instanced `VehiclesManager` retained for shared FX, abilities, tests, and testbeds
-- **Unified Menubar & Paint Tools**: Central toolbar for fire, road, hydrant, and vehicle actions plus water/retardant painting tied to the fire grid
-- **RTS Camera**: Pan, rotate, tilt, and zoom controls optimized for strategy gameplay
-- **Debug UI**: Comprehensive controls for all systems with performance stats
+| Large fire | Victory |
+| --- | --- |
+| ![Large fire](docs/screenshots/fireline.png) | ![Victory screen](docs/screenshots/victory.png) |
 
-## Getting Started
+## The game
 
-### Prerequisites
+Cinderline is a from-scratch reboot of the wildfire RTS prototype. The world is a rigid, terraced landscape: every surface is flat or a 45-degree slope, inspired by isometric management games. Fire is simulated per tile with wind, slope, moisture, fuel, spotting, water, retardant, and bulldozed firelines.
 
-- Node.js 18+ (LTS recommended)
-- Modern web browser with WebGL 2.0 support
+One seeded shift includes:
 
-### Installation
+- **Four forecast lightning fires** with shifting wind and spot fires.
+- **Five response units**: two fire engines, a bulldozer, a helicopter, and an air tanker.
+- **Auto-dispatch and full manual command**, including right-click move/attack orders and per-incident dispatch.
+- **Road building** on the tile grid. New asphalt becomes a firebreak and triggers hydrant placement.
+- **Fire hydrants** placed along roads. Engines connected to a hydrant get an unlimited water feed; empty engines route to the nearest reachable hydrant by default.
+- **Vegetation and structures**: pine, oak, chaparral, rocks, houses, barns, cabins, a fire station, and a helipad.
+- **Particles**: flames, embers, smoke, water drops, water spray, retardant drops, steam, and dozer dust.
+- **Win/loss and scoring**: contain all incidents and keep the town standing before the shift ends.
+
+## Run it
 
 ```bash
 npm install
-```
-
-### Development
-
-```bash
-# Start development server with hot reload
 npm run dev
-
-# Open http://localhost:5173 in your browser
 ```
 
-### Production Build
+Open the printed local URL (default `http://localhost:5173`). Add `?seed=12345` to replay a specific world.
+
+Production build:
 
 ```bash
-# Build for production
 npm run build
-
-# Preview production build locally  
 npm run preview
 ```
 
-### Testing
-
-```bash
-# Fast compiler-only feedback
-npm run typecheck
-
-# Canonical local gate: strict type-check, all Vitest tests, production build
-npm run check
-
-# Repository-specific asset and browser verification
-npm run validate-assets
-npm run audit:game
-```
-
-`npm run build` invokes Vite and produces the bundle; Vite does not run the TypeScript compiler. Use `npm run typecheck` or the complete `npm run check` gate for type safety.
-
 ## Controls
 
-### Camera Controls
-- **Mouse Drag**: Rotate camera around terrain
-- **Middle Drag**: Adjust camera tilt
-- **Mouse Wheel**: Zoom in/out (zoom-to-cursor)
-- **WASD**: Pan camera across terrain
-- **Q/E**: Yaw camera left/right
-- **R/F**: Adjust camera tilt up/down
-- **G**: Toggle grid overlay
+| Input | Action |
+| --- | --- |
+| Left click | Select a unit, use the active tool, or attack a burning tile with the selected unit |
+| Right click | Move the selected unit / aircraft, or attack a burning tile |
+| WASD / arrows | Pan |
+| Q / E | Rotate |
+| R / F | Tilt |
+| Mouse wheel | Zoom toward cursor |
+| Middle drag | Pan |
+| V | Select tool |
+| I | Ignite tool |
+| B | Road tool (click start, then destination) |
+| Space | Pause / resume |
+| 1 / 2 / 4 | Simulation speed |
+| H | Field manual |
+| Escape | Cancel a road start, close help, or deselect |
 
-### Interaction Modes
-- **Left Click**: Ignite fire (default mode)
-- **Road Mode**: Click and drag to build roads using A* pathfinding
-- **Vehicle Mode**: Spawn and control vehicles on road network
+## Systems
 
-### Debug Controls
-Access the debug panel in the top-left corner to:
-- Toggle system visibility (terrain chunks, fire overlay, roads, vehicles)
-- Adjust fire parameters (wind speed/direction, ignition settings)
-- Control vehicle behavior (spawn, movement, clear)
-- Monitor performance stats (FPS, memory usage, draw calls)
+- **Terrain**: 96×96 tiles at 2 m per tile. Integer terrace levels with a slope limiter that keeps cardinal steps to one level, producing flat tops and 45-degree faces. A town plateau, lake, rocky ridges, forest, brush, and grassland are generated from a seed.
+- **Fire**: deterministic per-tile state machine at 5 Hz. Wind and upslope increase rate-of-spread; moisture, wetness, and retardant reduce it. Spotting throws embers downwind. Roads and cleared firelines are barriers. Structures accumulate damage while their tiles burn.
+- **Units**: engines are road-bound and carry 4,000 L. Dozers can leave the road and cut a permanent line. The helicopter drops water at the downwind head. The tanker lays a perpendicular retardant line. Aircraft return to the helipad to refill.
+- **Dispatch**: incidents track severity and assigned units. Auto-dispatch sends the best available ground unit, aircraft, or dozer. Manual dispatch and direct orders override it.
+- **Hydrants**: spaced along the road mask, rebuilt after road edits. An engine within 4.6 m of a hydrant gets a visible unlimited feed.
+- **Rendering**: Three.js orthographic diorama camera, flat-shaded terraced terrain, instanced vegetation, instanced particles, and a dark command-console HUD with a live minimap.
 
-## Architecture
+## Quality gates
 
-The codebase follows a modular architecture:
+```bash
+npm run typecheck   # strict TypeScript
+npm test            # Vitest: terrain, roads, biomes, fire, hydrants
+npm run build       # typecheck + production bundle
+npm run check       # typecheck + tests + build
+npm run smoke       # Playwright browser smoke test (needs Chromium)
+npm run stability   # five-seed, full-shift stability pass
+```
 
-- **`src/core/`**: Rendering engine, camera system, input handling, main loop
-- **`src/terrain/`**: Procedural heightmap generation, chunked LOD terrain, biome system
-- **`src/fire/`**: Grid-based fire simulation, visualization, suppression mechanics  
-- **`src/roads/`**: A* pathfinding, cost fields, visual road rendering
-- **`src/vehicles/`**: Authoritative Frenet traffic and intersection control, plus instanced `VehiclesManager` FX and ability support
-- **`src/ui/`**: Debug interface, console system, error handling
-- **`src/particles/`**: Fire particle effects using flipbook billboards
+The smoke test boots the game, starts a shift, ignites a fire, selects and moves an engine, builds a road, checks firebreak integration, verifies pause/help/speed controls, fast-forwards to an outcome, and asserts the end screen appears without browser errors.
 
-See [`specs/architecture.md`](specs/architecture.md) for detailed technical documentation.
+Browser tests need Chromium; first-time setup:
 
-## Performance Targets
+```bash
+npx playwright install chromium
+```
 
-- **60 FPS** on modest laptop iGPU
-- **256×256 tile maps** with instanced vegetation on ~25-50% of tiles
-- **Low-poly aesthetic** with flat shading to maintain visual cohesion
-- **Minimal per-frame allocations** in hot paths
+## Project layout
 
-## Development Guidelines
+```text
+src/
+  core/      renderer, scene, orthographic camera rig, math, RNG
+  world/     terraced heightmap, biomes, roads, buildings, vegetation, hydrants
+  sim/       fire model, particles, units, incidents, scenario
+  ui/        HUD, minimap, notifications, start/end screens, tool chrome
+  game.ts    game orchestration and input
+  main.ts    browser entry point
+specs/       living architecture, world, fire, units, and scenario specs
+scripts/     browser smoke + stability checks
+```
 
-This project follows spec-first development:
+## Status
 
-1. Read [`AGENTS.md`](AGENTS.md) for repository guidelines
-2. Review relevant specs in [`specs/`](specs/) before making changes  
-3. Update specs to reflect implementation changes
-4. Use TypeScript strict mode and follow existing code conventions
-5. Add tests for critical math-heavy components
-
-## Current Limitations
-
-- **Fire System**: Crown fire behavior, edge-based firelines, and retardant gel knockback remain outstanding
-- **Vehicles**: Player-visible Frenet traffic has the authoritative all-way-stop and spacing logic; the legacy grid-agent layer in `VehiclesManager` has no intersection queue and remains to be retired or more sharply isolated
-- **Hydrants**: Coverage tuning, damage states, and overlay polish are still planned
-- **Particles**: Using placeholder textures, soft particles not implemented
-- **Persistence**: Scenario save/load out of scope for v1
-- **Multiplayer**: Out of scope; single-player only
-
-## Roadmap
-
-Live plan with phases, file pointers, and scope estimates: **[ROADMAP.md](ROADMAP.md)**. Recent changes are tracked in **[CHANGELOG.md](CHANGELOG.md)**. Agent-specific workflow notes: **[CLAUDE.md](CLAUDE.md)**.
-
-## Contributing
-
-1. Read [`AGENTS.md`](AGENTS.md) for detailed contribution guidelines
-2. Follow the spec-first approach: update relevant specs with your changes
-3. Ensure `npm run check` passes; run `npm run audit:game` for gameplay changes
-4. Include screenshots/video for visual changes
-5. Keep commits focused and reference the affected system/stage
+Version 1.0 is a complete single-player MVP. Scenario persistence, multiplayer, authored art, additional scenarios, and mobile-specific controls are out of scope for this version. See [specs/architecture.md](specs/architecture.md) for the current module map and [specs/gameplay.md](specs/gameplay.md) for the gameplay contract.
 
 ## License
 
-This project is private and proprietary.
-
-## Technical Details
-
-**Built with:**
-- [Three.js](https://threejs.org/) - 3D rendering engine
-- [Vite](https://vitejs.dev/) - Build tool with hot reload
-- [TypeScript](https://www.typescriptlang.org/) - Type-safe JavaScript
-- [Vitest](https://vitest.dev/) - Testing framework
-- [simplex-noise](https://www.npmjs.com/package/simplex-noise) - Procedural generation
-
-**Performance Features:**
-- Instanced rendering for repeated geometry (trees, vehicles, fire overlays)
-- Chunked terrain with distance-based LOD
-- Fixed-timestep simulation with frame-rate independence  
-- Efficient A* pathfinding with cost field caching
-- Deterministic fire simulation with seedable random number generation
+Private and proprietary.

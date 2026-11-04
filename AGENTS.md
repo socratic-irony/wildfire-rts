@@ -1,57 +1,53 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-- Source: `src/` (TypeScript). Core engines in `src/core/` (`renderer.ts`, `scene.ts`, `camera.ts`, `input.ts`, `loop.ts`).
-- Terrain: `src/terrain/` (`heightmap.ts`, `mesh.ts`, `material.ts`, `grid.ts`, `biomes.ts`).
-- Actors: `src/actors/` (`trees.ts`, `shrubs.ts`, `rocks.ts`).
-- UI: `src/ui/` (`menubar.ts`, `paint.ts`, `debug.ts`, `errorOverlay.ts`, `console.ts`). Entry: `src/main.ts`. Static HTML: `index.html`.
-- Reference: see SPEC.md for planned interfaces and acceptance criteria.
+## Project
 
-## Build, Test, and Development Commands
-- `npm install`: install dependencies (Vite + TypeScript + Three.js).
-- `npm run dev`: start Vite dev server with hot reload.
-- `npm run build`: production bundle to `dist/`.
-- `npm run preview`: serve the built app locally.
-- `npm run test`: run the Vitest suite (`src/__tests__/**`). Update or add tests alongside code changes.
+Cinderline is a browser-based low-poly wildfire command RTS. The world is a rigid terraced diorama; the simulation is deterministic per seed. Read `specs/architecture.md` before changing structure or data flow, and the relevant domain spec before changing gameplay.
 
-## Coding Style & Naming Conventions
-- Language: TypeScript, `strict` enabled; ES modules only.
-- Files: lowercase module names (e.g., `heightmap.ts`, `biomes.ts`); one module per concern.
-- Types/Interfaces: `PascalCase` (e.g., `Heightmap`, `NoiseConfig`). Functions/vars: `camelCase`. Constants: `UPPER_SNAKE_CASE`.
-- Rendering: reuse materials/geometry; avoid per‑frame allocations; prefer `InstancedMesh`. Keep the low‑poly aesthetic (flat shading).
-- Formatting: use Prettier/ESLint if added; run before committing.
+## Commands
 
-## Testing Guidelines
-- Framework: Vitest (unit) + Playwright (optional e2e) are recommended.
-- Location: `src/**/__tests__/*.test.ts` or colocated `*.test.ts` next to modules.
-- Coverage: target critical paths (`terrain/*`, `core/*`). Add fast deterministic tests around math (noise, slope, masks).
-- Example: `npx vitest run --coverage` (after tooling is added).
+- `npm install` — install dependencies.
+- `npm run dev` — Vite dev server.
+- `npm run typecheck` — strict TypeScript, application and tests.
+- `npm test` — Vitest unit suite.
+- `npm run build` — typecheck + production bundle.
+- `npm run check` — canonical local gate: typecheck, tests, build.
+- `npm run smoke` — Playwright browser smoke test (requires `npx playwright install chromium`).
+- `npm run stability` — five-seed full-shift Playwright stability pass.
 
-## Commit & Pull Request Guidelines
-- Commits: concise, imperative subject; reference stage or module:
-  - Example: `feat(core): add RTS camera rig` or `stage-b: terrain mesh + flat shading`.
-- Scope: one logical change per commit; include brief rationale if non‑obvious.
-- PRs: include description, linked issues/stages, screenshots or short video/GIF for visual changes (FPS/draw‑call note helps).
-- Checks: ensure `npm run build` passes; run tests/linters if configured.
+## Structure
 
-### Spec Hygiene (Required)
-- Before every commit, update the relevant spec(s) in `specs/` to reflect current reality:
-  - Clearly note what is working vs. not yet implemented (Status/Outstanding Work sections).
-  - Align API/behavior descriptions with the code you changed.
-- Do not commit code changes without bringing the corresponding spec(s) up to date.
+- `src/core/` — renderer, scene, camera rig, math, RNG.
+- `src/world/` — heightmap, biomes, terrain visual, roads, buildings, vegetation, hydrants.
+- `src/sim/` — fire, particles, units, incidents, scenario.
+- `src/ui/` — HUD and styles.
+- `src/game.ts` — orchestration, input, simulation loop, test API.
+- `specs/` — living design documents.
+- `scripts/smoke.mjs` — end-to-end browser verification.
 
-## Security & Configuration Tips
-- Keep assets lightweight; avoid committing large binaries. Prefer procedural assets per SPEC.
-- Node version: use an LTS (record in `.nvmrc` if added).
-- Do not block the main thread with heavy generation; precompute where possible.
+## Style
 
-## Architecture Overview
-- Core composes renderer/scene/camera/input/loop; terrain builds a chunked mesh; actors use instancing; UI exposes debug toggles. Follow SPEC.md stages A→G when implementing.
+- TypeScript strict mode, ES modules, no unused locals/parameters.
+- PascalCase types/interfaces/classes; camelCase functions/variables; UPPER_SNAKE_CASE constants.
+- Reuse geometry/materials and prefer instancing in repeated rendering paths. Avoid per-frame allocations in hot loops.
+- No comments unless they explain non-obvious reasoning. Prefer small modules and explicit data shapes.
+- Keep the visual language low-poly, flat-shaded, and grid-readable.
 
-## LLM Agent Guidance (Spec‑First)
-- Read and follow `specs/architecture.md` before making any change. Treat it as the authoritative source for structure, data flow, and performance principles.
-- Read the domain spec(s) you are touching (e.g., `specs/fire_behavior.md`, `specs/vehicles.md`). Do not introduce patterns that conflict with these.
-- If code needs to diverge from a spec, propose a spec change first (or in the same commit) and document rationale. Do not leave undocumented deltas.
-- Every commit must update the relevant spec sections (Status, API, Outstanding Work) to reflect the code. Commits without spec updates should be avoided.
-- PRs must include: which spec sections were updated, any assumptions, and any remaining gaps for follow‑ups.
-- Prefer minimal, reversible changes that align with existing abstractions and avoid per‑frame allocations in hot paths.
+## Testing
+
+- Add or update Vitest tests for simulation/math changes in `src/**/*.test.ts`.
+- Use the browser smoke test for input, dispatch, UI, road edits, and win/loss changes.
+- Browser smoke runs headless SwiftShader; do not use it for FPS claims. Use a headed browser for real-GPU checks.
+- Run `npm run check` before handing work over. Run `npm run smoke` for gameplay/UI changes.
+
+## Spec hygiene
+
+- Every gameplay or architecture change must update the relevant spec in `specs/` in the same change.
+- Keep each spec's **Status** and **Outstanding** sections honest. Note what is implemented versus planned.
+- If implementation must diverge from a spec, change the spec with a rationale rather than leaving an undocumented delta.
+
+## Security and scope
+
+- Single-player, no backend, no secrets, no external assets required at runtime.
+- Do not add network calls, analytics, or third-party trackers without explicit approval.
+- Keep the app buildable as static files.

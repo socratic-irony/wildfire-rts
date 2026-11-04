@@ -1,18 +1,21 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "useDefineForClassFields": true,
     "module": "ESNext",
-    "lib": ["ES2020", "DOM"],
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "skipLibCheck": true,
-    "types": ["vitest/globals", "node"]
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["vite/client"]
   },
-  "include": ["src", "tools", "scripts", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "vitest.config.ts"]
 }
