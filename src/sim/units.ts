@@ -10,9 +10,9 @@ import {
   RingGeometry,
 } from 'three';
 import { angleLerp, clamp, distance } from '../core/math';
-import { tileToWorld, worldToTile } from '../world/constants';
+import { GRID_SIZE, TILE_SIZE, tileToWorld, worldToTile } from '../world/constants';
 import { World } from '../world/world';
-import { Wildfire } from './fire';
+import { FireState, Wildfire } from './fire';
 import { createVehicleModel, UnitKind, VehicleModel } from './vehicleModels';
 import { ParticleSystem } from './particles';
 import { IncidentView, NotifyFn, UnitSnapshot } from './types';
@@ -87,6 +87,12 @@ interface Unit {
 }
 
 const HOSE_RANGE = 12.5;
+/** Engines drive on the right-hand side of the road centreline. */
+const ENGINE_LANE = 0.24;
+/** Ground units within this distance of home are parked. */
+const HOME_RADIUS = 2.2;
+/** Seconds between retries when a route home cannot be planned. */
+const REPATH_RETRY = 2;
 
 export class Fleet {
   readonly group = new Group();
@@ -96,6 +102,8 @@ export class Fleet {
   private readonly hydrantLine: Line;
   private selectedId: number | null = null;
   private time = 0;
+  private readonly scratchTarget = { x: 0, z: 0 };
+  private readonly avoidMask = new Uint8Array(GRID_SIZE * GRID_SIZE);
 
   constructor(
     private readonly world: World,
@@ -214,7 +222,7 @@ export class Fleet {
         manualTarget: null,
         dustTimer: 0,
         homeX: x,
-        homeZ: station.wz,
+        homeZ: z,
         parked: isAir ? 1 : 0,
         airBaseX: x,
         airBaseZ: z,
@@ -420,13 +428,10 @@ export class Fleet {
     unit.state = 'returning';
     unit.status = unit.kind === 'helicopter' || unit.kind === 'tanker' ? 'Returning to helipad' : 'Returning to station';
     if (unit.kind === 'firetruck' || unit.kind === 'dozer') {
-      const current = this.currentRoadTile(unit);
-      const home = worldToTile(unit.homeX, unit.homeZ);
-      const path = current ? this.world.roads.findPath(current, home) : null;
-      if (path) {
-        unit.path = path;
-        unit.pathIndex = path.length > 1 ? 1 : 0;
-      }
+      unit.path = [];
+      unit.pathIndex = 0;
+      unit.repathTimer = 0;
+      if (!this.planHomePath(unit)) unit.repathTimer = REPATH_RETRY;
     }
   }
 
@@ -473,6 +478,9 @@ export class Fleet {
     const homeDist = distance(unit.x, unit.z, unit.homeX, unit.homeZ);
     if (homeDist > 1.4) {
       this.moveHome(unit, dt);
+      if (unit.status !== 'No route home') unit.status = 'Returning to station';
+    } else if (homeDist > 0.05) {
+      this.driveStraight(unit, unit.homeX, unit.homeZ, unit.maxSpeed * 0.3, dt);
     } else if (unit.water < unit.capacity) {
       unit.water = Math.min(unit.capacity, unit.water + unit.refillRate * 0.65 * dt);
       unit.status = unit.water >= unit.capacity ? 'Ready at station' : 'Refilling at station';
@@ -679,8 +687,13 @@ export class Fleet {
       return;
     }
 
-    if (distance(unit.x, unit.z, unit.homeX, unit.homeZ) > 2.2) {
-      this.followGroundPath(unit, dt);
+    if (unit.capacity <= 0) {
+      unit.state = 'idle';
+      unit.refillMode = null;
+      return;
+    }
+    if (distance(unit.x, unit.z, unit.homeX, unit.homeZ) > HOME_RADIUS) {
+      if (!this.driveHome(unit, dt)) return;
       unit.status = 'Returning to station';
       return;
     }
@@ -711,20 +724,40 @@ export class Fleet {
       }
       return;
     }
-    if (unit.path.length === 0) this.planHomePath(unit);
-    this.followGroundPath(unit, dt);
-    unit.status = 'Returning to station';
-    if (distance(unit.x, unit.z, unit.homeX, unit.homeZ) <= 2.2 || unit.path.length === 0) {
-      const incident = this.incidentFor(unit, incidents, false);
-      if (incident && !incident.resolved && unit.water > unit.capacity * 0.1) {
-        unit.state = 'toIncident';
-        unit.repathTimer = 0;
-        return;
-      }
-      unit.state = 'refilling';
-      unit.refillMode = 'base';
-      unit.status = 'Refilling at station';
+    const arrived = distance(unit.x, unit.z, unit.homeX, unit.homeZ) <= HOME_RADIUS || this.driveHome(unit, dt);
+    if (!arrived) return;
+    const incident = this.incidentFor(unit, incidents, false);
+    if (incident && !incident.resolved && unit.capacity > 0 && unit.water > unit.capacity * 0.1) {
+      unit.state = 'toIncident';
+      unit.repathTimer = 0;
+      return;
     }
+    if (unit.capacity <= 0 || unit.water >= unit.capacity) {
+      unit.state = 'idle';
+      unit.status = 'Ready at station';
+      return;
+    }
+    unit.state = 'refilling';
+    unit.refillMode = 'base';
+    unit.status = 'Refilling at station';
+  }
+
+  /**
+   * Advance a ground unit along its route home, planning (and periodically
+   * re-planning) the route when it has none. Returns true once the route is
+   * complete. Sets a visible status when no route exists.
+   */
+  private driveHome(unit: Unit, dt: number): boolean {
+    if (unit.path.length === 0) {
+      if (distance(unit.x, unit.z, unit.homeX, unit.homeZ) <= HOME_RADIUS) return true;
+      if (unit.repathTimer > 0 || !this.planHomePath(unit)) {
+        if (unit.repathTimer <= 0) unit.repathTimer = REPATH_RETRY;
+        unit.status = 'No route home';
+        return false;
+      }
+    }
+    unit.status = 'Returning to station';
+    return this.followGroundPath(unit, dt);
   }
 
   private updateDozerLine(unit: Unit, incidents: Map<number, IncidentView>, dt: number): void {
@@ -846,39 +879,76 @@ export class Fleet {
     }
   }
 
+  /**
+   * Move along the tile path, spending this step's full travel distance and
+   * passing through as many waypoints as it covers. Lane targets depend only
+   * on the path geometry, never on the unit's current position, so arrival is
+   * exact for any step size. Returns true once the final waypoint is reached.
+   */
   private followGroundPath(unit: Unit, dt: number): boolean {
     if (unit.path.length === 0) return true;
-    const waypoint = unit.path[unit.pathIndex];
-    if (!waypoint) {
+    const speed = unit.maxSpeed * (unit.kind === 'dozer' ? 0.9 : 1);
+    let budget = speed * Math.max(0, dt);
+    let dirX = 0;
+    let dirZ = 0;
+    let moved = false;
+    while (unit.pathIndex < unit.path.length) {
+      const target = this.waypointTarget(unit, unit.pathIndex);
+      const dx = target.x - unit.x;
+      const dz = target.z - unit.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 1e-6) {
+        dirX = dx / dist;
+        dirZ = dz / dist;
+      }
+      if (dist <= budget) {
+        unit.x = target.x;
+        unit.z = target.z;
+        budget -= dist;
+        moved = moved || dist > 1e-6;
+        unit.pathIndex += 1;
+        continue;
+      }
+      unit.x += dirX * budget;
+      unit.z += dirZ * budget;
+      moved = true;
+      break;
+    }
+    if (moved && (dirX !== 0 || dirZ !== 0)) {
+      unit.heading = angleLerp(unit.heading, Math.atan2(dirX, dirZ), 1 - Math.exp(-10 * dt));
+    }
+    unit.y = this.world.heightmap.heightAt(unit.x, unit.z) + 0.08;
+    if (unit.pathIndex >= unit.path.length) {
       unit.path = [];
+      unit.pathIndex = 0;
       return true;
     }
-    const world = tileToWorld(waypoint.x, waypoint.z);
-    const rawDx = world.x - unit.x;
-    const rawDz = world.z - unit.z;
-    const rawDist = Math.hypot(rawDx, rawDz) || 1;
-    const lane = unit.kind === 'firetruck' ? 0.24 : 0;
-    const targetX = world.x + (rawDz / rawDist) * lane;
-    const targetZ = world.z - (rawDx / rawDist) * lane;
-    const dx = targetX - unit.x;
-    const dz = targetZ - unit.z;
-    const dist = Math.hypot(dx, dz);
-    const speed = unit.maxSpeed * (unit.kind === 'dozer' ? 0.9 : 1);
-    if (dist < 0.18) {
-      unit.pathIndex += 1;
-      if (unit.pathIndex >= unit.path.length) {
-        unit.path = [];
-        unit.pathIndex = 0;
-        return true;
-      }
-      return false;
-    }
-    const move = Math.min(dist, speed * dt);
-    unit.heading = angleLerp(unit.heading, Math.atan2(dx, dz), 1 - Math.exp(-10 * dt));
-    unit.x += (dx / dist) * move;
-    unit.z += (dz / dist) * move;
-    unit.y = this.world.heightmap.heightAt(unit.x, unit.z) + 0.08;
     return false;
+  }
+
+  /** World target for path waypoint `i`, offset into the right lane for engines. */
+  private waypointTarget(unit: Unit, i: number): { x: number; z: number } {
+    const point = unit.path[i]!;
+    const target = this.scratchTarget;
+    target.x = (point.x + 0.5) * TILE_SIZE;
+    target.z = (point.z + 0.5) * TILE_SIZE;
+    if (unit.kind !== 'firetruck') return target;
+    const prev = unit.path[i - 1];
+    const next = unit.path[i + 1];
+    let dx = 0;
+    let dz = 0;
+    if (prev) {
+      dx = point.x - prev.x;
+      dz = point.z - prev.z;
+    } else if (next) {
+      dx = next.x - point.x;
+      dz = next.z - point.z;
+    }
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-6) return target;
+    target.x += (dz / length) * ENGINE_LANE;
+    target.z -= (dx / length) * ENGINE_LANE;
+    return target;
   }
 
   private flyTo(unit: Unit, tx: number, tz: number, dt: number, hover: boolean): boolean {
@@ -899,20 +969,58 @@ export class Fleet {
     return false;
   }
 
+  /** Idle ground units drift back to their exact parking spot. */
   private moveHome(unit: Unit, dt: number): void {
-    if (unit.path.length === 0) this.planHomePath(unit);
-    this.followGroundPath(unit, dt);
+    const homeDist = distance(unit.x, unit.z, unit.homeX, unit.homeZ);
+    if (homeDist < 3.5) {
+      unit.path = [];
+      this.driveStraight(unit, unit.homeX, unit.homeZ, unit.maxSpeed * 0.4, dt);
+      return;
+    }
+    this.driveHome(unit, dt);
   }
 
-  private planHomePath(unit: Unit): void {
-    const current = this.currentRoadTile(unit);
+  private driveStraight(unit: Unit, x: number, z: number, speed: number, dt: number): boolean {
+    const dx = x - unit.x;
+    const dz = z - unit.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 1e-4) return true;
+    const step = Math.min(dist, speed * dt);
+    unit.x += (dx / dist) * step;
+    unit.z += (dz / dist) * step;
+    unit.heading = angleLerp(unit.heading, Math.atan2(dx, dz), 1 - Math.exp(-8 * dt));
+    unit.y = this.world.heightmap.heightAt(unit.x, unit.z) + 0.08;
+    return step >= dist;
+  }
+
+  /**
+   * Route home: engines use the road graph; dozers plan off-road so a line
+   * cut deep in the brush never strands them. Returns false if no route.
+   */
+  private planHomePath(unit: Unit): boolean {
     const home = worldToTile(unit.homeX, unit.homeZ);
-    if (!current) return;
-    const path = this.world.roads.findPath(current, home);
-    if (path) {
-      unit.path = path;
-      unit.pathIndex = path.length > 1 ? 1 : 0;
+    let path: Array<{ x: number; z: number }> | null = null;
+    if (unit.kind === 'dozer') {
+      const here = worldToTile(unit.x, unit.z);
+      path = this.world.findOffroadPath(here, home, this.fireAvoidMask()) ?? this.world.findOffroadPath(here, home);
+    } else {
+      const current = this.currentRoadTile(unit);
+      path = current ? this.world.roads.findPath(current, home) : null;
     }
+    if (!path) return false;
+    unit.path = path;
+    unit.pathIndex = path.length > 1 ? 1 : 0;
+    return true;
+  }
+
+  /** Tiles a ground crew should not drive through: anything actively burning. */
+  private fireAvoidMask(): Uint8Array {
+    const mask = this.avoidMask;
+    for (let i = 0; i < mask.length; i += 1) {
+      const state = this.fire.state[i];
+      mask[i] = state === FireState.Burning || state === FireState.Igniting ? 1 : 0;
+    }
+    return mask;
   }
 
   private beginRefill(unit: Unit): void {

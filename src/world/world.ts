@@ -162,11 +162,30 @@ export class World {
   ): { x: number; z: number }[] | null {
     const blocked = this.blockedMask();
     if (avoid) for (let i = 0; i < blocked.length; i += 1) if (avoid[i] === 1) blocked[i] = 1;
-    const startIndex = tileIndex(start.x, start.z);
+    const from = this.nearestDryTile(start);
+    const startIndex = tileIndex(from.x, from.z);
     const goalIndex = tileIndex(goal.x, goal.z);
     blocked[startIndex] = 0;
     blocked[goalIndex] = 0;
-    return planRoadPath(this.heightmap, this.biomes, start, goal, blocked);
+    const path = planRoadPath(this.heightmap, this.biomes, from, goal, blocked);
+    if (path && (from.x !== start.x || from.z !== start.z)) path.unshift({ x: start.x, z: start.z });
+    return path;
+  }
+
+  /** The tile itself, or the closest non-water tile within a few tiles of it. */
+  nearestDryTile(tile: { x: number; z: number }): { x: number; z: number } {
+    const isDry = (x: number, z: number) =>
+      x >= 0 && z >= 0 && x < GRID_SIZE && z < GRID_SIZE && this.biomes.types[tileIndex(x, z)] !== Terrain.Water;
+    if (isDry(tile.x, tile.z)) return tile;
+    for (let r = 1; r <= 8; r += 1) {
+      for (let dz = -r; dz <= r; dz += 1) {
+        for (let dx = -r; dx <= r; dx += 1) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          if (isDry(tile.x + dx, tile.z + dz)) return { x: tile.x + dx, z: tile.z + dz };
+        }
+      }
+    }
+    return tile;
   }
 
   private blockedMask(): Uint8Array {

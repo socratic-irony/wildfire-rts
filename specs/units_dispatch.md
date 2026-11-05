@@ -30,10 +30,13 @@ Ground units spawn on the station road. Air units spawn above the helipad. All u
 
 ## Ground movement
 
-- Fire engines use the road graph (`RoadNetwork.findPath`) and a right-side lane offset of 0.24 world units.
+- Fire engines use the road graph (`RoadNetwork.findPath`) and a right-side lane offset of 0.24 world units. The lane offset of each waypoint comes from the path segment that leads into it, never from the unit's position.
+- Each step spends the unit's full travel distance (`speed * dt`) and passes through as many waypoints as it covers, so arrival is exact at any step size. (An earlier rule advanced only within 0.18 units of a position-dependent target, which trapped engines orbiting a waypoint at 2×/4× speed.)
 - Engines select a road tile within 6 tiles of the fire, then attack when an active tile is within `HOSE_RANGE = 12.5` world units.
 - Dozers use an off-road A* plan (`World.findOffroadPath`) that avoids water and buildings. While moving off-road they clear a line under themselves.
-- Returns route to the unit's spawn/home tile.
+- Returns route to the unit's spawn/home tile. Engines use the road graph; dozers plan off-road home, avoiding burning tiles when possible. Planning starts from the nearest dry tile if the unit is standing in water. If no route exists, the unit shows "No route home" and retries every 2 s.
+- Idle ground units glide the last stretch onto their exact parking spot.
+- Units with no tank (dozers) never enter `refilling`; arriving home makes them `idle`.
 
 ## Air movement
 

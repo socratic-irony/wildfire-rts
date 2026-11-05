@@ -24,25 +24,29 @@ main.ts
        -> OrthographicCamera / WebGLRenderer
 ```
 
-`Game` owns the frame loop, input, simulation stepping, HUD refresh cadence, and the test API. All other systems are deterministic given a seed and a sequence of fixed-ish `dt` steps; visual particles use `Math.random` and are not part of gameplay determinism.
+`Game` owns the frame loop, input, simulation stepping, HUD refresh cadence, and the test API. Gameplay advances in fixed `SIM_STEP = 1/30 s` steps, so the outcome of a seed does not depend on frame rate or the 1×/2×/4× speed setting. Visual particles use `Math.random` and are not part of gameplay determinism.
 
 ### Frame loop
 
 1. Read camera keys and advance the camera rig (real time).
-2. If the shift is running and not paused, simulate `dt * speed`.
+2. If the shift is running, not paused, and the test API is not driving the clock, simulate `dt * speed`.
 3. Update incident markers.
 4. Refresh the HUD at ~6 Hz and render.
 5. On the briefing screen, slowly rotate the camera; simulation is stopped.
 
-`Game.simulate(dt)` order:
+`Game.simulate(dt)` adds `dt` to an accumulator and runs `stepSimulation(SIM_STEP)` for each whole step (at most 24 per call; a larger backlog is dropped). Each step runs:
 
-1. `Scenario.update(dt)`
-2. `Wildfire.step(dt)`
-3. `IncidentSystem.update(dt, fleet)`
-4. `Fleet.update(dt, incidentViews)`
+1. `Scenario.update(step)`
+2. `Wildfire.step(step)` (the fire keeps its own 0.2 s internal tick)
+3. `IncidentSystem.update(step, fleet)`
+4. `Fleet.update(step, incidentViews)`
 5. `BuildingSystem.update(...)`
-6. Terrain and vegetation burn tint
-7. `ParticleSystem.update(...)`
+
+After the steps, `simulate` updates terrain and vegetation burn tint and `ParticleSystem` once with the full `dt`.
+
+### Test clock
+
+The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: the frame loop keeps rendering but stops simulating, so scripted runs are reproducible. `__cinderline.setRealtime(true)` returns the clock to the frame loop.
 
 ## Modules
 
@@ -58,7 +62,7 @@ main.ts
 - `heightmap.ts` — integer terrace levels at 97×97 vertices, town plateau, lake mask, slope limiter, bilinear height sampling.
 - `biomes.ts` — terrain type classification (water, rock, forest, brush, grass, town, road lookup) and palette data.
 - `terrainVisual.ts` — flat-shaded terrain mesh, per-tile vertex colors, burn/wet/retardant tint, lake surface, backdrop mountains.
-- `roads.ts` — road mask, network graph, 4-neighbor A*, road planning A*, initial street layout.
+- `roads.ts` — road mask, network graph, 4-neighbor A*, road planning A*, initial street layout. Both searches use a binary heap ordered by (priority, insertion order), which reproduces the original linear-scan tie-breaking exactly.
 - `roadsVisual.ts` — conforming asphalt/shoulder/centerline geometry rebuilt after edits.
 - `buildings.ts` — procedural lots, fire station, helipad, building meshes, damage/destroyed state, structure score.
 - `vegetation.ts` — instanced pine/oak/shrub/rock families, baked low-poly geometry, per-instance burn tint.
@@ -96,6 +100,7 @@ main.ts
 - World generation depends only on the URL seed.
 - Fire spread and spotting use hashed RNG keyed by tile indices, step number, and seed. Two identical simulations produce identical state arrays (covered by unit tests).
 - Gameplay RNG never uses wall-clock time. UI animation and particles may.
+- Gameplay steps are fixed-size, and the test API freezes the real-time loop while it drives the clock. `npm run stability` replays its first seed and fails if the outcome differs.
 - `Wildfire.refreshRoadMask` must run after road edits so new asphalt becomes non-fuel. `World.buildRoad` rebuilds the road mesh, hydrants, and vegetation; `Game` refreshes fire fuel.
 - Building damage decays only when no footprint tile is actively burning. Damage reaching 100 transitions to destroyed exactly once and fires `onDestroyed`.
 
@@ -110,6 +115,9 @@ main.ts
 ## Testing
 
 - Vitest covers heightmap terrace constraints, town flatness, lake masks, biome classification, road connectivity/path blocking, hydrant spacing/rebuilds, fire lifecycle, suppression, firelines, road fuel updates, downwind spread, and determinism.
+- `src/test/harness.ts` builds a headless world, fire, and fleet (no WebGL or DOM needed). `src/sim/units.test.ts` drives units through road moves and returns at several step sizes.
+- `scripts/browser.mjs` launches headless Chromium; `CHROMIUM_PATH` overrides the binary and common system installs are used when Playwright's download is missing.
+- `scripts/balance.mjs` (`npm run balance`) plays hands-off shifts across seeds, prints outcomes and a fire timeline, and fails if a unit stops moving while it still has a destination.
 - `scripts/smoke.mjs` boots the real browser build, exercises input, dispatch, road building, pause/help/speed, fast-forwards to an outcome, and checks the end screen with no console/page errors.
 - `scripts/stability.mjs` plays five seeded shifts to completion, checks outcomes, finite unit transforms, unresolved-incident consistency, and browser errors.
 - `npm run check` is the canonical local gate.

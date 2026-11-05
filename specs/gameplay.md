@@ -68,7 +68,7 @@ The final result is shown with structures saved/lost, burned hectares, incidents
 `window.__cinderline` exposes deterministic QA helpers:
 
 - `getState()` — seed, scenario/result, fire stats, units, incidents, buildings, hydrants, roads, vegetation.
-- `start()`, `setSpeed()`, `setAutoDispatch()`, `advanceTime(ms)`.
+- `start()`, `setSpeed()`, `setAutoDispatch()`, `advanceTime(ms)`, `setRealtime(enabled)`. The first `advanceTime` freezes the real-time loop so scripted runs are deterministic.
 - `ignite(tx, tz)`, `findBurnableNear(tx, tz, radius)`.
 - `selectUnit()`, `dispatch()`, `buildRoad()`, `focusTile()`, `focusIncident()`.
 - `screenPosition()`, `unitScreenPosition()`, `debugPick()`.

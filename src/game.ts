@@ -25,10 +25,16 @@ import { Scenario } from './sim/scenario';
 import { NotifyFn, NotifyTone } from './sim/types';
 import { Hud, HudState, Tool } from './ui/hud';
 
+/** Fixed simulation step for scenario, incidents, units, and structures. */
+const SIM_STEP = 1 / 30;
+/** Cap on catch-up steps per frame; any larger backlog is dropped. */
+const MAX_SIM_STEPS = 24;
+
 interface TestApi {
   getState: () => unknown;
   start: () => void;
   advanceTime: (ms: number) => void;
+  setRealtime: (enabled: boolean) => void;
   ignite: (tx: number, tz: number) => boolean;
   selectUnit: (id: number) => void;
   dispatch: (incidentId: number) => boolean;
@@ -88,6 +94,9 @@ export class Game {
   private readonly notify: NotifyFn;
   private lastScenarioStatus = 'briefing';
   private markerTime = 0;
+  private simAccumulator = 0;
+  /** True once the test API drives the clock; the frame loop then only renders. */
+  private externalClock = false;
 
   constructor(viewport: HTMLElement, seed: number) {
     this.viewport = viewport;
@@ -269,7 +278,7 @@ export class Game {
     if (!this.started) this.rig.rotate(realDt * 0.035);
     this.updateCameraInput(realDt);
     this.rig.update(realDt);
-    if (this.started && !this.paused) {
+    if (this.started && !this.paused && !this.externalClock) {
       const simDt = realDt * this.speed;
       this.simulate(simDt);
     }
@@ -295,6 +304,37 @@ export class Game {
       }
       return;
     }
+    this.simAccumulator += dt;
+    let steps = 0;
+    while (this.simAccumulator >= SIM_STEP && steps < MAX_SIM_STEPS) {
+      this.simAccumulator -= SIM_STEP;
+      steps += 1;
+      this.stepSimulation(SIM_STEP);
+      if (this.scenario.status !== 'running') {
+        this.simAccumulator = 0;
+        break;
+      }
+    }
+    if (steps >= MAX_SIM_STEPS) this.simAccumulator = 0;
+    this.world.terrain.updateBurnTint(this.fire.state, dt, this.fire.wetness, this.fire.retardant);
+    this.world.vegetation.updateBurnTint((index) => this.fire.state[index] ?? 0, dt);
+    const wind = this.fire.windVector;
+    const windLength = Math.hypot(wind.x, wind.z) || 1;
+    this.particles.update(
+      this.fire,
+      dt,
+      wind.x / windLength,
+      wind.z / windLength,
+      this.pixelPerWorld(),
+    );
+    if (this.lastScenarioStatus !== this.scenario.status) {
+      this.lastScenarioStatus = this.scenario.status;
+      this.hud.update(this.hudState(), true);
+    }
+  }
+
+  /** One fixed step of the gameplay simulation. Visual-only updates live in simulate(). */
+  private stepSimulation(dt: number): void {
     this.scenario.update(dt);
     this.fire.step(dt);
     this.incidents.update(dt, this.fleet);
@@ -310,21 +350,6 @@ export class Game {
         this.hud.refreshMinimapBase();
         this.notify(`${labelBuilding(building.kind)} lost near ${this.world.sectorName(building.x0, building.z0)}.`, 'danger');
       }
-    }
-    this.world.terrain.updateBurnTint(this.fire.state, dt, this.fire.wetness, this.fire.retardant);
-    this.world.vegetation.updateBurnTint((index) => this.fire.state[index] ?? 0, dt);
-    const wind = this.fire.windVector;
-    const windLength = Math.hypot(wind.x, wind.z) || 1;
-    this.particles.update(
-      this.fire,
-      dt,
-      wind.x / windLength,
-      wind.z / windLength,
-      this.pixelPerWorld(),
-    );
-    if (this.lastScenarioStatus !== this.scenario.status) {
-      this.lastScenarioStatus = this.scenario.status;
-      this.hud.update(this.hudState(), true);
     }
   }
 
@@ -847,7 +872,11 @@ export class Game {
         vegetation: this.world.vegetation.totalInstances,
       }),
       start: () => this.startShift(),
+      setRealtime: (enabled: boolean) => {
+        this.externalClock = !enabled;
+      },
       advanceTime: (ms: number) => {
+        this.externalClock = true;
         const cap = Math.max(0, Math.min(ms, 8 * 60 * 1000));
         let remaining = cap / 1000;
         const step = 0.05;

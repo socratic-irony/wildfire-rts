@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm test && npm run build",
     "smoke": "node scripts/smoke.mjs",
-    "stability": "node scripts/stability.mjs"
+    "stability": "node scripts/stability.mjs",
+    "balance": "node scripts/balance.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

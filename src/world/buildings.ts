@@ -17,6 +17,7 @@ import {
   PlaneGeometry,
   SphereGeometry,
   SRGBColorSpace,
+  Texture,
 } from 'three';
 import { hash2, Rng } from '../core/rng';
 import { clamp } from '../core/math';
@@ -1051,7 +1052,8 @@ function gableRoofGeometry(width: number, depth: number, height: number): Buffer
   return geometry;
 }
 
-function makeSignTexture(text: string, background = '#7c2f27'): CanvasTexture {
+function makeSignTexture(text: string, background = '#7c2f27'): Texture {
+  if (typeof document === 'undefined') return new Texture();
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 112;

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chromium } from 'playwright';
+import { launchChromium } from './browser.mjs';
 
 const PORT = 4176;
 const BASE = `http://localhost:${PORT}`;
@@ -36,9 +36,10 @@ async function waitForServer() {
 let browser;
 try {
   await waitForServer();
-  browser = await chromium.launch({ headless: true });
+  browser = await launchChromium();
   const rows = [];
-  for (const seed of SEEDS) {
+  const runs = [...SEEDS, SEEDS[0]];
+  for (const seed of runs) {
     const page = await browser.newPage({ viewport: { width: 900, height: 650 } });
     const errors = [];
     page.on('console', (message) => {
@@ -57,6 +58,7 @@ try {
     const unresolved = state.incidents.filter((incident) => !incident.resolved).length;
     rows.push({
       seed,
+      score: state.scenario.score,
       status: state.scenario.status,
       elapsed: state.scenario.elapsed,
       burned: state.fire.burned,
@@ -77,6 +79,17 @@ try {
         `errors=${errors.length}`,
     );
   }
+  const first = rows[0];
+  const repeat = rows[rows.length - 1];
+  if (
+    first.status !== repeat.status ||
+    first.score !== repeat.score ||
+    first.burned !== repeat.burned ||
+    first.elapsed !== repeat.elapsed
+  ) {
+    console.error(`Seed ${first.seed} is not deterministic:`, first, repeat);
+    process.exitCode = 1;
+  }
   const bad = rows.filter(
     (row) =>
       !['won', 'lost'].includes(row.status) ||
@@ -87,8 +100,8 @@ try {
   if (bad.length > 0) {
     console.error('Unstable runs:', bad);
     process.exitCode = 1;
-  } else {
-    console.log(`Stability passed across ${rows.length} seeds.`);
+  } else if (!process.exitCode) {
+    console.log(`Stability passed across ${SEEDS.length} seeds; seed ${first.seed} replayed identically.`);
   }
 } finally {
   if (browser) await browser.close();

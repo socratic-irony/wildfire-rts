@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chromium } from 'playwright';
+import { launchChromium } from './browser.mjs';
 
 const PORT = 4174;
 const BASE = `http://localhost:${PORT}`;
@@ -43,7 +43,7 @@ async function waitForServer() {
 let browser;
 try {
   await waitForServer();
-  browser = await chromium.launch({ headless: true });
+  browser = await launchChromium();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('console', (message) => {

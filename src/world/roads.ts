@@ -9,9 +9,67 @@ export interface TilePoint {
   z: number;
 }
 
-interface QueueEntry {
-  index: number;
-  priority: number;
+/**
+ * Binary min-heap of tile indices keyed by (priority, insertion order). The
+ * tie-break matches the original linear scan, so generated maps are unchanged.
+ */
+class TileQueue {
+  private readonly indices: number[] = [];
+  private readonly priorities: number[] = [];
+  private readonly order: number[] = [];
+  private sequence = 0;
+
+  get size(): number {
+    return this.indices.length;
+  }
+
+  push(index: number, priority: number): void {
+    this.indices.push(index);
+    this.priorities.push(priority);
+    this.order.push(this.sequence);
+    this.sequence += 1;
+    let i = this.indices.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (!this.less(i, parent)) break;
+      this.swap(i, parent);
+      i = parent;
+    }
+  }
+
+  pop(): number {
+    const top = this.indices[0]!;
+    const last = this.indices.length - 1;
+    this.swap(0, last);
+    this.indices.pop();
+    this.priorities.pop();
+    this.order.pop();
+    let i = 0;
+    const n = this.indices.length;
+    for (;;) {
+      const left = i * 2 + 1;
+      const right = left + 1;
+      let smallest = i;
+      if (left < n && this.less(left, smallest)) smallest = left;
+      if (right < n && this.less(right, smallest)) smallest = right;
+      if (smallest === i) break;
+      this.swap(i, smallest);
+      i = smallest;
+    }
+    return top;
+  }
+
+  private less(a: number, b: number): boolean {
+    const pa = this.priorities[a]!;
+    const pb = this.priorities[b]!;
+    return pa < pb || (pa === pb && this.order[a]! < this.order[b]!);
+  }
+
+  private swap(a: number, b: number): void {
+    [this.indices[a], this.indices[b]] = [this.indices[b]!, this.indices[a]!];
+    [this.priorities[a], this.priorities[b]] = [this.priorities[b]!, this.priorities[a]!];
+    [this.order[a], this.order[b]] = [this.order[b]!, this.order[a]!];
+  }
 }
 
 /** Extra planner cost for changing direction. */
@@ -119,20 +177,15 @@ export class RoadNetwork {
 
     const startIndex = tileIndex(startTile.x, startTile.z);
     const goalIndex = tileIndex(goalTile.x, goalTile.z);
-    const open: QueueEntry[] = [{ index: startIndex, priority: 0 }];
+    const open = new TileQueue();
+    open.push(startIndex, 0);
     const cameFrom = new Int32Array(this.mask.length).fill(-1);
     const cost = new Float32Array(this.mask.length).fill(Infinity);
     cost[startIndex] = 0;
     const closed = new Uint8Array(this.mask.length);
 
-    while (open.length > 0) {
-      let bestIndex = 0;
-      for (let i = 1; i < open.length; i += 1) {
-        if ((open[i]?.priority ?? 0) < (open[bestIndex]?.priority ?? 0)) bestIndex = i;
-      }
-      const current = open.splice(bestIndex, 1)[0];
-      if (!current) break;
-      const index = current.index;
+    while (open.size > 0) {
+      const index = open.pop();
       if (index === goalIndex) {
         const path: TilePoint[] = [];
         let step = index;
@@ -158,7 +211,7 @@ export class RoadNetwork {
           cost[nextIndex] = nextCost;
           cameFrom[nextIndex] = index;
           const heuristic = Math.abs(nx - goalTile.x) + Math.abs(nz - goalTile.z);
-          open.push({ index: nextIndex, priority: nextCost + heuristic });
+          open.push(nextIndex, nextCost + heuristic);
         }
       }
     }
@@ -269,19 +322,15 @@ export function planRoadPath(
   const startIndex = tileIndex(startX, startZ);
   const goalIndex = tileIndex(goalX, goalZ);
   if (blocked && (blocked[startIndex] === 1 || blocked[goalIndex] === 1)) return null;
-  const open: QueueEntry[] = [{ index: startIndex, priority: 0 }];
+  const open = new TileQueue();
+  open.push(startIndex, 0);
   const cameFrom = new Int32Array(GRID_SIZE * GRID_SIZE).fill(-1);
   const cost = new Float32Array(GRID_SIZE * GRID_SIZE).fill(Infinity);
   const closed = new Uint8Array(GRID_SIZE * GRID_SIZE);
   cost[startIndex] = 0;
 
-  while (open.length > 0) {
-    let bestIndex = 0;
-    for (let i = 1; i < open.length; i += 1) {
-      if ((open[i]?.priority ?? 0) < (open[bestIndex]?.priority ?? 0)) bestIndex = i;
-    }
-    const current = open.splice(bestIndex, 1)[0];
-    if (!current) break;
+  while (open.size > 0) {
+    const current = { index: open.pop() };
     if (current.index === goalIndex) {
       const path: TilePoint[] = [];
       let step = goalIndex;
@@ -324,7 +373,7 @@ export function planRoadPath(
         cost[nextIndex] = nextCost;
         cameFrom[nextIndex] = current.index;
         const heuristic = Math.abs(nx - goalX) + Math.abs(nz - goalZ);
-        open.push({ index: nextIndex, priority: nextCost + heuristic });
+        open.push(nextIndex, nextCost + heuristic);
       }
     }
   }
