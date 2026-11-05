@@ -11,7 +11,7 @@ import { severityClass, severityLabel } from '../world/sectors';
 import { TERRAIN_COLORS } from '../world/biomes';
 
 export type Tool = 'select' | 'torch' | 'road' | 'line';
-export type UnitAction = 'home' | 'hold' | 'attack' | 'line';
+export type UnitAction = 'home' | 'hold' | 'attack' | 'line' | 'refill';
 
 export interface ThreatSummary {
   /** Intact structures with active wildfire close by. */
@@ -37,7 +37,8 @@ export interface HudState {
   selectedUnit: UnitSnapshot | null;
   windDirection: number;
   windSpeed: number;
-  autoDispatch: boolean;
+  /** Auto-dispatch coverage across the fleet. */
+  autoDispatch: 'all' | 'some' | 'none';
   paused: boolean;
   speed: number;
   seed: number;
@@ -68,6 +69,8 @@ export interface HudCallbacks {
   onPause: () => void;
   onMute: () => void;
   onAutoDispatch: (enabled: boolean) => void;
+  onUnitAuto: (id: number, enabled: boolean) => void;
+  onFaceNorth: () => void;
   onIncidentFocus: (id: number) => void;
   onIncidentDispatch: (id: number) => void;
   onUnitSelect: (id: number) => void;
@@ -134,8 +137,24 @@ export class Hud {
   private threatened = new Set<number>();
   private readonly fleetRows = new Map<
     number,
-    { root: HTMLButtonElement; badge: HTMLElement; name: HTMLElement; status: HTMLElement; water: HTMLElement }
+    {
+      root: HTMLElement;
+      badge: HTMLElement;
+      name: HTMLElement;
+      status: HTMLElement;
+      water: HTMLElement;
+      waterFill: HTMLElement;
+      auto: HTMLButtonElement;
+    }
   >();
+  /** Ground-plane corners of the camera view and its yaw, for the minimap. */
+  private cameraYaw = 0;
+  private readonly cameraFootprint: Array<{ x: number; z: number }> = [];
+  /** 96×96 fire overlay, rewritten each minimap refresh and drawn scaled. */
+  private readonly fireMap: HTMLCanvasElement;
+  private readonly fireImage: ImageData | null;
+  private hydrantsKey = '';
+  private hydrantPoints: Array<{ x: number; z: number }> = [];
   private readonly incidentCards = new Map<
     number,
     {
@@ -164,6 +183,10 @@ export class Hud {
     this.baseMap = document.createElement('canvas');
     this.baseMap.width = GRID_SIZE;
     this.baseMap.height = GRID_SIZE;
+    this.fireMap = document.createElement('canvas');
+    this.fireMap.width = GRID_SIZE;
+    this.fireMap.height = GRID_SIZE;
+    this.fireImage = this.fireMap.getContext('2d')?.createImageData(GRID_SIZE, GRID_SIZE) ?? null;
     root.innerHTML = this.template(seed);
     root.classList.add('briefing');
     this.startScreen = this.getElement('#start-screen');
@@ -356,11 +379,13 @@ export class Hud {
     if (windLabel) windLabel.textContent = `${state.windSpeed.toFixed(1)} m/s`;
     const windCompass = this.root.querySelector('[data-wind-compass]');
     if (windCompass) windCompass.textContent = compass(state.windDirection);
+    // The arrow glyph points down at 0; wind (sin d, cos d) seen through the
+    // heading-up minimap is a CSS rotation of (yaw - d).
     const windArrow = this.root.querySelector<HTMLElement>('.wind-arrow');
-    if (windArrow) windArrow.style.transform = `rotate(${state.windDirection}rad)`;
+    if (windArrow) windArrow.style.transform = `rotate(${this.cameraYaw - state.windDirection}rad)`;
     const forecastArrow = this.root.querySelector<HTMLElement>('.wind-arrow.forecast');
     if (forecastArrow) {
-      forecastArrow.style.transform = `rotate(${next?.direction ?? state.windDirection}rad)`;
+      forecastArrow.style.transform = `rotate(${this.cameraYaw - (next?.direction ?? state.windDirection)}rad)`;
       forecastArrow.style.opacity = next ? '1' : '0';
     }
     this.topbar.querySelector('.objective-copy')!.textContent = state.scenario.reason;
@@ -372,7 +397,10 @@ export class Hud {
     this.renderUnitPanel(state);
     this.renderModeBanner(state);
     const auto = this.root.querySelector<HTMLInputElement>('#auto-dispatch');
-    if (auto) auto.checked = state.autoDispatch;
+    if (auto) {
+      auto.checked = state.autoDispatch === 'all';
+      auto.indeterminate = state.autoDispatch === 'some';
+    }
     if (state.scenario.status === 'won' || state.scenario.status === 'lost') {
       this.showEnd(state.scenario, state.best, state.newBest, state.savedStructures);
     }
@@ -443,11 +471,6 @@ export class Hud {
               <span class="panel-kicker">INCIDENT BOARD</span>
               <h2>Active fires</h2>
             </div>
-            <label class="switch" title="Automatically dispatch available units">
-              <input type="checkbox" id="auto-dispatch" checked />
-              <span class="switch-track"><span class="switch-thumb"></span></span>
-              <span class="switch-label">AUTO</span>
-            </label>
           </div>
           <div class="incident-list" id="incident-list"></div>
         </section>
@@ -457,7 +480,11 @@ export class Hud {
               <span class="panel-kicker">RESPONSE FLEET</span>
               <h2>Units</h2>
             </div>
-            <span class="panel-note">Tab cycles</span>
+            <label class="switch" title="Put every unit on auto-dispatch, or take them all under manual control">
+              <input type="checkbox" id="auto-dispatch" checked />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+              <span class="switch-label">ALL AUTO</span>
+            </label>
           </div>
           <div class="fleet-list" id="fleet-list"></div>
           <div class="aid-panel" id="aid-panel"></div>
@@ -503,6 +530,7 @@ export class Hud {
           <span><i class="legend-dot air"></i>Air</span>
           <span><i class="legend-dot dozer"></i>Dozer</span>
           <span><i class="legend-dot fire"></i>Fire</span>
+          <span><i class="legend-dot hydrant"></i>Hydrant</span>
           <span><i class="legend-dot risk"></i>At risk</span>
         </div>
       </aside>
@@ -619,6 +647,12 @@ export class Hud {
         if (id > 0) this.callbacks.onIncidentFocus(id);
         return;
       }
+      const autoChip = target.closest<HTMLElement>('[data-unit-auto]');
+      if (autoChip) {
+        const id = Number(autoChip.dataset.unitAuto);
+        if (id > 0) this.callbacks.onUnitAuto(id, autoChip.getAttribute('aria-pressed') !== 'true');
+        return;
+      }
       const unitButton = target.closest<HTMLElement>('[data-unit]');
       if (unitButton) {
         const id = Number(unitButton.dataset.unit);
@@ -629,21 +663,37 @@ export class Hud {
       if (unitAction) {
         const id = Number(unitAction.dataset.unitId);
         const action = unitAction.dataset.unitAction;
-        if (id > 0 && (action === 'home' || action === 'hold' || action === 'attack' || action === 'line')) {
+        if (id > 0 && (action === 'home' || action === 'hold' || action === 'attack' || action === 'line' || action === 'refill')) {
           this.callbacks.onUnitAction(id, action);
         }
       }
     });
 
+    // Clicked HUD controls must not keep keyboard focus: a focused checkbox
+    // or button swallowed WASD and turned Space into a second click.
+    this.root.addEventListener('click', () => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && this.root.contains(active)) active.blur();
+    });
+
     this.root.querySelector<HTMLInputElement>('#auto-dispatch')?.addEventListener('change', (event) => {
-      this.callbacks.onAutoDispatch((event.target as HTMLInputElement).checked);
+      const input = event.target as HTMLInputElement;
+      this.callbacks.onAutoDispatch(input.checked);
+      input.blur();
     });
 
     this.minimap.addEventListener('click', (event) => {
       const rect = this.minimap.getBoundingClientRect();
-      const x = ((event.clientX - rect.left) / rect.width) * WORLD_SIZE;
-      const z = ((event.clientY - rect.top) / rect.height) * WORLD_SIZE;
-      this.callbacks.onMinimapFocus(x, z);
+      const px = ((event.clientX - rect.left) / rect.width) * this.minimap.width;
+      const py = ((event.clientY - rect.top) / rect.height) * this.minimap.height;
+      const north = this.northBadge();
+      if (Math.hypot(px - north.x, py - north.y) <= north.r * 1.6) {
+        this.callbacks.onFaceNorth();
+        return;
+      }
+      const world = this.minimapToWorld(px, py);
+      if (world.x < 0 || world.z < 0 || world.x > WORLD_SIZE || world.z > WORLD_SIZE) return;
+      this.callbacks.onMinimapFocus(world.x, world.z);
     });
 
     window.addEventListener('keydown', (event) => {
@@ -737,21 +787,24 @@ export class Hud {
     for (const unit of state.units) {
       let refs = this.fleetRows.get(unit.id);
       if (!refs) {
-        const root = document.createElement('button');
-        root.type = 'button';
+        const root = document.createElement('div');
         root.className = 'fleet-row';
         root.dataset.unit = String(unit.id);
+        root.setAttribute('role', 'button');
         root.innerHTML = `
           <span class="unit-badge"></span>
           <span class="fleet-copy"><strong></strong><em></em></span>
-          <span class="fleet-water"></span>
+          <span class="fleet-water"><span class="water-text"></span><span class="water-bar"><i></i></span></span>
+          <button type="button" class="auto-chip" data-unit-auto="${unit.id}" aria-pressed="true" title="Auto-dispatch this unit">AUTO</button>
         `;
         const badge = root.querySelector('.unit-badge') as HTMLElement;
         const name = root.querySelector('strong') as HTMLElement;
         const status = root.querySelector('em') as HTMLElement;
-        const water = root.querySelector('.fleet-water') as HTMLElement;
+        const water = root.querySelector('.water-text') as HTMLElement;
+        const waterFill = root.querySelector('.water-bar i') as HTMLElement;
+        const auto = root.querySelector('.auto-chip') as HTMLButtonElement;
         this.fleetList.appendChild(root);
-        refs = { root, badge, name, status, water };
+        refs = { root, badge, name, status, water, waterFill, auto };
         this.fleetRows.set(unit.id, refs);
         if (unit.mutualAid) root.classList.add('arrived');
       }
@@ -760,10 +813,26 @@ export class Hud {
       refs.root.classList.toggle('selected', unit.selected);
       refs.root.classList.toggle('out-of-service', unit.outOfService > 0);
       refs.root.classList.toggle('heat', unit.exposure > 0.25 && unit.outOfService <= 0);
+      refs.root.classList.toggle('refilling', unit.refill !== null);
       refs.badge.className = `unit-badge ${kindClass}`;
-      refs.name.textContent = unit.mutualAid ? `${unit.name} · aid` : unit.name;
-      refs.status.textContent = unit.exposure > 0.25 && unit.outOfService <= 0 ? `HEAT ${Math.round(unit.exposure * 100)}% · ${unit.status}` : unit.status;
-      refs.water.textContent = unit.capacity > 0 ? `${Math.round(ratio * 100)}%` : '—';
+      const name = unit.mutualAid ? `${unit.name} · aid` : unit.name;
+      if (refs.name.textContent !== name) refs.name.textContent = name;
+      const status =
+        unit.exposure > 0.25 && unit.outOfService <= 0 ? `HEAT ${Math.round(unit.exposure * 100)}% · ${unit.status}` : unit.status;
+      if (refs.status.textContent !== status) refs.status.textContent = status;
+      const waterText = unit.capacity > 0 ? `${Math.round(ratio * 100)}%` : '—';
+      if (refs.water.textContent !== waterText) refs.water.textContent = waterText;
+      refs.waterFill.style.width = `${Math.round(ratio * 100)}%`;
+      refs.waterFill.parentElement!.style.visibility = unit.capacity > 0 ? 'visible' : 'hidden';
+      refs.waterFill.classList.toggle('low', unit.capacity > 0 && ratio < 0.25);
+      const pressed = String(unit.auto);
+      if (refs.auto.getAttribute('aria-pressed') !== pressed) {
+        refs.auto.setAttribute('aria-pressed', pressed);
+        refs.auto.textContent = unit.auto ? 'AUTO' : 'MANUAL';
+        refs.auto.title = unit.auto
+          ? 'On auto-dispatch: the dispatcher sends this unit to fires. Click for manual control.'
+          : 'Manual: only your orders move this unit. Click to hand it to auto-dispatch.';
+      }
     }
   }
 
@@ -830,6 +899,13 @@ export class Hud {
         </div>
         <div class="unit-actions">
           ${primary}
+          ${
+            unit.capacity > 0
+              ? `<button type="button" class="secondary-button water" data-unit-action="refill" data-unit-id="${unit.id}">${
+                  unit.kind === 'firetruck' ? 'Refill at hydrant' : isAir && unit.kind === 'helicopter' ? 'Refill (lake / pad)' : 'Reload at pad'
+                }</button>`
+              : ''
+          }
           <button type="button" class="secondary-button" data-unit-action="home" data-unit-id="${unit.id}">Return to base</button>
           <button type="button" class="secondary-button" data-unit-action="hold" data-unit-id="${unit.id}">Hold</button>
         </div>
@@ -916,72 +992,263 @@ export class Hud {
     }
   }
 
+  /** Camera yaw and visible ground quad (TL, TR, BR, BL) for the minimap. */
+  setCameraView(yaw: number, footprint: ReadonlyArray<{ x: number; z: number }>): void {
+    this.cameraYaw = yaw;
+    this.cameraFootprint.length = 0;
+    for (const point of footprint) this.cameraFootprint.push({ x: point.x, z: point.z });
+  }
+
+  /**
+   * Minimap geometry. The map turns with the camera so "up" on the minimap is
+   * always "up" on screen; it is drawn inside a circle so the whole square
+   * map stays visible at any yaw.
+   */
+  private minimapFrame(): { cx: number; cy: number; radius: number; scale: number; cos: number; sin: number } {
+    const size = this.minimap.width;
+    const radius = size / 2 - Math.round(size * 0.055);
+    return {
+      cx: size / 2,
+      cy: size / 2,
+      radius,
+      scale: (radius * 2) / (WORLD_SIZE * Math.SQRT2),
+      cos: Math.cos(this.cameraYaw),
+      sin: Math.sin(this.cameraYaw),
+    };
+  }
+
+  private worldToMinimap(x: number, z: number, frame = this.minimapFrame()): { x: number; y: number } {
+    const dx = x - WORLD_SIZE / 2;
+    const dz = z - WORLD_SIZE / 2;
+    return {
+      x: frame.cx + (dx * frame.cos - dz * frame.sin) * frame.scale,
+      y: frame.cy + (dx * frame.sin + dz * frame.cos) * frame.scale,
+    };
+  }
+
+  private minimapToWorld(px: number, py: number): { x: number; z: number } {
+    const frame = this.minimapFrame();
+    const rx = (px - frame.cx) / frame.scale;
+    const ry = (py - frame.cy) / frame.scale;
+    return {
+      x: WORLD_SIZE / 2 + rx * frame.cos + ry * frame.sin,
+      z: WORLD_SIZE / 2 - rx * frame.sin + ry * frame.cos,
+    };
+  }
+
+  /** The "N" marker on the minimap ring; clicking it turns the camera north. */
+  private northBadge(): { x: number; y: number; r: number } {
+    const frame = this.minimapFrame();
+    const ring = frame.radius + (this.minimap.width / 2 - frame.radius) * 0.5;
+    return {
+      x: frame.cx + Math.sin(this.cameraYaw) * ring,
+      y: frame.cy - Math.cos(this.cameraYaw) * ring,
+      r: Math.max(6, this.minimap.width * 0.04),
+    };
+  }
+
   private drawMinimap(state: HudState): void {
-    const ctx = this.minimapContext;
-    const w = this.minimap.width;
-    const h = this.minimap.height;
-    ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(this.baseMap, 0, 0, w, h);
-    const scale = w / GRID_SIZE;
-    for (let i = 0; i < this.fire.state.length; i += 1) {
-      const fireState = this.fire.state[i];
-      if (fireState === 0) continue;
-      const tx = i % GRID_SIZE;
-      const tz = Math.floor(i / GRID_SIZE);
-      const controlled = (this.fire.controlled[i] ?? 0) > 0;
-      if (fireState === 1 || fireState === 2) {
-        ctx.fillStyle = controlled ? '#ffb347' : '#ff5a24';
-      } else if (fireState === 3) {
-        ctx.fillStyle = '#7a3a2a';
-      } else if (fireState === 4) {
-        ctx.fillStyle = controlled ? '#3d3127' : '#2b2520';
-      } else {
-        ctx.fillStyle = '#d8c79a';
-      }
-      ctx.fillRect(tx * scale, tz * scale, scale, scale);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const cssSize = this.minimap.clientWidth || 220;
+    const size = Math.round(cssSize * dpr);
+    if (this.minimap.width !== size) {
+      this.minimap.width = size;
+      this.minimap.height = size;
     }
+    const ctx = this.minimapContext;
+    const frame = this.minimapFrame();
+    const px = dpr;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+
+    // Radar disc and ring.
+    ctx.fillStyle = '#121a12';
+    ctx.beginPath();
+    ctx.arc(frame.cx, frame.cy, frame.radius + 1 * px, 0, Math.PI * 2);
+    ctx.fill();
+
+    this.paintFireMap();
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(frame.cx, frame.cy, frame.radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.translate(frame.cx, frame.cy);
+    ctx.rotate(this.cameraYaw);
+    ctx.scale(frame.scale, frame.scale);
+    ctx.translate(-WORLD_SIZE / 2, -WORLD_SIZE / 2);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.baseMap, 0, 0, WORLD_SIZE, WORLD_SIZE);
+    ctx.drawImage(this.fireMap, 0, 0, WORLD_SIZE, WORLD_SIZE);
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(frame.cx, frame.cy, frame.radius, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Hydrants: every refill point, so the map teaches where engines top up.
+    this.refreshHydrantPoints();
+    ctx.fillStyle = 'rgba(111, 228, 255, 0.85)';
+    const hydrantSize = 1.7 * px;
+    for (const hydrant of this.hydrantPoints) {
+      const p = this.worldToMinimap(hydrant.x, hydrant.z, frame);
+      ctx.fillRect(p.x - hydrantSize / 2, p.y - hydrantSize / 2, hydrantSize, hydrantSize);
+    }
+
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
     if (this.threatened.size > 0) {
       ctx.strokeStyle = `rgba(255, 92, 70, ${0.55 + pulse * 0.45})`;
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 1.6 * px;
       for (const building of this.world.buildings.buildings) {
         if (!this.threatened.has(building.id)) continue;
-        ctx.strokeRect(building.x0 * scale - 1.5, building.z0 * scale - 1.5, building.worldW * scale + 3, building.worldD * scale + 3);
+        const x0 = building.x0 * TILE_SIZE - 1.5;
+        const z0 = building.z0 * TILE_SIZE - 1.5;
+        const x1 = (building.x0 + building.worldW) * TILE_SIZE + 1.5;
+        const z1 = (building.z0 + building.worldD) * TILE_SIZE + 1.5;
+        this.tracePolygon(ctx, [
+          [x0, z0],
+          [x1, z0],
+          [x1, z1],
+          [x0, z1],
+        ], frame);
+        ctx.stroke();
       }
     }
     for (const incident of state.incidents) {
       if (incident.resolved) continue;
+      const p = this.worldToMinimap(incident.x, incident.z, frame);
       ctx.strokeStyle = '#ffd37a';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.5 * px;
       ctx.beginPath();
-      ctx.arc((incident.tx + 0.5) * scale, (incident.tz + 0.5) * scale, 4 + Math.sin(performance.now() / 240 + incident.id) * 1.2, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, (4 + Math.sin(performance.now() / 240 + incident.id) * 1.2) * px, 0, Math.PI * 2);
       ctx.stroke();
     }
+
+    // Engines heading for a hydrant: a dashed cyan line to the refill point.
+    ctx.setLineDash([3 * px, 2 * px]);
+    ctx.lineWidth = 1.2 * px;
+    ctx.strokeStyle = 'rgba(111, 228, 255, 0.95)';
     for (const unit of state.units) {
+      if (!unit.refill) continue;
+      const a = this.worldToMinimap(unit.x, unit.z, frame);
+      const b = this.worldToMinimap(unit.refill.x, unit.refill.z, frame);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, (unit.refill.filling ? 3.4 + pulse : 3) * px, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    for (const unit of state.units) {
+      const p = this.worldToMinimap(unit.x, unit.z, frame);
+      // Heading in minimap space: world direction (sin h, cos h) turned by the camera yaw.
+      const hx = Math.sin(unit.heading);
+      const hz = Math.cos(unit.heading);
+      const dirX = hx * frame.cos - hz * frame.sin;
+      const dirY = hx * frame.sin + hz * frame.cos;
+      const r = (unit.selected ? 4.4 : 3.4) * px;
       ctx.fillStyle = unit.kind === 'helicopter' || unit.kind === 'tanker' ? '#7ed7ea' : unit.kind === 'dozer' ? '#e9c04c' : '#ef6a5b';
       if (unit.outOfService > 0) ctx.fillStyle = '#8b8b80';
-      const x = (unit.x / TILE_SIZE) * scale;
-      const y = (unit.z / TILE_SIZE) * scale;
       ctx.beginPath();
-      ctx.arc(x, y, unit.selected ? 3.4 : 2.4, 0, Math.PI * 2);
+      ctx.moveTo(p.x + dirX * r, p.y + dirY * r);
+      ctx.lineTo(p.x - dirX * r * 0.7 - dirY * r * 0.7, p.y - dirY * r * 0.7 + dirX * r * 0.7);
+      ctx.lineTo(p.x - dirX * r * 0.7 + dirY * r * 0.7, p.y - dirY * r * 0.7 - dirX * r * 0.7);
+      ctx.closePath();
       ctx.fill();
-      if (unit.selected) {
-        ctx.strokeStyle = '#fff6da';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-      }
+      ctx.strokeStyle = unit.selected ? '#fff6da' : 'rgba(10, 14, 10, 0.75)';
+      ctx.lineWidth = (unit.selected ? 1.4 : 0.8) * px;
+      ctx.stroke();
     }
-    ctx.strokeStyle = 'rgba(255, 244, 210, 0.55)';
-    ctx.lineWidth = 1;
-    const viewWidth = ((this.lastCameraView?.width ?? 66) / WORLD_SIZE) * w;
-    const viewHeight = ((this.lastCameraView?.height ?? 66) / WORLD_SIZE) * h;
-    const cx = ((this.lastCameraView?.x ?? WORLD_SIZE / 2) / WORLD_SIZE) * w;
-    const cy = ((this.lastCameraView?.z ?? WORLD_SIZE / 2) / WORLD_SIZE) * h;
-    ctx.strokeRect(cx - viewWidth / 2, cy - viewHeight / 2, viewWidth, viewHeight);
+
+    // What the main view shows: the exact ground quad under the screen, with
+    // the screen's top edge drawn heavier.
+    if (this.cameraFootprint.length === 4) {
+      const corners = this.cameraFootprint.map((point) => [point.x, point.z] as [number, number]);
+      ctx.fillStyle = 'rgba(255, 244, 210, 0.07)';
+      this.tracePolygon(ctx, corners, frame);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 244, 210, 0.7)';
+      ctx.lineWidth = 1 * px;
+      ctx.stroke();
+      const tl = this.worldToMinimap(corners[0]![0], corners[0]![1], frame);
+      const tr = this.worldToMinimap(corners[1]![0], corners[1]![1], frame);
+      ctx.strokeStyle = 'rgba(255, 244, 210, 0.95)';
+      ctx.lineWidth = 2.2 * px;
+      ctx.beginPath();
+      ctx.moveTo(tl.x, tl.y);
+      ctx.lineTo(tr.x, tr.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(239, 220, 176, 0.32)';
+    ctx.lineWidth = 1 * px;
+    ctx.beginPath();
+    ctx.arc(frame.cx, frame.cy, frame.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const north = this.northBadge();
+    ctx.fillStyle = '#1c241b';
+    ctx.strokeStyle = '#f1b34d';
+    ctx.lineWidth = 1.2 * px;
+    ctx.beginPath();
+    ctx.arc(north.x, north.y, north.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#f1b34d';
+    ctx.font = `600 ${Math.round(north.r * 1.15)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N', north.x, north.y + north.r * 0.06);
   }
 
-  lastCameraView: { x: number; z: number; width: number; height: number } | null = null;
+  private tracePolygon(
+    ctx: CanvasRenderingContext2D,
+    points: ReadonlyArray<readonly [number, number]>,
+    frame: ReturnType<Hud['minimapFrame']>,
+  ): void {
+    ctx.beginPath();
+    points.forEach(([x, z], i) => {
+      const p = this.worldToMinimap(x, z, frame);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+  }
+
+  /** Burning, burned and cleared tiles into the 96×96 overlay. */
+  private paintFireMap(): void {
+    const image = this.fireImage;
+    const ctx = this.fireMap.getContext('2d');
+    if (!image || !ctx) return;
+    const pixels = new Uint32Array(image.data.buffer);
+    const state = this.fire.state;
+    const controlled = this.fire.controlled;
+    for (let i = 0; i < pixels.length; i += 1) {
+      const fireState = state[i] ?? 0;
+      if (fireState === 0) {
+        pixels[i] = 0;
+        continue;
+      }
+      const isControlled = (controlled[i] ?? 0) > 0;
+      if (fireState === 1 || fireState === 2) pixels[i] = isControlled ? FIRE_RGBA.controlled : FIRE_RGBA.burning;
+      else if (fireState === 3) pixels[i] = FIRE_RGBA.smoldering;
+      else if (fireState === 4) pixels[i] = isControlled ? FIRE_RGBA.backburned : FIRE_RGBA.burned;
+      else pixels[i] = FIRE_RGBA.cleared;
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+
+  private refreshHydrantPoints(): void {
+    const hydrants = this.world.hydrants.hydrants;
+    const key = `${hydrants.length}:${hydrants[0]?.x ?? 0}:${hydrants[hydrants.length - 1]?.z ?? 0}`;
+    if (key === this.hydrantsKey) return;
+    this.hydrantsKey = key;
+    this.hydrantPoints = hydrants.map((hydrant) => ({ x: hydrant.x, z: hydrant.z }));
+  }
 
   private getElement<T extends HTMLElement = HTMLElement>(selector: string): T {
     const element = this.root.querySelector<T>(selector);
@@ -989,6 +1256,20 @@ export class Hud {
     return element;
   }
 }
+
+/** Packs an sRGB colour and alpha into the little-endian RGBA word ImageData uses. */
+function rgba(hex: number, alpha = 255): number {
+  return ((alpha << 24) | ((hex & 0xff) << 16) | (hex & 0xff00) | ((hex >> 16) & 0xff)) >>> 0;
+}
+
+const FIRE_RGBA = {
+  burning: rgba(0xff5a24),
+  controlled: rgba(0xffb347),
+  smoldering: rgba(0x7a3a2a),
+  burned: rgba(0x2b2520),
+  backburned: rgba(0x3d3127),
+  cleared: rgba(0xd8c79a),
+};
 
 function kindLabel(kind: string): string {
   switch (kind) {
@@ -1006,7 +1287,7 @@ function kindLabel(kind: string): string {
 function unitTip(kind: string): string {
   switch (kind) {
     case 'firetruck':
-      return 'Road-bound. Parks within hose reach, beside a hydrant when it can. Right-click a fire to attack it.';
+      return 'Road-bound, 4,000 L tank. When it runs dry it drives to the nearest hydrant (blue marker) and refills in seconds; parked beside one it never runs dry. Right-click a fire to attack it.';
     case 'dozer':
       return 'Press L and click two points to cut a line. Keep it out of the flames: burnovers take it out of service.';
     case 'helicopter':

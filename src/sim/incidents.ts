@@ -22,7 +22,6 @@ const SPOT_SWEEP_SECONDS = 2;
 
 export class IncidentSystem {
   readonly incidents: Incident[] = [];
-  autoDispatch = true;
   onResolved: ((incident: Incident) => void) | null = null;
   /** Called when the lookout finds wildfire that no incident is tracking. */
   onSpotDetected: ((incident: Incident) => void) | null = null;
@@ -84,12 +83,11 @@ export class IncidentSystem {
       this.sweepForSpotFires();
     }
 
-    if (this.autoDispatch) {
-      this.dispatchTimer -= dt;
-      if (this.dispatchTimer <= 0) {
-        this.dispatchTimer = 1.15;
-        this.runAutoDispatch(fleet);
-      }
+    // Auto-dispatch only ever claims units whose AUTO toggle is on.
+    this.dispatchTimer -= dt;
+    if (this.dispatchTimer <= 0) {
+      this.dispatchTimer = 1.15;
+      this.runAutoDispatch(fleet);
     }
   }
 
@@ -196,36 +194,36 @@ export class IncidentSystem {
       if (assigned >= MAX_AUTO_UNITS) continue;
       const kinds = fleet.assignedKinds(incident.id);
       if (assigned === 0) {
-        if (fleet.bestIdle(incident, 'ground')) {
-          if (fleet.assignBest(incident, 'ground')) this.registerAssignment(incident, fleet);
-        } else if (fleet.assignBest(incident, 'air')) {
+        if (fleet.bestIdle(incident, 'ground', true)) {
+          if (fleet.assignBest(incident, 'ground', true)) this.registerAssignment(incident, fleet);
+        } else if (fleet.assignBest(incident, 'air', true)) {
           this.registerAssignment(incident, fleet);
         }
         continue;
       }
       if (assigned < 3 && !kinds.has('firetruck') && incident.severity >= 6) {
-        if (fleet.assignBest(incident, 'ground')) this.registerAssignment(incident, fleet);
+        if (fleet.assignBest(incident, 'ground', true)) this.registerAssignment(incident, fleet);
       }
       if (assigned < 3 && incident.severity >= 12 && !kinds.has('helicopter') && !kinds.has('tanker')) {
-        if (fleet.assignBest(incident, 'air')) this.registerAssignment(incident, fleet);
+        if (fleet.assignBest(incident, 'air', true)) this.registerAssignment(incident, fleet);
       }
       if (assigned < 3 && incident.severity >= 28 && !kinds.has('dozer')) {
-        if (fleet.assignBest(incident, 'dozer')) this.registerAssignment(incident, fleet);
+        if (fleet.assignBest(incident, 'dozer', true)) this.registerAssignment(incident, fleet);
       }
       // Nothing on the roads can reach this fire: it is air and dozer work.
-      if (!fleet.assignedKinds(incident.id).has('firetruck') && fleet.bestIdle(incident, 'ground') === null) {
+      if (!fleet.assignedKinds(incident.id).has('firetruck') && fleet.bestIdle(incident, 'ground', true) === null) {
         const airborne = fleet.units.filter(
           (unit) => unit.incidentId === incident.id && unit.state !== 'idle' && (unit.kind === 'helicopter' || unit.kind === 'tanker'),
         ).length;
         if (airborne < 2 && incident.severity >= 3 && fleet.assignedCount(incident.id) < MAX_AUTO_UNITS) {
-          if (fleet.assignBest(incident, 'air')) this.registerAssignment(incident, fleet);
+          if (fleet.assignBest(incident, 'air', true)) this.registerAssignment(incident, fleet);
         }
         if (
           incident.severity >= 10 &&
           !fleet.assignedKinds(incident.id).has('dozer') &&
           fleet.assignedCount(incident.id) < MAX_AUTO_UNITS
         ) {
-          if (fleet.assignBest(incident, 'dozer')) this.registerAssignment(incident, fleet);
+          if (fleet.assignBest(incident, 'dozer', true)) this.registerAssignment(incident, fleet);
         }
       }
       // A large fire gets a second engine once the first wave is committed.
@@ -235,7 +233,7 @@ export class IncidentSystem {
         incident.severity >= 20 &&
         this.activeIncidents.length === 1
       ) {
-        if (fleet.assignBest(incident, 'ground')) this.registerAssignment(incident, fleet);
+        if (fleet.assignBest(incident, 'ground', true)) this.registerAssignment(incident, fleet);
       }
     }
   }

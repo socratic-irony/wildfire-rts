@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented: five-unit home fleet plus up to three mutual-aid units, road movement with exact step-size-independent path following, off-road dozer movement with fire avoidance, direct air flight, water/retardant/fireline abilities, tank limits, station/hydrant/helipad refills, helicopter lake dips, hydrant feed, reach-aware engine attack positions, player-drawn dozer lines, burnover exposure and out-of-service time, incident tracking, lookout spot-fire detection, auto dispatch, manual dispatch, direct attack orders, aircraft head targeting, UI snapshots. Outstanding: collision avoidance, persistent lane graph, hand crews, hydrant damage, fire-aware engine routing.
+Implemented: five-unit home fleet plus up to three mutual-aid units, road movement with exact step-size-independent path following, off-road dozer movement with fire avoidance, direct air flight, water/retardant/fireline abilities, tank limits, station/hydrant/helipad refills, helicopter lake dips, hydrant feed, reach-aware engine attack positions, player-drawn dozer lines, burnover exposure and out-of-service time, incident tracking, lookout spot-fire detection, per-unit auto dispatch, manual dispatch, direct attack orders, manual refill orders, hydrant refill visuals, aircraft head targeting, UI snapshots. Outstanding: collision avoidance, persistent lane graph, hand crews, hydrant damage, fire-aware engine routing.
 
 ## Fleet
 
@@ -67,6 +67,8 @@ Ground units standing on a burning or igniting tile accumulate `exposure` at `0.
 
 - Engines spray 62 L/s. Hydrant-fed engines do not drain their tank and get 1.15× suppression power.
 - When empty, an engine chooses the nearest of the six closest hydrants that has a valid road path from its current road tile. If it finishes its route without reaching the hydrant, it falls back to the station.
+- **Refill** on the selected-unit panel (`Fleet.orderRefill`) sends a unit to top up now: engines to the nearest reachable hydrant (else the station), helicopters to the lake or pad, tankers to the pad. A manual engine that fills at a hydrant holds there ("Full — holding at hydrant"); an auto engine returns to the station as before.
+- Making the loop visible: every hydrant has a faint cyan ground ring that brightens while an engine is selected or any engine is below 30%; the hydrant an engine is driving to gets a pulsing ring; an engine filling at a hydrant, or fed by one while it sprays, shows a hose from the hydrant to the truck (pooled meshes, no per-step allocation). The minimap draws hydrants and a dashed line from each refilling engine to its hydrant; the fleet row's water bar pulses cyan while filling. The first two hydrant refills of a shift raise a toast naming the sector (`FleetEvent 'hydrantRefill'`).
 - Hydrant refill rate: 620 L/s. Station refill uses the same pool.
 - Aircraft refill at the helipad (heli 900 L/s, tanker 1,200 L/s); helicopters may dip from the lake instead (above).
 - The selected-unit HUD reports hydrant feed; a cyan line connects the unit to the source.
@@ -82,7 +84,16 @@ Ground units standing on a burning or igniting tile accumulate `exposure` at `0.
 
 ## Dispatch
 
-Auto dispatch runs every 1.15 s while enabled:
+### Auto or manual, per unit
+
+Every unit carries an `auto` flag (default on), shown as an **AUTO / MANUAL** chip on its fleet row. Auto-dispatch only ever claims units whose flag is on; manual units move only on the player's orders.
+
+- The **ALL AUTO** switch in the fleet panel heading sets every unit, and becomes the default for mutual aid that arrives later (`Fleet.setAllAuto`, `Fleet.autoDefault`). It shows as indeterminate when the fleet is mixed (`Fleet.autoMode`).
+- Any direct order (right-click move or attack, **Attack nearest**, **Hold**, **Return to base**, **Refill**, or a player-drawn dozer line) switches that unit to manual, with a toast, so the dispatcher never undoes the order. Flip the chip to hand it back.
+- The incident card's **DISPATCH** button is the player choosing "send someone": it uses the same best-available policy over idle units whatever their flag, and does not change any flag.
+- An auto unit counts as free when it is `idle`, or `holding` (it was switched back to auto after a manual order left it parked).
+
+Auto dispatch runs every 1.15 s:
 
 1. Sort unresolved incidents by severity.
 2. Empty incident: send a reachable engine if one exists, otherwise an aircraft.
@@ -92,19 +103,20 @@ Auto dispatch runs every 1.15 s while enabled:
 6. No engine assigned and none can reach the fire by road: add aircraft until two are on it (severity ≥ 3), and the dozer at severity ≥ 10. These fires are air and dozer work.
 7. Cap at four units per incident.
 
-Eligibility: idle, in service, sufficient payload, and (for engines) a road connection (`RoadNetwork.connected`) to a tile within hose reach of the fire. Manual dispatch forces the same best-available policy. Direct orders bypass auto dispatch until the incident resolves or the unit is recalled.
+Eligibility: on auto, free (above), in service, sufficient payload, and (for engines) a road connection (`RoadNetwork.connected`) to a tile within hose reach of the fire. Step 6 asks whether an auto engine can reach the fire, so a fire that only manual engines could reach still gets aircraft. Manual dispatch (the card button) forces the same best-available policy over idle units regardless of the flag.
 
 ## UI actions
 
 - Select a unit in the world or in the fleet list; `Tab` cycles units and clicking a selected unit's card again centres the camera on it.
 - Right click to move; right click a burning tile to attack.
 - Incident card **DISPATCH** adds a unit.
-- Selected unit panel: **Attack nearest** (dozers: **Draw line**), **Return to base**, **Hold**.
+- Selected unit panel: **Attack nearest** (dozers: **Draw line**), **Refill** (units with a tank), **Return to base**, **Hold**.
+- Fleet list: per-unit **AUTO / MANUAL** chip and **ALL AUTO** master switch.
 - Fleet panel: **Mutual aid** buttons with cost, remaining count, and pending ETAs.
 
 ## Events
 
-`Fleet.onEvent(event, x, z)` reports `waterDrop`, `retardant`, `dip`, `burnover`, and `lineDone` so the game can play sound and shake the camera.
+`Fleet.onEvent(event, x, z, unitId?)` reports `waterDrop`, `retardant`, `dip`, `burnover`, `lineDone`, and `hydrantRefill` so the game can play sound, shake the camera, or explain what a unit is doing.
 
 ## Outstanding
 

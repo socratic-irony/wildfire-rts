@@ -1,13 +1,12 @@
 import {
-  BufferGeometry,
+  CylinderGeometry,
   DoubleSide,
-  Float32BufferAttribute,
   Group,
-  Line,
-  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   RingGeometry,
+  Vector3,
 } from 'three';
 import { angleLerp, clamp, distance } from '../core/math';
 import { GRID_SIZE, TILE_SIZE, tileIndex, tileToWorld, worldToTile } from '../world/constants';
@@ -124,6 +123,8 @@ interface Unit {
   mutualAid: boolean;
   /** Seconds until a dozer next checks its route for fire. */
   hazardTimer: number;
+  /** Auto-dispatch may claim this unit whenever it is free. */
+  auto: boolean;
 }
 
 /** Hose reach in world units. */
@@ -158,16 +159,33 @@ function isAirKind(kind: UnitKind): boolean {
 }
 
 export type LineOrderResult = { ok: boolean; message: string; unitId?: number };
-export type FleetEvent = 'waterDrop' | 'retardant' | 'burnover' | 'lineDone' | 'dip';
+export type FleetEvent = 'waterDrop' | 'retardant' | 'burnover' | 'lineDone' | 'dip' | 'hydrantRefill';
 
 export class Fleet {
   readonly group = new Group();
   readonly units: Unit[] = [];
   /** Notified of moments worth a sound or a screen shake. */
-  onEvent: ((event: FleetEvent, x: number, z: number) => void) | null = null;
+  onEvent: ((event: FleetEvent, x: number, z: number, unitId?: number) => void) | null = null;
   private readonly selectionRing: Mesh;
   private readonly destinationRing: Mesh;
-  private readonly hydrantLine: Line;
+  /** Hoses from a hydrant to each engine filling from or fed by it. */
+  private readonly hoses: Mesh[] = [];
+  /** Pulsing rings on hydrants that engines are driving to or filling from. */
+  private readonly refillRings: Mesh[] = [];
+  private readonly hoseGroup = new Group();
+  private readonly hoseGeometry = new CylinderGeometry(0.045, 0.045, 1, 6).translate(0, 0.5, 0).rotateX(Math.PI / 2);
+  private readonly hoseMaterial = new MeshStandardMaterial({ color: 0xd8c27a, roughness: 0.7, emissive: 0x2a2208 });
+  private readonly refillRingGeometry = new RingGeometry(0.6, 0.82, 24).rotateX(-Math.PI / 2);
+  private readonly refillRingMaterial = new MeshBasicMaterial({
+    color: 0x9cf0ff,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+    side: DoubleSide,
+    toneMapped: false,
+  });
+  private readonly hoseFrom = new Vector3();
+  private readonly hoseTo = new Vector3();
   private selectedId: number | null = null;
   private time = 0;
   private readonly scratchTarget = { x: 0, z: 0 };
@@ -175,6 +193,8 @@ export class Fleet {
   private readonly waterPoints: Array<{ x: number; z: number }> = [];
   private readonly mutualAidCount: Record<UnitKind, number> = { firetruck: 0, dozer: 0, helicopter: 0, tanker: 0 };
   private readonly attackCache = new Map<string, { time: number; positions: Array<{ x: number; z: number; score: number }> }>();
+  /** Auto setting given to units that join the fleet (mutual aid). */
+  autoDefault = true;
 
   constructor(
     private readonly world: World,
@@ -234,12 +254,8 @@ export class Fleet {
     this.destinationRing.visible = false;
     this.destinationRing.name = 'destination-ring';
 
-    const hydrantGeometry = new BufferGeometry();
-    hydrantGeometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
-    this.hydrantLine = new Line(hydrantGeometry, new LineBasicMaterial({ color: 0x6fe4ff, transparent: true, opacity: 0.8 }));
-    this.hydrantLine.visible = false;
-    this.hydrantLine.name = 'hydrant-link';
-    this.group.add(this.selectionRing, this.destinationRing, this.hydrantLine);
+    this.hoseGroup.name = 'hydrant-hoses';
+    this.group.add(this.selectionRing, this.destinationRing, this.hoseGroup);
   }
 
   private spawn(kind: UnitKind, name: string, x: number, z: number, mutualAid: boolean): Unit {
@@ -296,6 +312,7 @@ export class Fleet {
       outOfService: 0,
       mutualAid,
       hazardTimer: 0,
+      auto: this.autoDefault,
     };
     group.position.set(x, y, z);
     group.scale.setScalar(1.3);
@@ -366,7 +383,36 @@ export class Fleet {
       outOfService: unit.outOfService,
       exposure: unit.exposure,
       mutualAid: unit.mutualAid,
+      auto: unit.auto,
+      heading: unit.heading,
+      refill: this.refillSnapshot(unit),
     }));
+  }
+
+  private refillSnapshot(unit: Unit): { x: number; z: number; filling: boolean } | null {
+    if (unit.state !== 'refilling' || unit.refillMode !== 'hydrant' || unit.refillHydrantId === null) return null;
+    const hydrant = this.world.hydrants.byId(unit.refillHydrantId);
+    if (!hydrant) return null;
+    return { x: hydrant.x, z: hydrant.z, filling: unit.status === 'Refilling at hydrant' };
+  }
+
+  /** Let auto-dispatch claim a unit (or stop it from doing so). */
+  setAuto(unitId: number, enabled: boolean): void {
+    const unit = this.unitById(unitId);
+    if (unit) unit.auto = enabled;
+  }
+
+  /** Put every unit, and units that arrive later, on auto or manual. */
+  setAllAuto(enabled: boolean): void {
+    this.autoDefault = enabled;
+    for (const unit of this.units) unit.auto = enabled;
+  }
+
+  /** 'all' when every unit is on auto, 'none' when none are, otherwise 'some'. */
+  get autoMode(): 'all' | 'some' | 'none' {
+    let on = 0;
+    for (const unit of this.units) if (unit.auto) on += 1;
+    return on === this.units.length ? 'all' : on === 0 ? 'none' : 'some';
   }
 
   get selectedUnit(): Unit | null {
@@ -423,10 +469,23 @@ export class Fleet {
     return kinds;
   }
 
-  bestIdle(incident: IncidentView, category: 'ground' | 'air' | 'dozer' | 'any'): { id: number; kind: UnitKind; distance: number } | null {
+  /**
+   * Nearest free unit of a category that can work the incident. With
+   * `autoOnly`, only units on auto are considered, and an auto unit left
+   * holding (it was switched back to auto after a manual order) counts as free.
+   */
+  bestIdle(
+    incident: IncidentView,
+    category: 'ground' | 'air' | 'dozer' | 'any',
+    autoOnly = false,
+  ): { id: number; kind: UnitKind; distance: number } | null {
     let best: { id: number; kind: UnitKind; distance: number } | null = null;
     for (const unit of this.units) {
-      if (unit.state !== 'idle' || unit.outOfService > 0) continue;
+      if (unit.outOfService > 0) continue;
+      if (autoOnly) {
+        if (!unit.auto) continue;
+        if (unit.state !== 'idle' && unit.state !== 'holding') continue;
+      } else if (unit.state !== 'idle') continue;
       if (unit.kind === 'firetruck') {
         if (category === 'air' || category === 'dozer') continue;
         if (unit.water < 80) continue;
@@ -443,8 +502,8 @@ export class Fleet {
     return best;
   }
 
-  assignBest(incident: IncidentView, category: 'ground' | 'air' | 'dozer' | 'any'): boolean {
-    const best = this.bestIdle(incident, category);
+  assignBest(incident: IncidentView, category: 'ground' | 'air' | 'dozer' | 'any', autoOnly = false): boolean {
+    const best = this.bestIdle(incident, category, autoOnly);
     if (!best) return false;
     this.assignToIncident(best.id, incident);
     return true;
@@ -563,6 +622,38 @@ export class Fleet {
       unit.repathTimer = 0;
       if (!this.planHomePath(unit)) unit.repathTimer = REPATH_RETRY;
     }
+  }
+
+  /** Send a unit to top up now: engines to the nearest reachable hydrant, aircraft to water or the pad. */
+  orderRefill(unitId: number): { ok: boolean; message: string } {
+    const unit = this.unitById(unitId);
+    if (!unit) return { ok: false, message: 'No such unit.' };
+    if (unit.capacity <= 0) return { ok: false, message: `${unit.name} has no tank to fill.` };
+    if (unit.outOfService > 0) return { ok: false, message: `${unit.name} is out of service after a burnover.` };
+    if (unit.water >= unit.capacity - 1) return { ok: false, message: `${unit.name} is already full.` };
+    unit.incidentId = null;
+    unit.manualTarget = null;
+    unit.lineTask = null;
+    unit.refillTarget = null;
+    if (isAirKind(unit.kind)) {
+      if (unit.kind === 'helicopter') this.beginAirRefill(unit);
+      else {
+        unit.state = 'returning';
+        unit.status = 'Returning to helipad';
+      }
+      return {
+        ok: true,
+        message: unit.refillMode === 'water' ? `${unit.name} dipping at the lake.` : `${unit.name} returning to the helipad to reload.`,
+      };
+    }
+    this.beginRefill(unit);
+    return {
+      ok: true,
+      message:
+        unit.refillMode === 'hydrant'
+          ? `${unit.name} driving to the nearest hydrant to refill.`
+          : `${unit.name} has no hydrant on its road network; returning to the station.`,
+    };
   }
 
   hold(unitId: number): void {
@@ -722,7 +813,7 @@ export class Fleet {
       const target = unit.manualTarget;
       if (target) this.flyTo(unit, target.x, target.z, dt, true);
       unit.status = 'Holding orbit';
-    } else if (!unit.status.startsWith('Line ')) {
+    } else if (!unit.status.startsWith('Line ') && !unit.status.startsWith('Full ')) {
       unit.status = 'Holding position';
     }
     // Ground units at station slowly top off, so holding near the station stays useful.
@@ -1033,6 +1124,10 @@ export class Fleet {
     } else if (isAirKind(unit.kind) && unit.dip > 0) {
       unit.state = 'returning';
       unit.status = 'Returning to helipad';
+    } else if (!unit.auto && !isAirKind(unit.kind) && readyStatus === 'Ready at hydrant') {
+      // A manual engine stays at the hydrant for its next order.
+      unit.state = 'holding';
+      unit.status = 'Full — holding at hydrant';
     } else {
       unit.state = 'idle';
       unit.status = readyStatus;
@@ -1175,19 +1270,70 @@ export class Fleet {
       this.destinationRing.visible = false;
     }
 
-    const connected = this.units.find((u) => u.hydrantConnected);
-    if (connected) {
-      const hydrant = this.world.hydrants.findNearest(connected.x, connected.z, 5);
-      if (hydrant) {
-        const positions = this.hydrantLine.geometry.getAttribute('position');
-        positions.setXYZ(0, connected.x, connected.y + 0.6, connected.z);
-        positions.setXYZ(1, hydrant.x, this.world.heightmap.heightAt(hydrant.x, hydrant.z) + 0.8, hydrant.z);
-        positions.needsUpdate = true;
-        this.hydrantLine.visible = true;
-        return;
+    this.updateHoses();
+  }
+
+  /**
+   * Show the hydrant link: a ring on every hydrant an engine is heading to,
+   * and a hose to every engine filling from a hydrant or fed by one while it
+   * sprays. Pooled meshes; nothing is allocated per step.
+   */
+  private updateHoses(): void {
+    let hoses = 0;
+    let rings = 0;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 5);
+    for (const unit of this.units) {
+      if (unit.kind !== 'firetruck') continue;
+      let hydrant = null;
+      let filling = false;
+      if (unit.state === 'refilling' && unit.refillMode === 'hydrant' && unit.refillHydrantId !== null) {
+        hydrant = this.world.hydrants.byId(unit.refillHydrantId);
+        filling = unit.status === 'Refilling at hydrant';
+      } else if (unit.hydrantConnected) {
+        hydrant = this.world.hydrants.findNearest(unit.x, unit.z, 5);
+        filling = true;
       }
+      if (!hydrant) continue;
+      const ground = this.world.heightmap.heightAt(hydrant.x, hydrant.z);
+      const ring = this.refillRings[rings] ?? this.addRefillRing();
+      rings += 1;
+      ring.position.set(hydrant.x, ground + 0.09, hydrant.z);
+      ring.scale.setScalar(filling ? 1 : 1 + pulse * 0.35);
+      ring.visible = true;
+      if (!filling) continue;
+      const hose = this.hoses[hoses] ?? this.addHose();
+      hoses += 1;
+      this.hoseFrom.set(hydrant.x, ground + 0.2, hydrant.z);
+      const dx = hydrant.x - unit.x;
+      const dz = hydrant.z - unit.z;
+      const length = Math.hypot(dx, dz) || 1;
+      this.hoseTo.set(unit.x + (dx / length) * 0.38, unit.y + 0.3, unit.z + (dz / length) * 0.38);
+      hose.position.copy(this.hoseFrom);
+      hose.lookAt(this.hoseTo);
+      hose.scale.set(1, 1, this.hoseFrom.distanceTo(this.hoseTo));
+      hose.visible = true;
     }
-    this.hydrantLine.visible = false;
+    for (let i = hoses; i < this.hoses.length; i += 1) this.hoses[i]!.visible = false;
+    for (let i = rings; i < this.refillRings.length; i += 1) this.refillRings[i]!.visible = false;
+    this.refillRingMaterial.opacity = 0.6 + pulse * 0.35;
+  }
+
+  private addHose(): Mesh {
+    const hose = new Mesh(this.hoseGeometry, this.hoseMaterial);
+    hose.name = 'hydrant-hose';
+    hose.castShadow = false;
+    this.hoses.push(hose);
+    this.hoseGroup.add(hose);
+    return hose;
+  }
+
+  private addRefillRing(): Mesh {
+    const ring = new Mesh(this.refillRingGeometry, this.refillRingMaterial);
+    ring.name = 'refill-target';
+    ring.renderOrder = 8;
+    this.refillRings.push(ring);
+    this.hoseGroup.add(ring);
+    return ring;
   }
 
   private updateAnimations(unit: Unit, dt: number): void {
@@ -1392,6 +1538,7 @@ export class Fleet {
           unit.path = path;
           unit.pathIndex = path.length > 1 ? 1 : 0;
           unit.status = 'Driving to hydrant';
+          this.onEvent?.('hydrantRefill', option.hydrant.x, option.hydrant.z, unit.id);
           return;
         }
       }

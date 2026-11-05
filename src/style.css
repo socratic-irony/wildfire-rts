@@ -619,10 +619,81 @@ kbd {
   white-space: nowrap;
 }
 
+.fleet-row {
+  cursor: pointer;
+}
+
 .fleet-water {
+  display: flex;
+  flex: 0 0 34px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
   color: var(--muted);
   font-family: var(--mono);
   font-size: 9px;
+}
+
+.water-bar {
+  position: relative;
+  width: 34px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 246, 218, 0.1);
+}
+
+.water-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: #6fe4ff;
+  transition: width 0.25s linear;
+}
+
+.water-bar i.low {
+  background: #ff9a5c;
+}
+
+.fleet-row.refilling .water-bar i {
+  animation: water-fill 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes water-fill {
+  to {
+    background: #c8f6ff;
+    box-shadow: 0 0 6px rgba(111, 228, 255, 0.8);
+  }
+}
+
+.fleet-row.refilling em {
+  color: #8fe9ff;
+}
+
+.auto-chip {
+  flex: 0 0 auto;
+  min-width: 48px;
+  padding: 3px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-2);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: 140ms ease;
+}
+
+.auto-chip:hover {
+  border-color: rgba(239, 220, 176, 0.5);
+  color: var(--cream-dim);
+}
+
+.auto-chip[aria-pressed='true'] {
+  border-color: rgba(139, 200, 124, 0.55);
+  background: rgba(139, 200, 124, 0.16);
+  color: #b6e3a6;
 }
 
 /* Switch */
@@ -791,8 +862,13 @@ kbd {
 
 .unit-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 11px;
+}
+
+.unit-actions .secondary-button {
+  flex: 1 1 40%;
 }
 
 .secondary-button {
@@ -912,10 +988,8 @@ kbd {
   display: block;
   width: 100%;
   aspect-ratio: 1;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #22301f;
-  image-rendering: pixelated;
+  border: 0;
+  background: transparent;
   cursor: crosshair;
 }
 
@@ -955,7 +1029,8 @@ kbd {
 
 .minimap-legend {
   display: flex;
-  gap: 11px;
+  flex-wrap: wrap;
+  gap: 4px 11px;
   padding-top: 8px;
   color: var(--muted-2);
   font-family: var(--mono);
@@ -1742,6 +1817,11 @@ kbd {
   background: var(--amber);
 }
 
+.legend-dot.hydrant {
+  border-radius: 1px;
+  background: #6fe4ff;
+}
+
 .legend-dot.risk {
   border: 1.5px solid #ff5c46;
   background: transparent;
@@ -1864,6 +1944,11 @@ kbd {
 .secondary-button.accent {
   border-color: rgba(241, 179, 77, 0.45);
   color: var(--amber-bright);
+}
+
+.secondary-button.water {
+  border-color: rgba(111, 228, 255, 0.4);
+  color: #9be9fb;
 }
 
 .secondary-button.wide {

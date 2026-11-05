@@ -29,4 +29,10 @@ export interface UnitSnapshot {
   /** Burnover heat stress, 0..1. */
   exposure: number;
   mutualAid: boolean;
+  /** Auto-dispatch may claim this unit when it is free. */
+  auto: boolean;
+  /** Facing in radians (atan2 of x, z), for minimap arrows. */
+  heading: number;
+  /** Hydrant the engine is driving to or filling from, if any. */
+  refill: { x: number; z: number; filling: boolean } | null;
 }

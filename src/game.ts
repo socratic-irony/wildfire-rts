@@ -52,6 +52,34 @@ const SITUATION_INTERVAL = 0.5;
 /** Minimum simulated seconds between "firebreak holding" reports. */
 const HOLD_REPORT_INTERVAL = 25;
 
+/**
+ * Camera keys by physical position (event.code), so WASD works on AZERTY and
+ * Dvorak layouts and with Shift or Caps Lock held.
+ */
+const CAMERA_KEYS = new Set([
+  'KeyW',
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'KeyQ',
+  'KeyE',
+  'KeyR',
+  'KeyF',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+]);
+
+/** Keyboard focus in a field that takes typing (checkboxes and buttons do not). */
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return true;
+  if (target.tagName !== 'INPUT') return false;
+  const type = (target as HTMLInputElement).type;
+  return type !== 'checkbox' && type !== 'radio' && type !== 'button' && type !== 'range';
+}
+
 /** Fixed simulation step for scenario, incidents, units, and structures. */
 const SIM_STEP = 1 / 30;
 /** Cap on catch-up steps per frame; any larger backlog is dropped. */
@@ -76,6 +104,7 @@ interface TestApi {
   setView: (view: { yaw?: number; pitch?: number; viewSize?: number }) => void;
   focusIncident: (id: number) => void;
   setAutoDispatch: (enabled: boolean) => void;
+  setUnitAuto: (id: number, enabled: boolean) => void;
   buildRoad: (sx: number, sz: number, gx: number, gz: number) => number;
   screenPosition: (tx: number, tz: number) => { x: number; y: number };
   unitScreenPosition: (id: number) => { x: number; y: number } | null;
@@ -117,6 +146,7 @@ export class Game {
   private readonly everThreatened = new Set<number>();
   private readonly savedStructures = new Set<number>();
   private lastHoldReport = -Infinity;
+  private hydrantRefills = 0;
   /** Tiles paved by the player, so "road holding" reports only credit their roads. */
   private readonly playerRoads = new Uint8Array(GRID_SIZE * GRID_SIZE);
   private readonly hints: Hints;
@@ -128,6 +158,7 @@ export class Game {
   private hudTimer = 0;
   private lastFrame = performance.now();
   private keys = new Set<string>();
+  private readonly footprintScratch: Array<{ x: number; z: number }> = [];
   private pointerDown = false;
   private downX = 0;
   private downY = 0;
@@ -192,6 +223,8 @@ export class Game {
         onSpeed: (speed) => this.setSpeed(speed),
         onPause: () => this.togglePause(),
         onAutoDispatch: (enabled) => this.setAutoDispatch(enabled),
+        onUnitAuto: (id, enabled) => this.setUnitAuto(id, enabled),
+        onFaceNorth: () => this.rig.faceNorth(),
         onIncidentFocus: (id) => this.focusIncident(id),
         onIncidentDispatch: (id) => this.dispatchIncident(id),
         onUnitSelect: (id) => this.onFleetRowClick(id),
@@ -236,7 +269,17 @@ export class Game {
     this.scenario.onWindShift = () => {
       this.sound.play('windShift');
     };
-    this.fleet.onEvent = (event) => {
+    this.fleet.onEvent = (event, x, z, unitId) => {
+      if (event === 'hydrantRefill') {
+        // Teach the refill loop the first couple of times it happens.
+        this.hydrantRefills += 1;
+        if (this.hydrantRefills <= 2 && unitId !== undefined) {
+          const unit = this.fleet.unitById(unitId);
+          const where = this.world.sectorName(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE));
+          this.notify(`${unit?.name ?? 'An engine'} is out of water: refilling at the hydrant in ${where} (cyan ring).`, 'info');
+        }
+        return;
+      }
       if (event === 'waterDrop') this.sound.play('drop');
       else if (event === 'retardant') {
         this.sound.play('retardant');
@@ -359,6 +402,9 @@ export class Game {
 
   /** Real-time bookkeeping at HUD cadence: threat visuals, heads, ambience, coaching. */
   private refreshSituation(): void {
+    const selected = this.selectedUnitId !== null ? this.fleet.unitById(this.selectedUnitId) : null;
+    const engineLow = this.fleet.units.some((unit) => unit.kind === 'firetruck' && unit.water < unit.capacity * 0.3);
+    this.world.hydrants.setHighlight(selected?.kind === 'firetruck' ? 1 : engineLow ? 0.55 : 0);
     if (this.threats.total > this.lastThreatTotal && this.started) this.sound.play('alert');
     this.lastThreatTotal = this.threats.total;
     this.effects.setThreatened(this.world.buildings.buildings, this.threats.buildings);
@@ -464,10 +510,30 @@ export class Game {
     this.hud.update(this.hudState(), true);
   }
 
+  /** Master switch: every unit (and later mutual aid) on auto, or all manual. */
   private setAutoDispatch(enabled: boolean): void {
-    this.incidents.autoDispatch = enabled;
-    this.notify(enabled ? 'Auto-dispatch engaged.' : 'Auto-dispatch off. Manual control.', 'info');
+    this.fleet.setAllAuto(enabled);
+    this.notify(enabled ? 'Auto-dispatch engaged for every unit.' : 'Auto-dispatch off. All units under manual control.', 'info');
     this.hud.update(this.hudState(), true);
+  }
+
+  private setUnitAuto(id: number, enabled: boolean): void {
+    const unit = this.fleet.unitById(id);
+    if (!unit) return;
+    this.fleet.setAuto(id, enabled);
+    this.notify(
+      enabled ? `${unit.name} on auto-dispatch.` : `${unit.name} under manual control. Auto-dispatch will leave it alone.`,
+      'info',
+    );
+    this.hud.update(this.hudState(), true);
+  }
+
+  /** A direct order takes the unit off auto, so the dispatcher does not undo it. */
+  private takeManualControl(id: number): void {
+    const unit = this.fleet.unitById(id);
+    if (!unit || !unit.auto) return;
+    this.fleet.setAuto(id, false);
+    this.notify(`${unit.name} switched to manual. Flip its AUTO chip to hand it back.`, 'info');
   }
 
   private selectUnit(id: number | null): void {
@@ -499,6 +565,16 @@ export class Game {
       this.setTool('line');
       return;
     }
+    if (action === 'refill') {
+      const unit = this.fleet.unitById(id);
+      const result = this.fleet.orderRefill(id);
+      if (result.ok) this.takeManualControl(id);
+      this.notify(result.message, result.ok ? 'info' : 'warning');
+      if (result.ok && unit) this.hints.show('hydrant');
+      this.hud.update(this.hudState(), true);
+      return;
+    }
+    this.takeManualControl(id);
     if (action === 'home') {
       this.fleet.returnHome(id);
       this.notify(`${this.fleet.unitById(id)?.name ?? 'Unit'} returning to base.`, 'info');
@@ -540,6 +616,7 @@ export class Game {
       this.notify(`${unit.name} cannot reach that fire by road. Try an aircraft.`, 'warning');
       return;
     }
+    this.takeManualControl(unitId);
     this.fleet.assignToIncident(unitId, incident);
     incident.assigned.add(unitId);
     this.notify(`${unit.name} attacking ${this.world.sectorName(incident.tx, incident.tz)}.`, 'info');
@@ -547,11 +624,15 @@ export class Game {
   }
 
   private frame = (now: number): void => {
-    const realDt = Math.min(0.05, (now - this.lastFrame) / 1000);
+    const rawDt = Math.max(0, (now - this.lastFrame) / 1000);
+    const realDt = Math.min(0.05, rawDt);
     this.lastFrame = now;
+    // Camera input tolerates longer frames than the simulation does, so panning
+    // keeps its on-screen speed on a slow machine.
+    const cameraDt = Math.min(0.1, rawDt);
     if (!this.started) this.rig.rotate(realDt * 0.035);
-    this.updateCameraInput(realDt);
-    this.rig.update(realDt);
+    this.updateCameraInput(cameraDt);
+    this.rig.update(cameraDt);
     if (this.started && !this.paused && !this.externalClock) {
       const simDt = realDt * this.speed;
       this.simulate(simDt);
@@ -654,34 +735,29 @@ export class Game {
   }
 
   private updateCameraInput(dt: number): void {
+    const keys = this.keys;
+    if (keys.size === 0) return;
+    // Screen-space pan: W moves the view up the screen whatever the yaw. The
+    // ground footprint is stretched by 1/sin(pitch) along the view direction,
+    // so forward panning is scaled to match the on-screen speed of strafing.
     const speed = (this.rig.viewSize / 72) * 46 * dt;
+    const forwardScale = 1 / Math.max(0.5, Math.sin(this.rig.pitch));
     const forwardX = -Math.sin(this.rig.yaw);
     const forwardZ = -Math.cos(this.rig.yaw);
     const rightX = Math.cos(this.rig.yaw);
     const rightZ = -Math.sin(this.rig.yaw);
-    let panX = 0;
-    let panZ = 0;
-    if (this.keys.has('w') || this.keys.has('arrowup')) {
-      panX += forwardX * speed;
-      panZ += forwardZ * speed;
+    const forward = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+    const strafe = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+    if (forward !== 0 || strafe !== 0) {
+      const norm = forward !== 0 && strafe !== 0 ? Math.SQRT1_2 : 1;
+      const f = forward * forwardScale * speed * norm;
+      const r = strafe * speed * norm;
+      this.rig.pan(forwardX * f + rightX * r, forwardZ * f + rightZ * r);
     }
-    if (this.keys.has('s') || this.keys.has('arrowdown')) {
-      panX -= forwardX * speed;
-      panZ -= forwardZ * speed;
-    }
-    if (this.keys.has('a') || this.keys.has('arrowleft')) {
-      panX -= rightX * speed;
-      panZ -= rightZ * speed;
-    }
-    if (this.keys.has('d') || this.keys.has('arrowright')) {
-      panX += rightX * speed;
-      panZ += rightZ * speed;
-    }
-    if (panX !== 0 || panZ !== 0) this.rig.pan(panX, panZ);
-    if (this.keys.has('q')) this.rig.rotate(-dt * 1.1);
-    if (this.keys.has('e')) this.rig.rotate(dt * 1.1);
-    if (this.keys.has('r')) this.rig.tilt(-dt * 0.7);
-    if (this.keys.has('f')) this.rig.tilt(dt * 0.7);
+    if (keys.has('KeyQ')) this.rig.rotate(-dt * 1.1);
+    if (keys.has('KeyE')) this.rig.rotate(dt * 1.1);
+    if (keys.has('KeyR')) this.rig.tilt(-dt * 0.7);
+    if (keys.has('KeyF')) this.rig.tilt(dt * 0.7);
   }
 
   private pixelPerWorld(): number {
@@ -692,6 +768,12 @@ export class Game {
     const canvas = this.renderer.domElement;
     window.addEventListener('keydown', (event) => this.onKeyDown(event));
     window.addEventListener('keyup', (event) => this.onKeyUp(event));
+    // Keys released while the window is unfocused never send keyup; without
+    // this the camera keeps panning after an alt-tab.
+    window.addEventListener('blur', () => this.keys.clear());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.keys.clear();
+    });
     window.addEventListener('resize', () => this.resize());
     canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     canvas.addEventListener('wheel', (event) => this.onWheel(event), { passive: false });
@@ -715,8 +797,10 @@ export class Game {
   }
 
   private onKeyDown(event: KeyboardEvent): void {
-    const target = event.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+    if (isTextEntry(event.target)) return;
+    // Cmd/Ctrl chords belong to the browser; on macOS their keyups never
+    // arrive, which would leave a pan key stuck down.
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     const key = event.key.toLowerCase();
     if (key === 'escape') {
       if (this.hud.isHelpOpen) {
@@ -778,12 +862,17 @@ export class Game {
       this.setSpeed(Number(key));
       return;
     }
-    this.keys.add(key);
-    if (key.startsWith('arrow') || key === ' ') event.preventDefault();
+    if (!CAMERA_KEYS.has(event.code)) return;
+    this.keys.add(event.code);
+    event.preventDefault();
   }
 
   private onKeyUp(event: KeyboardEvent): void {
-    this.keys.delete(event.key.toLowerCase());
+    if (event.key === 'Meta' || event.key === 'Control') {
+      this.keys.clear();
+      return;
+    }
+    this.keys.delete(event.code);
   }
 
   private onWheel(event: WheelEvent): void {
@@ -953,6 +1042,8 @@ export class Game {
     const result = this.fleet.orderMove(this.selectedUnitId, this.hoverWorld.x, this.hoverWorld.z);
     if (!result.ok) {
       this.notify(result.message ?? 'Order failed.', 'warning');
+    } else {
+      this.takeManualControl(this.selectedUnitId);
     }
     this.hud.update(this.hudState(), true);
   }
@@ -971,6 +1062,7 @@ export class Game {
       this.notify(`${unit.name} cannot reach that fire by road. Use an aircraft.`, 'warning');
       return;
     }
+    this.takeManualControl(this.selectedUnitId);
     this.fleet.assignToIncident(this.selectedUnitId, incident);
     incident.assigned.add(this.selectedUnitId);
     this.notify(`${unit.name} ordered to ${this.world.sectorName(tx, tz)}.`, 'info');
@@ -1079,7 +1171,10 @@ export class Game {
     this.notify(result.message, result.ok ? 'info' : 'warning');
     if (!result.ok) return;
     this.setTool('select');
-    if (result.unitId !== undefined) this.selectUnit(result.unitId);
+    if (result.unitId !== undefined) {
+      this.takeManualControl(result.unitId);
+      this.selectUnit(result.unitId);
+    }
   }
 
   private cycleUnit(direction: number): void {
@@ -1265,13 +1360,7 @@ export class Game {
   }
 
   private updateHudCamera(): void {
-    const aspect = this.viewport.clientWidth / Math.max(1, this.viewport.clientHeight);
-    this.hud.lastCameraView = {
-      x: this.rig.target.x,
-      z: this.rig.target.z,
-      width: this.rig.viewSize * aspect,
-      height: this.rig.viewSize,
-    };
+    this.hud.setCameraView(this.rig.yaw, this.rig.footprint(this.footprintScratch));
   }
 
   private hudState(): HudState {
@@ -1290,7 +1379,7 @@ export class Game {
       selectedUnit: snapshot,
       windDirection: this.scenario.windDirection,
       windSpeed: this.scenario.windSpeed,
-      autoDispatch: this.incidents.autoDispatch,
+      autoDispatch: this.fleet.autoMode,
       paused: this.paused,
       speed: this.speed,
       seed: this.seed,
@@ -1367,6 +1456,20 @@ export class Game {
         hydrants: this.world.hydrants.count,
         roads: this.world.roads.count(),
         vegetation: this.world.vegetation.totalInstances,
+        camera: {
+          x: this.rig.target.x,
+          z: this.rig.target.z,
+          yaw: this.rig.yaw,
+          pitch: this.rig.pitch,
+          viewSize: this.rig.viewSize,
+        },
+        render: {
+          calls: this.renderer.info.render.calls,
+          triangles: this.renderer.info.render.triangles,
+          geometries: this.renderer.info.memory.geometries,
+          textures: this.renderer.info.memory.textures,
+          pixelRatio: this.renderer.getPixelRatio(),
+        },
       }),
       start: () => this.startShift(),
       setRealtime: (enabled: boolean) => {
@@ -1432,6 +1535,7 @@ export class Game {
       setView: (view) => this.rig.setView(view),
       focusIncident: (id: number) => this.focusIncident(id),
       setAutoDispatch: (enabled: boolean) => this.setAutoDispatch(enabled),
+      setUnitAuto: (id: number, enabled: boolean) => this.setUnitAuto(id, enabled),
       buildRoad: (sx: number, sz: number, gx: number, gz: number) =>
         this.layRoad({ x: sx, z: sz }, { x: gx, z: gz })?.length ?? 0,
       screenPosition: (tx: number, tz: number) => {

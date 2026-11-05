@@ -1,10 +1,13 @@
 import {
   ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
   Group,
   InstancedMesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  RingGeometry,
 } from 'three';
 import { TILE_SIZE } from './constants';
 import { Heightmap } from './heightmap';
@@ -24,6 +27,18 @@ export class HydrantSystem {
   readonly group = new Group();
   private bodyMesh: InstancedMesh | null = null;
   private capMesh: InstancedMesh | null = null;
+  private ringMesh: InstancedMesh | null = null;
+  private readonly ringGeometry = new RingGeometry(0.42, 0.6, 20).rotateX(-Math.PI / 2);
+  /** Cyan ground ring under every hydrant so refill points read at a glance. */
+  private readonly ringMaterial = new MeshBasicMaterial({
+    color: 0x6fe4ff,
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
+    side: DoubleSide,
+    toneMapped: false,
+  });
+  private highlight = 0;
   private readonly bodyGeometry = new CylinderGeometry(0.15, 0.18, 0.62, 7);
   private readonly capGeometry = new ConeGeometry(0.16, 0.18, 7);
   private readonly bodyMaterial = new MeshStandardMaterial({
@@ -93,6 +108,10 @@ export class HydrantSystem {
     return best;
   }
 
+  byId(id: number): Hydrant | null {
+    return this.hydrants[id - 1]?.id === id ? (this.hydrants[id - 1] ?? null) : (this.hydrants.find((h) => h.id === id) ?? null);
+  }
+
   isNear(x: number, z: number, radius = 4.2): boolean {
     return this.findNearest(x, z, radius) !== null;
   }
@@ -114,10 +133,21 @@ export class HydrantSystem {
     return this.hydrants.length;
   }
 
+  /** 0 = quiet rings, 1 = bright (an engine is selected or running low). */
+  setHighlight(strength: number): void {
+    const next = Math.max(0, Math.min(1, strength));
+    if (Math.abs(next - this.highlight) < 0.01) return;
+    this.highlight = next;
+    this.ringMaterial.opacity = 0.32 + next * 0.5;
+  }
+
   private buildMeshes(): void {
     if (this.hydrants.length === 0) return;
     this.bodyMesh = new InstancedMesh(this.bodyGeometry, this.bodyMaterial, this.hydrants.length);
     this.capMesh = new InstancedMesh(this.capGeometry, this.capMaterial, this.hydrants.length);
+    this.ringMesh = new InstancedMesh(this.ringGeometry, this.ringMaterial, this.hydrants.length);
+    this.ringMesh.name = 'hydrant-rings';
+    this.ringMesh.renderOrder = 6;
     this.bodyMesh.name = 'hydrant-bodies';
     this.capMesh.name = 'hydrant-caps';
     this.bodyMesh.castShadow = true;
@@ -133,20 +163,27 @@ export class HydrantSystem {
       dummy.position.y = y + 0.71;
       dummy.updateMatrix();
       this.capMesh?.setMatrixAt(i, dummy.matrix);
+      dummy.position.y = y + 0.07;
+      dummy.rotation.y = 0;
+      dummy.updateMatrix();
+      this.ringMesh?.setMatrixAt(i, dummy.matrix);
     });
     this.bodyMesh.instanceMatrix.needsUpdate = true;
     this.capMesh.instanceMatrix.needsUpdate = true;
-    this.group.add(this.bodyMesh, this.capMesh);
+    this.ringMesh.instanceMatrix.needsUpdate = true;
+    this.ringMesh.computeBoundingSphere();
+    this.group.add(this.bodyMesh, this.capMesh, this.ringMesh);
   }
 
   private disposeMeshes(): void {
-    for (const mesh of [this.bodyMesh, this.capMesh]) {
+    for (const mesh of [this.bodyMesh, this.capMesh, this.ringMesh]) {
       if (!mesh) continue;
       this.group.remove(mesh);
       mesh.dispose();
     }
     this.bodyMesh = null;
     this.capMesh = null;
+    this.ringMesh = null;
   }
 
   dispose(): void {
@@ -155,5 +192,7 @@ export class HydrantSystem {
     this.capGeometry.dispose();
     this.bodyMaterial.dispose();
     this.capMaterial.dispose();
+    this.ringGeometry.dispose();
+    this.ringMaterial.dispose();
   }
 }

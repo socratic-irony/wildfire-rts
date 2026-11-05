@@ -8,7 +8,7 @@ const HINT_TEXT: Record<HintId, string> = {
   line: 'Tip: press L and click two points to have the dozer cut a firebreak across the head of the fire.',
   forecast: 'Tip: the top bar shows the next wind shift. The head will swing that way, so cut lines where it is going.',
   threat: 'Tip: structures at risk pulse red on the minimap. Put engines or a line between the fire and town.',
-  hydrant: 'Tip: an engine parked beside a hydrant sprays forever. New roads (B) bring new hydrants.',
+  hydrant: 'Tip: engines refill at hydrants: the cyan rings along the roads and dots on the minimap. One parked beside a hydrant sprays forever; new roads (B) bring new hydrants.',
   aid: 'Tip: budget piling up? Call mutual aid from the fleet panel. It arrives in 20 seconds.',
   backburn: 'Tip: a big head fire? Press T and light a backburn beside a road ahead of it to starve it of fuel.',
   heat: 'Tip: your dozer is taking heat. Pull it back before a burnover takes it out of service.',

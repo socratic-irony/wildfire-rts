@@ -82,9 +82,9 @@ Grade (corralled wins excepted, see above): **S** won with no losses and under 0
 
 - Top bar: directive, shift timer with storm countdown, active fires, standing structures with "N at risk", budget with income, burned hectares against the limit, wind with the next forecast shift, pause, speed, sound, help.
 - Incident board: severity, cell count, source (lightning/spot), structures it threatens, assigned units, dispatch and focus.
-- Fleet list: status, payload, heat stress, out-of-service and mutual-aid tags; mutual-aid buttons with cost and ETAs.
-- Selected unit panel (right of the fleet list): payload meter, heat-stress meter for ground units, hydrant/incident/burnover flags, actions, and a one-line tip.
-- Minimap: terrain, roads, structures (threatened ones pulse red), wildfire vs backburn colours, incidents, units, camera rectangle, current and forecast wind.
+- Fleet list: status, payload percentage and bar (orange when low, pulsing cyan while filling at a hydrant), heat stress, out-of-service and mutual-aid tags, and a per-unit **AUTO / MANUAL** chip; an **ALL AUTO** master switch in the panel heading (indeterminate when mixed); mutual-aid buttons with cost and ETAs.
+- Selected unit panel (right of the fleet list): payload meter, heat-stress meter for ground units, hydrant/incident/burnover flags, actions (**Attack nearest** or **Draw line**, **Refill** for units with a tank, **Return to base**, **Hold**), and a one-line tip.
+- Minimap: heading-up. The map turns with the camera yaw so minimap "up" is always screen "up"; it is drawn inside a circle so the whole map stays visible at any angle. It shows terrain, roads, structures (threatened ones pulse red), wildfire vs backburn colours, hydrants (cyan), incidents, units as heading arrows, a dashed cyan line from each engine to the hydrant it is refilling at, and the exact ground footprint of the main view (its far edge drawn heavier). The **N** badge on the ring marks map north; clicking it turns the camera north-up. Wind and forecast arrows under the map turn with it.
 - In the world: pulsing red rings under threatened structures and an arrow at each sizeable fire's head pointing downwind.
 - Toasts for strikes, wind forecasts and shifts, dispatches, spot fires, building losses, burnovers, budget events, and resolution. Coaching hints appear once per browser, at most one every 22 s.
 - A structure is "at risk" when burning wildfire is within 7 tiles or the structure itself is burning. Threats, saves, and firebreak reports are computed on the simulation clock every 0.5 s (`Game.updateSituation`), so they are deterministic.
@@ -100,6 +100,9 @@ Grade (corralled wins excepted, see above): **S** won with no losses and under 0
 ## Input and camera
 
 - Orthographic diorama camera; yaw/pitch orbit with Q/E and R/F, WASD/arrow pan, wheel zoom-to-cursor, middle-drag pan.
+- Camera keys are read by physical key (`event.code`), so WASD works on any keyboard layout and with Shift or Caps Lock. Clicked HUD controls drop keyboard focus, so a focused checkbox or button never swallows WASD or turns Space into a click. Held keys are released when the window loses focus, and Cmd/Ctrl chords are ignored (macOS never sends their keyups).
+- W/S pan at the same on-screen speed as A/D (the ground footprint is stretched by 1/sin(pitch) along the view). The orbit pivot follows a broad average of the ground rather than the terrace under the screen centre, so panning over hills does not make the picture lurch.
+- Camera input tolerates frames up to 0.1 s, so panning keeps its speed when the frame rate drops.
 - Briefing screen slowly rotates the camera; all simulation is stopped.
 - Simulation speed 1×/2×/4×; Space toggles pause. Outcomes do not depend on the speed setting.
 
@@ -107,8 +110,8 @@ Grade (corralled wins excepted, see above): **S** won with no losses and under 0
 
 `window.__cinderline` exposes deterministic QA helpers:
 
-- `getState()` — seed, difficulty, funds, pending reinforcements, scenario/result, fire stats, units, incidents, buildings, hydrants, roads, vegetation.
-- `start()`, `setSpeed()`, `setAutoDispatch()`, `setDifficulty(id)`, `advanceTime(ms)`, `setRealtime(enabled)`. The first `advanceTime` freezes the real-time loop so scripted runs are deterministic.
+- `getState()` — seed, difficulty, funds, pending reinforcements, scenario/result, fire stats, units (including `auto`, `heading`, `refill`), incidents, buildings, hydrants, roads, vegetation, `camera` (target, yaw, pitch, view size) and `render` (draw calls, triangles, geometries, textures, pixel ratio of the last frame).
+- `start()`, `setSpeed()`, `setAutoDispatch()` (all units), `setUnitAuto(id, enabled)`, `setDifficulty(id)`, `advanceTime(ms)`, `setRealtime(enabled)`. The first `advanceTime` freezes the real-time loop so scripted runs are deterministic.
 - `ignite(tx, tz)`, `torch(tx, tz)`, `findBurnableNear(tx, tz, radius)`.
 - `selectUnit()`, `dispatch()`, `orderLine(sx, sz, gx, gz)`, `requestMutualAid(kind)`, `buildRoad()` (free, for QA), `focusTile()`, `focusIncident()`.
 - `screenPosition()`, `unitScreenPosition()`, `debugPick()`.
@@ -131,6 +134,6 @@ These helpers are used by `scripts/smoke.mjs`, `scripts/stability.mjs`, and `scr
 ## Outstanding
 
 - Save/load, scenario selection, and a campaign wrapper.
-- Keyboard focus management for every HUD control; colour-blind palette option.
+- Full keyboard navigation of HUD controls; colour-blind palette option.
 - Touch-first controls; the layout is desktop-first.
 - A "backing fire" spread rate specific to backburns.

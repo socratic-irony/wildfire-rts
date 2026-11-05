@@ -58,7 +58,7 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 ### `src/core/`
 
 - `scene.ts` — renderer, sky dome, hemisphere/directional lights, fog, shadow camera, scene factory.
-- `camera.ts` — damped orthographic RTS rig. Spherical yaw/pitch orbit, zoom-to-cursor, ground sampling, keyboard intents.
+- `camera.ts` — damped orthographic RTS rig. Spherical yaw/pitch orbit, zoom-to-cursor, smoothed ground-level pivot (a broad average, so panning over terraces does not lurch), view footprint on the ground (for the minimap), and face-north.
 - `math.ts` — clamps, easing, angle wrapping, distance helpers.
 - `rng.ts` — deterministic LCG plus hash/noise functions. World generation and fire spread use hashes/LCGs, never `Math.random`.
 - `prefs.ts` — guarded local-storage helpers for remembered difficulty, mute, best scores, and seen hints. Storage failures are ignored.
@@ -97,7 +97,7 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 
 ### `src/ui/`
 
-- `hud.ts` — all DOM UI: top bar, incident board, fleet list and mutual aid, selected unit panel, toolbar, minimap, toasts, tooltips, help, briefing (difficulty, best) and graded end screens, lightning flash overlay.
+- `hud.ts` — all DOM UI: top bar, incident board, fleet list (per-unit auto chips, ALL AUTO switch) and mutual aid, selected unit panel, toolbar, heading-up minimap (rotates with the camera; fire overlay painted into a 96×96 ImageData and drawn scaled), toasts, tooltips, help, briefing (difficulty, best) and graded end screens, lightning flash overlay. Clicked controls drop focus so keyboard camera input keeps working.
 - `hints.ts` — one-time coaching toasts, rate-limited.
 - `style.css` — HUD chrome and responsive layout.
 

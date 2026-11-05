@@ -68,6 +68,26 @@ try {
   assert(state.started, 'shift did not start');
   assert(state.scenario.status === 'running', 'scenario is not running');
 
+  // HUD controls must not swallow keyboard camera input once clicked.
+  await page.click('.fleet-panel .switch');
+  state = await page.evaluate(() => window.__cinderline.getState());
+  assert(state.units.every((unit) => !unit.auto), 'ALL AUTO switch did not put every unit on manual');
+  await page.click('.fleet-panel .switch');
+  await page.locator('[data-unit-auto="2"]').click();
+  state = await page.evaluate(() => window.__cinderline.getState());
+  assert(state.units.find((unit) => unit.id === 2)?.auto === false, 'AUTO chip did not toggle the unit');
+  assert(state.units.filter((unit) => unit.auto).length === 4, 'AUTO chip changed other units');
+  const cameraBefore = state.camera;
+  await page.keyboard.down('d');
+  await page.waitForTimeout(900);
+  await page.keyboard.up('d');
+  await page.waitForTimeout(150);
+  const cameraAfter = (await page.evaluate(() => window.__cinderline.getState())).camera;
+  assert(
+    Math.hypot(cameraAfter.x - cameraBefore.x, cameraAfter.z - cameraBefore.z) > 0.5,
+    'D did not pan the camera after clicking HUD controls',
+  );
+
   await page.evaluate(() => window.__cinderline.setAutoDispatch(false));
   const spot = await page.evaluate(() => window.__cinderline.findBurnableNear(40, 28, 12));
   assert(spot, 'no burnable tile found for smoke fire');

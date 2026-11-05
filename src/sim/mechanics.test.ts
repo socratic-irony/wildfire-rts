@@ -195,7 +195,7 @@ describe('incident lookout', () => {
   it('opens an incident for wildfire that nothing is tracking', () => {
     const { fire, fleet } = createHarness(12345, true);
     const incidents = new IncidentSystem(fire, () => undefined);
-    incidents.autoDispatch = false;
+    fleet.setAllAuto(false);
     const detected: number[] = [];
     incidents.onSpotDetected = (incident) => detected.push(incident.id);
     const tile = burnableTile(12345);
@@ -267,5 +267,56 @@ describe('end of shift', () => {
     expect(scenario.status).toBe('won');
     expect(scenario.currentResult.reason).toContain('corralled');
     expect(['B', 'C']).toContain(scenario.currentResult.grade);
+  });
+});
+
+describe('per-unit auto dispatch', () => {
+  function burningIncident(seed: number) {
+    const { fire, fleet } = createHarness(seed, true);
+    const incidents = new IncidentSystem(fire, () => undefined);
+    const tile = burnableTile(seed, 3);
+    fire.ignite(tile.x, tile.z);
+    for (let i = 0; i < 15; i += 1) fire.step(0.2);
+    incidents.createAt(tile.x, tile.z, 'lightning');
+    return { fire, fleet, incidents };
+  }
+
+  it('never claims a unit whose AUTO toggle is off', () => {
+    const { fleet, incidents } = burningIncident(12345);
+    fleet.setAllAuto(false);
+    for (let i = 0; i < 120; i += 1) incidents.update(1 / 30, fleet);
+    expect(fleet.units.every((unit) => unit.incidentId === null)).toBe(true);
+  });
+
+  it('claims only units that are on auto', () => {
+    const { fleet, incidents } = burningIncident(12345);
+    fleet.setAllAuto(false);
+    const heli = fleet.units.find((unit) => unit.kind === 'helicopter')!;
+    fleet.setAuto(heli.id, true);
+    for (let i = 0; i < 120; i += 1) incidents.update(1 / 30, fleet);
+    const committed = fleet.units.filter((unit) => unit.incidentId !== null);
+    expect(committed.map((unit) => unit.id)).toEqual([heli.id]);
+  });
+
+  it('gives mutual aid the current fleet-wide setting', () => {
+    const { fleet } = createHarness(12345, true);
+    fleet.setAllAuto(false);
+    const added = fleet.addUnit('firetruck');
+    expect(fleet.unitById(added.id)?.auto).toBe(false);
+    expect(fleet.autoMode).toBe('none');
+    fleet.setAuto(1, true);
+    expect(fleet.autoMode).toBe('some');
+  });
+
+  it('sends an engine ordered to refill to a hydrant', () => {
+    const { fleet } = createHarness(12345, true);
+    const engine = fleet.units.find((unit) => unit.kind === 'firetruck')!;
+    engine.water = 100;
+    const result = fleet.orderRefill(engine.id);
+    expect(result.ok).toBe(true);
+    expect(engine.state).toBe('refilling');
+    expect(engine.refillMode).toBe('hydrant');
+    expect(fleet.snapshots().find((unit) => unit.id === engine.id)?.refill).not.toBeNull();
+    expect(fleet.orderRefill(fleet.units.find((unit) => unit.kind === 'dozer')!.id).ok).toBe(false);
   });
 });

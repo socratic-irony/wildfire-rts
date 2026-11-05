@@ -108,14 +108,20 @@ export class CameraRig {
     this.clampTarget();
     this.target.x = this.goalTarget.x;
     this.target.z = this.goalTarget.z;
+    this.goalTarget.y = this.groundLevel(this.goalTarget.x, this.goalTarget.z) + 1.4;
+    this.target.y = this.goalTarget.y;
     this.snapYawPitch();
   }
 
+  /** Turn the camera so map north (minimap up) points up the screen. */
+  faceNorth(): void {
+    this.goalYaw = Math.round((this.goalYaw - 0) / (Math.PI * 2)) * Math.PI * 2;
+  }
+
   update(dt: number): void {
-    const y = this.sampler.heightAt(this.goalTarget.x, this.goalTarget.z);
-    this.goalTarget.y = y + 1.4;
+    this.goalTarget.y = this.groundLevel(this.goalTarget.x, this.goalTarget.z) + 1.4;
     this.target.x = damp(this.target.x, this.goalTarget.x, 8, dt);
-    this.target.y = damp(this.target.y, this.goalTarget.y, 8, dt);
+    this.target.y = damp(this.target.y, this.goalTarget.y, 2.5, dt);
     this.target.z = damp(this.target.z, this.goalTarget.z, 8, dt);
     this.yaw = dampAngle(this.yaw, this.goalYaw, 12, dt);
     this.pitch = damp(this.pitch, this.goalPitch, 12, dt);
@@ -124,8 +130,44 @@ export class CameraRig {
     this.placeCamera();
   }
 
+  /**
+   * Broad average of the ground around a point. The orbit pivot follows this
+   * instead of the exact terrace under the cursor: in an orthographic view a
+   * change in pivot height slides the whole picture up or down the screen,
+   * so tracking every terrace step made panning lurch.
+   */
+  private groundLevel(x: number, z: number): number {
+    let sum = this.sampler.heightAt(x, z) * 2;
+    let weight = 2;
+    for (let i = 0; i < 8; i += 1) {
+      const angle = (i / 8) * Math.PI * 2;
+      for (const radius of [9, 18]) {
+        sum += this.sampler.heightAt(x + Math.cos(angle) * radius, z + Math.sin(angle) * radius);
+        weight += 1;
+      }
+    }
+    return sum / weight;
+  }
+
+  /** Ground-plane corners of the visible area, in screen order TL, TR, BR, BL. */
+  footprint(out: Array<{ x: number; z: number }>): Array<{ x: number; z: number }> {
+    const corners: Array<[number, number]> = [
+      [-1, 1],
+      [1, 1],
+      [1, -1],
+      [-1, -1],
+    ];
+    out.length = 0;
+    for (const [nx, ny] of corners) {
+      const hit = this.pickGround(nx, ny, this.target.y);
+      out.push(hit ? { x: hit.x, z: hit.z } : { x: this.target.x, z: this.target.z });
+    }
+    return out;
+  }
+
   snap(): void {
     this.snapYawPitch();
+    this.goalTarget.y = this.groundLevel(this.goalTarget.x, this.goalTarget.z) + 1.4;
     this.target.copy(this.goalTarget);
     this.viewSize = this.goalView;
     this.placeCamera();
@@ -157,14 +199,14 @@ export class CameraRig {
     this.camera.updateProjectionMatrix();
   }
 
-  private pickGround(ndcX: number, ndcY: number): Vector3 | null {
+  private pickGround(ndcX: number, ndcY: number, planeY = this.goalTarget.y): Vector3 | null {
     this.ndc.set(ndcX, ndcY);
     this.raycaster.setFromCamera(this.ndc, this.camera);
     const origin = this.raycaster.ray.origin;
     const direction = this.raycaster.ray.direction;
     const denom = direction.dot(this.plane);
     if (Math.abs(denom) < 1e-5) return null;
-    const t = (this.goalTarget.y - origin.y) / denom;
+    const t = (planeY - origin.y) / denom;
     if (t < 0) return null;
     this.groundPoint.copy(origin).addScaledVector(direction, t);
     return this.groundPoint;
