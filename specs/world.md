@@ -69,7 +69,7 @@ Building footprint tiles are forced to urban fuel by `BuildingSystem`, so struct
 
 ### Model lab
 
-`models.html` (`src/tools/modelLab.ts`) lays every vehicle and building kind along a stretch of road with hydrants, trees and 1.8 m people for scale, under the game's lights and an orthographic camera with orbit controls. Query parameters: `view=all|vehicles|buildings|ruins`, `seed` (building variation), `yaw`, `pitch`, `size`, `x`, `z`, `dusk` (window glow), `blur=1` (rotor discs), `labels=0`. `npm run models` (`scripts/models.mjs`) screenshots a set of views to `docs/screenshots/` (`OUT`, `VIEWS`, `PORT` override).
+`models.html` (`src/tools/modelLab.ts`) lays every vehicle and building kind along a stretch of road with hydrants, trees and 1.8 m people for scale, under the game's lights and an orthographic camera with orbit controls. Query parameters: `view=all|vehicles|buildings|ruins`, `seed` (building variation), `yaw`, `pitch`, `size`, `x`, `z`, `dusk` (window glow), `blur=1` (rotor discs), `labels=0`. `npm run models` (`scripts/models.mjs`) screenshots a set of views to `docs/screenshots/` (`OUT`, `VIEWS` as semicolon-separated query strings, `PORT` override).
 
 ## Vegetation
 

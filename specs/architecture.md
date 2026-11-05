@@ -32,11 +32,12 @@ main.ts
 
 ### Frame loop
 
+0. Frame pacing (`core/quality.ts`): skip this animation frame if it comes sooner than the cap allows (60 fps in play, 30 fps on the briefing, while paused and on the end screen; `?fps=` overrides). Skipped frames do no work at all, so 120 Hz displays no longer render twice as often.
 1. Read camera keys and advance the camera rig (real time).
 2. If the shift is running, not paused, and the test API is not driving the clock, simulate `dt * speed`.
 3. Update incident markers and effects (real time).
 4. At ~6 Hz: refresh the situation (threatened structures, fire-head arrows, audio ambience, coaching hints) and the HUD.
-5. Render, with any camera-shake offset applied only for this frame.
+5. Render, with any camera-shake offset applied only for this frame. The shadow map is redrawn here only when `QualityController.prepareShadows` allows it (see Performance practices).
 6. On the briefing screen, slowly rotate the camera; simulation is stopped.
 
 `Game.simulate(dt)` adds `dt` to an accumulator and runs `stepSimulation(SIM_STEP)` for each whole step (at most 24 per call; a larger backlog is dropped). Each step runs:
@@ -57,7 +58,10 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 
 ### `src/core/`
 
-- `scene.ts` — renderer, sky dome, hemisphere/directional lights, fog, shadow camera, scene factory.
+- `scene.ts` — renderer (lets the browser pick the GPU unless `?gpu=high`), sky dome, hemisphere/directional lights, fog, shadow camera, scene factory.
+- `quality.ts` — `QualityController`: frame cap, adaptive pixel ratio, shadow-map update throttling, rolling frame statistics and the optional `?stats=1` readout.
+- `modelBuilder.ts` — `ModelBuilder`: boxes, cylinders, cones, spheres, raw triangles, gable/hip/gambrel roofs and lofted hulls merged into one flat-shaded, vertex-coloured geometry per layer (body, glass, glow), with a transform stack.
+- `modelMaterials.ts` — shared vertex-colour materials for built models (body, glass with dusk window glow, glow lamps) and the `buildModel` helper.
 - `camera.ts` — damped orthographic RTS rig. Spherical yaw/pitch orbit, zoom-to-cursor, smoothed ground-level pivot (a broad average, so panning over terraces does not lurch), view footprint on the ground (for the minimap), and face-north.
 - `math.ts` — clamps, easing, angle wrapping, distance helpers.
 - `rng.ts` — deterministic LCG plus hash/noise functions. World generation and fire spread use hashes/LCGs, never `Math.random`.
@@ -70,7 +74,8 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 - `terrainVisual.ts` — flat-shaded terrain mesh, per-tile vertex colors, burn/wet/retardant tint, lake surface, backdrop mountains.
 - `roads.ts` — road mask, network graph, 4-neighbor A*, road planning A*, initial street layout. Both searches use a binary heap ordered by (priority, insertion order), which reproduces the original linear-scan tie-breaking exactly.
 - `roadsVisual.ts` — conforming asphalt/shoulder/centerline geometry rebuilt after edits.
-- `buildings.ts` — procedural lots, fire station, helipad, building meshes, damage/destroyed state, structure score.
+- `buildings.ts` — procedural lots and the building mix, fire station, helipad, water tower, lookout, power poles, `BuildingVisual` (merged model, char tint, rubble), damage/destroyed state, structure score.
+- `buildingModels.ts` — the fourteen building models, parked cars, fences and rubble, drawn with `ModelBuilder` in lot space; kind labels and lot frontage.
 - `vegetation.ts` — instanced pine/oak/shrub/rock families, baked low-poly geometry, per-instance burn tint.
 - `hydrants.ts` — roadside placement, spacing, nearest-source queries, instanced visuals.
 - `world.ts` — composition of the world systems and road editing transaction.
@@ -86,7 +91,11 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 - `difficulty.ts` — Calm / Standard / Red Flag presets.
 - `budget.ts` — command budget and tool/mutual-aid prices.
 - `types.ts` — shared incident, notification, and unit-snapshot interfaces.
-- `vehicleModels.ts` — procedural low-poly unit meshes.
+- `vehicleModels.ts` — true-scale unit models (engine, dozer, helicopter, air tanker) with animated rotors and propellers, flashing light bars and pick boxes.
+
+### `src/tools/`
+
+- `modelLab.ts` — the model lab behind `models.html` (see `world.md`).
 
 ### `src/fx/`, `src/audio/`
 
@@ -122,6 +131,10 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 
 ## Performance practices
 
+- Built models are merged: each building, vehicle and prop is one vertex-coloured body mesh plus small glass/glow meshes, all sharing three materials (plus one body material per building for its char tint). A seed-12345 scene went from about 905 draw calls a frame (shadow pass included) to 130–190.
+- Frames are capped at 60 fps in play and 30 fps when nothing is simulated. The pixel ratio starts at min(devicePixelRatio, 1.5) (a 2× display renders 2.9 MP instead of 5.2 MP, which also cuts smoke-sprite overdraw) and adapts between 1 and that cap from measured frame times (`?dpr=` raises the cap).
+- `shadowMap.autoUpdate` is off. The shadow map (the light covers the whole map and never moves with the camera) is redrawn at most 30 times a second while the shift is running, and otherwise only after a discrete change (a structure destroyed, a road built). Paused, briefing and end-screen frames draw no shadow pass.
+- The renderer no longer requests `high-performance` power: on dual-GPU laptops the browser can stay on the integrated GPU (`?gpu=high` opts back in).
 - Vegetation is instanced per family; particle systems are pooled and capped (4,200 heat + 3,600 soft).
 - Terrain is one non-indexed mesh; terrain tint updates at 2 Hz.
 - Fire queries (nearest, head, counts, centroid) walk a cached list of active tiles that is rebuilt only after the fire changes; `stats()` is cached the same way. Particle emission scans the grid each frame but caps output.
@@ -130,7 +143,7 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 - Incidents re-track their fire at 5 Hz, not every step. Engine attack positions scan only the small box within hose reach of each road tile and are cached per incident (bucketed position) for a simulated second.
 - A headless profile of a full Red Flag shift (seed 12345, ~900 burning tiles at peak) costs about 5 ms of CPU per simulated second for scenario, fire, incidents, and fleet together.
 - Road edits rebuild only affected systems; the initial world is built once.
-- Shadows use one 2048 directional map. Real-GPU checks run well above 60 FPS at 1440×900; headless SwiftShader is intentionally not the performance target.
+- Shadows use one 2048 directional map. Headless SwiftShader is intentionally not the performance target; `getState().render` and `?stats=1` report draw calls, triangles, fps, CPU and draw time per frame, pixel ratio and shadow updates per second for real-GPU checks.
 
 ## Testing
 
@@ -145,7 +158,8 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 ## Outstanding / not in v1
 
 - Save/load, additional scenarios, touch-first controls, full accessibility pass.
-- Authored art and animation; all geometry is procedural.
+- Authored art and animation; all geometry is procedural (see the model lab, `models.html`).
+- Vegetation is not chunked for frustum culling; each species is one instanced draw covering the whole map.
 - Multi-lane traffic, collision avoidance between emergency units, and persistent traffic simulation.
 - Hand crews, crown fire, hydrant damage, and fire-aware engine routing.
 - Full rebinding of particle pools on live terrain dimension changes (world regeneration currently restarts the page).

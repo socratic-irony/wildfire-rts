@@ -15,12 +15,17 @@ import {
 } from 'three';
 import { WORLD_SIZE } from '../world/constants';
 
-export function createRenderer(container: HTMLElement): WebGLRenderer {
+/**
+ * `highPerformance` asks for the discrete GPU. By default the browser picks,
+ * which on dual-GPU laptops is the cooler integrated GPU; the scene is light
+ * enough for it (`?gpu=high` opts back in).
+ */
+export function createRenderer(container: HTMLElement, highPerformance = false): WebGLRenderer {
   const renderer = new WebGLRenderer({
     antialias: true,
-    powerPreference: 'high-performance',
+    powerPreference: highPerformance ? 'high-performance' : 'default',
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFShadowMap;

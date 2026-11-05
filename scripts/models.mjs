@@ -6,14 +6,13 @@ import { launchChromium } from './browser.mjs';
 /**
  * Screenshots of the model lab (models.html) for checking vehicle and
  * building models. `OUT` sets the folder (default docs/screenshots),
- * `VIEWS` a comma list of lab query strings, `PORT` the dev-server port.
+ * `VIEWS` a semicolon-separated list of lab query strings, `PORT` the dev-server port.
  */
 const PORT = Number(process.env.PORT ?? 4176);
 const BASE = `http://localhost:${PORT}`;
 const OUT = resolve(process.env.OUT ?? 'docs/screenshots');
 const VIEWS = (
-  process.env.VIEWS ??
-  'view=vehicles;view=buildings&size=34&x=-11&z=0;view=buildings&size=34&x=12&z=0;view=ruins&size=46;view=vehicles&size=9&x=-8&z=0&yaw=1.1&pitch=0.5'
+  process.env.VIEWS ?? 'view=vehicles&size=17&x=-1&z=-2;view=buildings&size=24&x=-9&z=-3&yaw=0.6&pitch=0.85;view=buildings&size=24&x=-6&z=3&yaw=3.74&pitch=0.85'
 )
   .split(';')
   .map((item) => item.trim())

@@ -63,3 +63,39 @@ describe('fleet ground movement', () => {
     expect(dozer.state).not.toBe('refilling');
   });
 });
+
+describe('vehicle attitude', () => {
+  /** A straight road tile whose ground rises along +x (a graded ramp). */
+  function rampTile(seed: number): { x: number; z: number; rise: number } | null {
+    const { world } = createHarness(seed);
+    let found: { x: number; z: number; rise: number } | null = null;
+    world.roads.forEach((tx, tz) => {
+      if (found || world.roads.connectionMask(tx, tz) !== (2 | 8)) return;
+      const centre = tileToWorld(tx, tz);
+      const rise = world.heightmap.heightAt(centre.x + 0.9, centre.z) - world.heightmap.heightAt(centre.x - 0.9, centre.z);
+      if (Math.abs(rise) > 0.5) found = { x: tx, z: tz, rise };
+    });
+    return found;
+  }
+
+  it('pitches a ground vehicle nose-up when it faces uphill, and level on the flat', () => {
+    const { fleet } = createHarness(12345);
+    const ramp = rampTile(12345);
+    expect(ramp).not.toBeNull();
+    const engine = fleet.unitById(1)!;
+    const centre = tileToWorld(ramp!.x, ramp!.z);
+    engine.x = centre.x;
+    engine.z = centre.z;
+    engine.state = 'holding';
+    // Face uphill: +x if the ground rises toward +x, otherwise -x.
+    engine.heading = ramp!.rise > 0 ? Math.PI / 2 : -Math.PI / 2;
+    stepFleet(fleet, 1, 1 / 30);
+    // Negative rotation.x lifts the nose (+z in model space).
+    expect(engine.group.rotation.x).toBeLessThan(-0.2);
+    expect(Math.abs(engine.group.rotation.z)).toBeLessThan(0.15);
+
+    engine.heading += Math.PI;
+    stepFleet(fleet, 1, 1 / 30);
+    expect(engine.group.rotation.x).toBeGreaterThan(0.2);
+  });
+});

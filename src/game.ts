@@ -15,6 +15,7 @@ import {
 } from 'three';
 import { CameraRig } from './core/camera';
 import { createRenderer, createScene } from './core/scene';
+import { QualityController, readQualityOptions } from './core/quality';
 import { GRID_SIZE, TILE_SIZE, tileToWorld, worldToTile } from './world/constants';
 import { World } from './world/world';
 import { BUILDING_LABELS, BuildingKind } from './world/buildingModels';
@@ -125,6 +126,7 @@ export class Game {
   readonly scenario: Scenario;
   readonly hud: Hud;
   readonly seed: number;
+  readonly quality: QualityController;
 
   private readonly viewport: HTMLElement;
   private started = false;
@@ -188,7 +190,9 @@ export class Game {
     this.seed = seed;
     this.difficulty = difficulty ?? parseDifficulty(loadPreference('difficulty')) ?? 'standard';
     this.budget = new Budget(DIFFICULTIES[this.difficulty].startingFunds, DIFFICULTIES[this.difficulty].income);
-    this.renderer = createRenderer(viewport);
+    const params = new URLSearchParams(window.location.search);
+    this.renderer = createRenderer(viewport, params.get('gpu') === 'high');
+    this.quality = new QualityController(this.renderer, readQualityOptions(params, window.devicePixelRatio));
     this.scene = createScene();
     this.world = new World(seed);
     this.scene.add(this.world.group);
@@ -625,6 +629,11 @@ export class Game {
   }
 
   private frame = (now: number): void => {
+    requestAnimationFrame(this.frame);
+    // Frame cap: 60 fps in play, 30 while nothing is being simulated.
+    const relaxed = !this.started || this.paused || this.isShiftOver();
+    if (!this.quality.shouldRender(now, relaxed)) return;
+    const frameStart = performance.now();
     const rawDt = Math.max(0, (now - this.lastFrame) / 1000);
     const realDt = Math.min(0.05, rawDt);
     this.lastFrame = now;
@@ -656,10 +665,14 @@ export class Game {
     const oy = shake > 0 ? (Math.random() - 0.5) * shake : 0;
     camera.position.x += ox;
     camera.position.y += oy;
+    // Shadows only change while units move (or after a discrete change).
+    this.quality.prepareShadows(now, this.started && !this.paused && !this.isShiftOver());
+    const renderStart = performance.now();
     this.renderer.render(this.scene, camera);
+    const renderEnd = performance.now();
     camera.position.x -= ox;
     camera.position.y -= oy;
-    requestAnimationFrame(this.frame);
+    this.quality.recordFrame(now, renderStart - frameStart, renderEnd - renderStart);
   };
 
   private simulate(dt: number): void {
@@ -727,6 +740,7 @@ export class Game {
     for (const building of this.world.buildings.buildings) {
       if (building.state === 'destroyed' && !this.destroyedBuildings.has(building.id)) {
         this.destroyedBuildings.add(building.id);
+        this.quality.markShadowsDirty();
         this.hud.refreshMinimapBase();
         this.notify(`${labelBuilding(building.kind)} lost near ${this.world.sectorName(building.x0, building.z0)}.`, 'danger');
         this.sound.play('collapse');
@@ -1254,6 +1268,7 @@ export class Game {
     for (const tile of path) this.playerRoads[tile.z * GRID_SIZE + tile.x] = 1;
     this.fire.refreshRoadMask(this.world.roads.mask);
     if (this.world.terrainRevision !== revision) this.fire.refreshTerrain(this.world.heightmap);
+    this.quality.markShadowsDirty();
     this.hud.refreshMinimapBase();
     return path;
   }
@@ -1469,7 +1484,7 @@ export class Game {
           triangles: this.renderer.info.render.triangles,
           geometries: this.renderer.info.memory.geometries,
           textures: this.renderer.info.memory.textures,
-          pixelRatio: this.renderer.getPixelRatio(),
+          ...this.quality.stats,
         },
       }),
       start: () => this.startShift(),

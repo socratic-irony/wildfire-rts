@@ -2214,3 +2214,19 @@ kbd {
     grid-template-columns: auto 1fr auto;
   }
 }
+
+/* Optional frame readout (?stats=1) */
+
+.perf-readout {
+  position: fixed;
+  right: 14px;
+  top: 96px;
+  z-index: 20;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(10, 14, 10, 0.72);
+  color: #cfe8c4;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  pointer-events: none;
+}

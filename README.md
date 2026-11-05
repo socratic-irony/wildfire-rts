@@ -10,6 +10,10 @@ A low-poly wildfire command RTS that runs in the browser. Read the wind forecast
 | --- | --- |
 | ![Large fire](docs/screenshots/fireline.png) | ![Victory screen](docs/screenshots/victory.png) |
 
+| Fleet at true scale (model lab) | Main street (model lab) |
+| --- | --- |
+| ![Vehicles in the model lab](docs/screenshots/models-1.png) | ![Buildings in the model lab](docs/screenshots/models-3.png) |
+
 ## The game
 
 Cinderline is a from-scratch reboot of the wildfire RTS prototype. The world is a rigid, terraced landscape: every surface is flat or a 45-degree slope, inspired by isometric management games. Fire is simulated per tile with wind, slope, moisture, fuel, spotting, water, retardant, bulldozed firelines, and controlled backburns.
@@ -57,6 +61,8 @@ npm run preview
 | R / F | Tilt |
 | Mouse wheel | Zoom toward cursor |
 | Middle drag | Pan |
+| Minimap | Click to jump there; the map turns with the camera; click **N** to face north |
+| AUTO chips | Per-unit auto-dispatch in the fleet list; **ALL AUTO** sets every unit |
 | Space | Pause / resume |
 | 1 / 2 / 4 | Simulation speed |
 | M | Mute / unmute |
@@ -67,11 +73,13 @@ npm run preview
 
 - **Terrain**: 96×96 tiles at 2 m per tile. Every seed generates a new map: rolling fractal hills quantized to terraces (flat tops, 45-degree faces), with the town, lake, highways and lookout road placed per seed. Roads are graded into clean ramps; banks keep their vegetation and show earth strata.
 - **Fire**: deterministic per-tile state machine at 5 Hz. Wind and upslope increase rate-of-spread; moisture, wetness, and retardant reduce it. Spotting throws embers downwind. Roads and cleared firelines are barriers. Backburns stay under control for ten tiles of spread before they turn wild. Structures accumulate damage while their tiles burn.
-- **Units**: engines are road-bound, carry 4,000 L, and park on a road tile within hose reach of the fire (beside a hydrant when they can). Dozers leave the road, route around flames, cut permanent lines, and stop if the fire reaches the line. The helicopter drops on the downwind head and dips from the lake when it is closer than the helipad. The tanker lays a perpendicular retardant line. Ground crews standing in flames suffer a burnover and are out of service for 25 s.
+- **Units**: every unit has an AUTO / MANUAL chip; the dispatcher only uses units on auto, and a direct order switches that unit to manual. Engines are road-bound, carry 4,000 L, drive in the right-hand lane, and park on a road tile within hose reach of the fire (beside a hydrant when they can). Dozers leave the road, route around flames, cut permanent lines, and stop if the fire reaches the line. The helicopter drops on the downwind head and dips from the lake when it is closer than the helipad. The tanker lays a perpendicular retardant line. Ground crews standing in flames suffer a burnover and are out of service for 25 s.
 - **Dispatch**: incidents track severity, threatened structures, and assigned units. Auto-dispatch sends the best available ground unit, aircraft, or dozer, and only sends engines to fires they can reach. A lookout opens incidents for untracked spot fires. Manual dispatch and direct orders override it.
-- **Hydrants**: spaced along the road mask, rebuilt after road edits. An engine within 4.6 m of a hydrant gets a visible unlimited feed.
+- **Hydrants**: spaced along the road mask, rebuilt after road edits, marked by cyan rings on the road and dots on the minimap. Empty engines drive to the nearest hydrant (a pulsing ring, a dashed minimap line, then a hose while filling), or press **Refill**. An engine within 4.6 m of a hydrant gets a visible unlimited feed.
+- **Air tanker**: works from an air-tanker base just past the map edge (a 22 m wingspan does not fit a town helipad); the helicopter sits on the pad.
 - **Simulation clock**: gameplay advances in fixed 1/30 s steps, so a seed plays out the same at 1×, 2×, or 4×.
-- **Rendering and audio**: Three.js orthographic diorama camera, flat-shaded terraced terrain, instanced vegetation and particles, a terrain-hugging plan preview for roads and lines, and procedural WebAudio (no audio files).
+- **Rendering and audio**: Three.js orthographic diorama camera, flat-shaded terraced terrain, instanced vegetation and particles, a terrain-hugging plan preview for roads and lines, and procedural WebAudio (no audio files). Vehicles and buildings are modelled at one scale (1 world unit ≈ 3 m: a road tile is a 6 m two-lane road), merged into a couple of meshes each, and ground vehicles pitch and roll with the road. Fourteen building types, from cabins and A-frames to a motel, gas station and schoolhouse.
+- **Laptop-friendly rendering**: 60 fps cap (30 when paused), adaptive resolution capped at 1.5× pixel ratio, shadow map redrawn only while things move, and the browser picks the GPU. URL flags: `?stats=1` (frame readout), `?fps=120`, `?dpr=2`, `?gpu=high`.
 
 ## Quality gates
 
@@ -83,7 +91,12 @@ npm run check       # typecheck + tests + build
 npm run smoke       # Playwright browser smoke test
 npm run stability   # five-seed full shift, plus a determinism replay
 npm run balance     # hands-off outcomes per seed; fails on stuck units
+npm run models      # screenshots of the model lab to docs/screenshots
 ```
+
+### Model lab
+
+`npm run dev`, then open `/models.html`: every vehicle and building type on a stretch of road with hydrants, trees and people for scale, under the game's lighting. Use `?view=vehicles|buildings|ruins|all`, `seed=` for building variations, and `yaw`, `pitch`, `size`, `x`, `z` to frame a shot.
 
 `npm run balance` accepts `SEEDS=1,2,3`, `DIFFICULTY=calm|standard|redflag`, `ASSIST=1` (buy mutual aid whenever affordable), and `PORT=4178`.
 
@@ -101,6 +114,7 @@ src/
   fx/        lightning, threat rings, head arrows, plan preview, sunset atmosphere
   audio/     procedural sound engine
   ui/        HUD, minimap, notifications, start/end screens, tool chrome, hints
+  tools/     model lab (models.html)
   test/      headless world/fleet harness for unit tests
   game.ts    game orchestration and input
   main.ts    browser entry point
