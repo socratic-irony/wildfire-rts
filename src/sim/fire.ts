@@ -134,8 +134,24 @@ export interface FireStats {
   smoldering: number;
   burned: number;
   cleared: number;
+  /** Area burned by wildfire (excludes controlled backburns). */
   burnedHectares: number;
+  /** Area deliberately burned out by backburns that stayed controlled. */
+  backburnHectares: number;
+  /** Burning or igniting tiles of wildfire lineage. */
+  wildActive: number;
 }
+
+/** Query flag: ignore smoldering tiles. */
+export const QUERY_BURNING = 1;
+/** Query flag: ignore tiles of controlled backburn lineage. */
+export const QUERY_WILD = 2;
+/**
+ * Spread generations a torch-lit backburn stays under control. Each tile it
+ * spreads into is one generation further from the torch; once the count
+ * runs out the fire is wild again and is treated like any other wildfire.
+ */
+export const BACKBURN_GENERATIONS = 10;
 
 export interface FireOptions {
   roadMask?: Uint8Array;
@@ -170,7 +186,28 @@ export class Wildfire {
   readonly gradientZ = new Float32Array(GRID_SIZE * GRID_SIZE);
   readonly ignitionTimer = new Float32Array(GRID_SIZE * GRID_SIZE);
   readonly retreatTimer = new Float32Array(GRID_SIZE * GRID_SIZE);
+  /** Remaining controlled generations for backburn tiles; 0 means wildfire. */
+  readonly controlled = new Uint8Array(GRID_SIZE * GRID_SIZE);
   readonly seed: number;
+  /** Difficulty scaling for rate of spread and ember spotting. */
+  spreadMultiplier = 1;
+  spotMultiplier = 1;
+  private version = 0;
+  private activeVersion = -1;
+  private readonly activeIndices = new Int32Array(GRID_SIZE * GRID_SIZE);
+  private activeLength = 0;
+  private statsVersion = -1;
+  private readonly cachedStats: FireStats = {
+    active: 0,
+    burning: 0,
+    igniting: 0,
+    smoldering: 0,
+    burned: 0,
+    cleared: 0,
+    burnedHectares: 0,
+    backburnHectares: 0,
+    wildActive: 0,
+  };
   env: FireEnv = { windDirRad: Math.PI * 1.35, windSpeed: 5.5, humidity: 0.28 };
   simTime = 0;
   private accumulator = 0;
@@ -221,6 +258,7 @@ export class Wildfire {
   }
 
   refreshRoadMask(roadMask: Uint8Array): void {
+    this.version += 1;
     for (let i = 0; i < this.fuel.length; i += 1) {
       if (roadMask[i] === 1) {
         this.fuel[i] = Fuel.Road;
@@ -246,10 +284,19 @@ export class Wildfire {
     };
   }
 
-  ignite(tx: number, tz: number, spot = false): boolean {
+  /**
+   * Start fire on a tile. `generations > 0` marks a controlled backburn; see
+   * BACKBURN_GENERATIONS.
+   */
+  ignite(tx: number, tz: number, spot = false, generations = 0): boolean {
     if (tx < 0 || tz < 0 || tx >= GRID_SIZE || tz >= GRID_SIZE) return false;
     const index = tileIndex(tx, tz);
-    return this.igniteIndex(index, spot);
+    return this.igniteIndex(index, spot, generations);
+  }
+
+  /** True if the tile is part of a backburn that is still under control. */
+  isControlled(tx: number, tz: number): boolean {
+    return (this.controlled[tileIndex(tx, tz)] ?? 0) > 0;
   }
 
   step(dt: number): IgnitionEvent[] {
@@ -267,6 +314,7 @@ export class Wildfire {
   tick(dt: number): void {
     this.simTime += dt;
     this.stepIndex += 1;
+    this.version += 1;
     const wind = this.windVector;
     const windDirLength = Math.hypot(wind.x, wind.z);
     const windX = windDirLength > 0 ? wind.x / windDirLength : 0;
@@ -348,7 +396,7 @@ export class Wildfire {
         1,
       );
       const moistureMult = clamp(1 - fuel.moistureDamp * effectiveMoisture, 0.045, 1);
-      let ros = fuel.baseROS * SPREAD_SCALE * windMult * slopeMult * moistureMult;
+      let ros = fuel.baseROS * SPREAD_SCALE * this.spreadMultiplier * windMult * slopeMult * moistureMult;
       if (fuelType === Fuel.Grass && (this.progress[index] ?? 0) > 0.75) ros *= 0.7;
       const advance = ros * dt;
       let probability = clamp(advance / TILE_SIZE, 0, 1);
@@ -366,12 +414,13 @@ export class Wildfire {
       probability = clamp(probability, 0, 0.55);
       if (probability <= 0) continue;
       const roll = hash01_3(index, neighbor + 1, this.stepIndex, this.seed ^ 0x9e3779b9);
-      if (roll < probability) this.igniteIndex(neighbor, false);
+      if (roll < probability) this.igniteIndex(neighbor, false, Math.max(0, (this.controlled[index] ?? 0) - 1));
     }
 
     if (windSpeed > 2.5 && fuel.spotChance > 0) {
       const spotRoll = hash01_3(index, this.stepIndex + 17, 91, this.seed ^ 0x51ed270b);
-      const chance = fuel.spotChance * SPOT_SCALE * (this.heat[index] ?? 0) * (0.45 + windSpeed / 10);
+      const chance =
+        fuel.spotChance * SPOT_SCALE * this.spotMultiplier * (this.heat[index] ?? 0) * (0.45 + windSpeed / 10);
       if (spotRoll < chance) this.trySpot(index, windX, windZ, windSpeed);
     }
   }
@@ -403,12 +452,13 @@ export class Wildfire {
     }
   }
 
-  private igniteIndex(index: number, spot: boolean): boolean {
-    if (this.state[index] !== FireState.Unburned && this.state[index] !== FireState.Burned) return false;
-    if (this.state[index] === FireState.Burned) return false;
+  private igniteIndex(index: number, spot: boolean, generations = 0): boolean {
+    if (this.state[index] !== FireState.Unburned) return false;
     const fuel = this.fuel[index] ?? Fuel.Grass;
     if (FUELS[fuel as Fuel].baseROS <= 0) return false;
     if ((this.wetness[index] ?? 0) > 0.62) return false;
+    this.version += 1;
+    this.controlled[index] = generations;
     this.state[index] = FireState.Igniting;
     this.heat[index] = Math.max(0.06, this.heat[index] ?? 0);
     this.progress[index] = 0;
@@ -425,6 +475,7 @@ export class Wildfire {
   }
 
   applyWater(worldX: number, worldZ: number, radiusWorld: number, power: number, dt: number): number {
+    this.version += 1;
     const centerTx = worldX / TILE_SIZE - 0.5;
     const centerTz = worldZ / TILE_SIZE - 0.5;
     const radiusTiles = radiusWorld / TILE_SIZE;
@@ -448,6 +499,7 @@ export class Wildfire {
           if (state === FireState.Igniting && (this.wetness[index] ?? 0) > 0.5) {
             this.state[index] = FireState.Unburned;
             this.ignitionTimer[index] = 0;
+            this.controlled[index] = 0;
           } else if (state === FireState.Burning && next < 0.1) {
             this.state[index] = FireState.Smoldering;
             extinguished += 1;
@@ -498,7 +550,8 @@ export class Wildfire {
         if (Math.hypot(x - tx, z - tz) > radiusTiles) continue;
         const index = tileIndex(x, z);
         const fuel = this.fuel[index] ?? Fuel.Rock;
-        if (fuel === Fuel.Water || fuel === Fuel.Road) continue;
+        if (fuel === Fuel.Water || fuel === Fuel.Road || fuel === Fuel.Urban) continue;
+        if (this.state[index] !== FireState.Cleared) this.version += 1;
         this.state[index] = FireState.Cleared;
         this.heat[index] = 0;
         this.progress[index] = 1;
@@ -510,7 +563,35 @@ export class Wildfire {
     return cleared;
   }
 
-  headTileNear(worldX: number, worldZ: number, radiusTiles = 30): { x: number; z: number; distance: number } | null {
+  /** Rebuild the list of igniting/burning/smoldering tiles if anything changed. */
+  private refreshActive(): void {
+    if (this.activeVersion === this.version) return;
+    this.activeVersion = this.version;
+    let n = 0;
+    for (let i = 0; i < this.state.length; i += 1) {
+      const state = this.state[i];
+      if (state === FireState.Igniting || state === FireState.Burning || state === FireState.Smoldering) {
+        this.activeIndices[n] = i;
+        n += 1;
+      }
+    }
+    this.activeLength = n;
+  }
+
+  private matches(index: number, flags: number): boolean {
+    if ((flags & QUERY_BURNING) !== 0 && this.state[index] === FireState.Smoldering) return false;
+    if ((flags & QUERY_WILD) !== 0 && (this.controlled[index] ?? 0) > 0) return false;
+    return true;
+  }
+
+  /** Burning/igniting tile furthest downwind (the head) near a point. */
+  headTileNear(
+    worldX: number,
+    worldZ: number,
+    radiusTiles = 30,
+    flags = 0,
+  ): { x: number; z: number; distance: number } | null {
+    this.refreshActive();
     const wind = this.windVector;
     const length = Math.hypot(wind.x, wind.z) || 1;
     const wx = wind.x / length;
@@ -519,77 +600,107 @@ export class Wildfire {
     const tz = worldZ / TILE_SIZE;
     let best: { x: number; z: number; distance: number } | null = null;
     let bestScore = -Infinity;
-    for (let z = Math.max(0, Math.floor(tz - radiusTiles)); z <= Math.min(GRID_SIZE - 1, Math.ceil(tz + radiusTiles)); z += 1) {
-      for (let x = Math.max(0, Math.floor(tx - radiusTiles)); x <= Math.min(GRID_SIZE - 1, Math.ceil(tx + radiusTiles)); x += 1) {
-        const dist = Math.hypot(x + 0.5 - tx, z + 0.5 - tz);
-        if (dist > radiusTiles) continue;
-        const state = this.state[tileIndex(x, z)] ?? FireState.Unburned;
-        if (state !== FireState.Burning && state !== FireState.Igniting) continue;
-        const score = (x + 0.5 - tx) * wx + (z + 0.5 - tz) * wz + (this.heat[tileIndex(x, z)] ?? 0) * 1.5;
-        if (score > bestScore) {
-          bestScore = score;
-          best = { x, z, distance: dist };
-        }
+    for (let k = 0; k < this.activeLength; k += 1) {
+      const index = this.activeIndices[k]!;
+      const state = this.state[index];
+      if (state !== FireState.Burning && state !== FireState.Igniting) continue;
+      if (!this.matches(index, flags)) continue;
+      const x = index % GRID_SIZE;
+      const z = (index - x) / GRID_SIZE;
+      const dist = Math.hypot(x + 0.5 - tx, z + 0.5 - tz);
+      if (dist > radiusTiles) continue;
+      const score = (x + 0.5 - tx) * wx + (z + 0.5 - tz) * wz + (this.heat[index] ?? 0) * 1.5;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x, z, distance: dist };
       }
     }
     return best;
   }
 
-  nearestActive(worldX: number, worldZ: number, maxTiles = 20): { x: number; z: number; distance: number } | null {
+  /** Closest active tile inside the square window of half-size `maxTiles`. */
+  nearestActive(
+    worldX: number,
+    worldZ: number,
+    maxTiles = 20,
+    flags = 0,
+  ): { x: number; z: number; distance: number } | null {
+    this.refreshActive();
     const tx = worldX / TILE_SIZE;
     const tz = worldZ / TILE_SIZE;
-    let best: { x: number; z: number; distance: number } | null = null;
-    for (let z = Math.max(0, Math.floor(tz - maxTiles)); z <= Math.min(GRID_SIZE - 1, Math.ceil(tz + maxTiles)); z += 1) {
-      for (let x = Math.max(0, Math.floor(tx - maxTiles)); x <= Math.min(GRID_SIZE - 1, Math.ceil(tx + maxTiles)); x += 1) {
-        const state = this.state[tileIndex(x, z)] ?? FireState.Unburned;
-        if (state !== FireState.Burning && state !== FireState.Igniting && state !== FireState.Smoldering) continue;
-        const dist = Math.hypot(x + 0.5 - tx, z + 0.5 - tz);
-        if (!best || dist < best.distance) best = { x, z, distance: dist };
+    const minX = Math.max(0, Math.floor(tx - maxTiles));
+    const maxX = Math.min(GRID_SIZE - 1, Math.ceil(tx + maxTiles));
+    const minZ = Math.max(0, Math.floor(tz - maxTiles));
+    const maxZ = Math.min(GRID_SIZE - 1, Math.ceil(tz + maxTiles));
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    for (let k = 0; k < this.activeLength; k += 1) {
+      const index = this.activeIndices[k]!;
+      const x = index % GRID_SIZE;
+      const z = (index - x) / GRID_SIZE;
+      if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
+      if (!this.matches(index, flags)) continue;
+      const dist = Math.hypot(x + 0.5 - tx, z + 0.5 - tz);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestIndex = index;
       }
     }
-    return best;
+    if (bestIndex < 0) return null;
+    return { x: bestIndex % GRID_SIZE, z: Math.floor(bestIndex / GRID_SIZE), distance: bestDistance };
   }
 
-  activeCountNear(worldX: number, worldZ: number, radiusTiles: number): number {
+  activeCountNear(worldX: number, worldZ: number, radiusTiles: number, flags = 0): number {
+    this.refreshActive();
     const tx = worldX / TILE_SIZE;
     const tz = worldZ / TILE_SIZE;
     let count = 0;
-    for (let z = Math.max(0, Math.floor(tz - radiusTiles)); z <= Math.min(GRID_SIZE - 1, Math.ceil(tz + radiusTiles)); z += 1) {
-      for (let x = Math.max(0, Math.floor(tx - radiusTiles)); x <= Math.min(GRID_SIZE - 1, Math.ceil(tx + radiusTiles)); x += 1) {
-        if (Math.hypot(x + 0.5 - tx, z + 0.5 - tz) > radiusTiles) continue;
-        const state = this.state[tileIndex(x, z)] ?? FireState.Unburned;
-        if (state === FireState.Burning || state === FireState.Igniting || state === FireState.Smoldering) count += 1;
-      }
+    for (let k = 0; k < this.activeLength; k += 1) {
+      const index = this.activeIndices[k]!;
+      const x = index % GRID_SIZE;
+      const z = (index - x) / GRID_SIZE;
+      if (Math.hypot(x + 0.5 - tx, z + 0.5 - tz) > radiusTiles) continue;
+      if (this.matches(index, flags)) count += 1;
     }
     return count;
   }
 
-  isActiveNear(worldX: number, worldZ: number, radiusTiles: number): boolean {
+  isActiveNear(worldX: number, worldZ: number, radiusTiles: number, flags = 0): boolean {
+    this.refreshActive();
     const tx = worldX / TILE_SIZE;
     const tz = worldZ / TILE_SIZE;
-    for (let z = Math.max(0, Math.floor(tz - radiusTiles)); z <= Math.min(GRID_SIZE - 1, Math.ceil(tz + radiusTiles)); z += 1) {
-      for (let x = Math.max(0, Math.floor(tx - radiusTiles)); x <= Math.min(GRID_SIZE - 1, Math.ceil(tx + radiusTiles)); x += 1) {
-        if (Math.hypot(x + 0.5 - tx, z + 0.5 - tz) > radiusTiles) continue;
-        const state = this.state[tileIndex(x, z)] ?? FireState.Unburned;
-        if (state === FireState.Burning || state === FireState.Igniting || state === FireState.Smoldering) return true;
-      }
+    for (let k = 0; k < this.activeLength; k += 1) {
+      const index = this.activeIndices[k]!;
+      const x = index % GRID_SIZE;
+      const z = (index - x) / GRID_SIZE;
+      if (Math.hypot(x + 0.5 - tx, z + 0.5 - tz) > radiusTiles) continue;
+      if (this.matches(index, flags)) return true;
     }
     return false;
   }
 
+  /** Visit every active tile index (igniting, burning, smoldering). */
+  forEachActive(callback: (index: number) => void, flags = 0): void {
+    this.refreshActive();
+    for (let k = 0; k < this.activeLength; k += 1) {
+      const index = this.activeIndices[k]!;
+      if (this.matches(index, flags)) callback(index);
+    }
+  }
+
   centroid(): { x: number; z: number; count: number } {
+    this.refreshActive();
     let sx = 0;
     let sz = 0;
     let count = 0;
-    for (let tz = 0; tz < GRID_SIZE; tz += 1) {
-      for (let tx = 0; tx < GRID_SIZE; tx += 1) {
-        const state = this.state[tileIndex(tx, tz)] ?? FireState.Unburned;
-        if (state === FireState.Burning || state === FireState.Igniting) {
-          sx += tx;
-          sz += tz;
-          count += 1;
-        }
-      }
+    for (let k = 0; k < this.activeLength; k += 1) {
+      const index = this.activeIndices[k]!;
+      const state = this.state[index];
+      if (state !== FireState.Burning && state !== FireState.Igniting) continue;
+      const x = index % GRID_SIZE;
+      sx += x;
+      sz += (index - x) / GRID_SIZE;
+      count += 1;
     }
     if (count === 0) return { x: 0, z: 0, count: 0 };
     return {
@@ -599,38 +710,48 @@ export class Wildfire {
     };
   }
 
+  /** Whole-grid statistics, cached until the fire state next changes. Do not mutate. */
   stats(): FireStats {
+    if (this.statsVersion === this.version) return this.cachedStats;
+    this.statsVersion = this.version;
     let burning = 0;
     let igniting = 0;
     let smoldering = 0;
     let burned = 0;
+    let burnedWild = 0;
     let cleared = 0;
+    let wildActive = 0;
     for (let i = 0; i < this.state.length; i += 1) {
       const state = this.state[i];
-      if (state === FireState.Burning) burning += 1;
-      else if (state === FireState.Igniting) igniting += 1;
-      else if (state === FireState.Smoldering) smoldering += 1;
-      else if (state === FireState.Burned) burned += 1;
-      else if (state === FireState.Cleared) cleared += 1;
+      const wild = (this.controlled[i] ?? 0) === 0;
+      if (state === FireState.Burning || state === FireState.Igniting) {
+        if (state === FireState.Burning) burning += 1;
+        else igniting += 1;
+        if (wild) wildActive += 1;
+      } else if (state === FireState.Smoldering) smoldering += 1;
+      else if (state === FireState.Burned) {
+        burned += 1;
+        if (wild) burnedWild += 1;
+      } else if (state === FireState.Cleared) cleared += 1;
     }
-    return {
-      active: burning + igniting + smoldering,
-      burning,
-      igniting,
-      smoldering,
-      burned,
-      cleared,
-      burnedHectares: (burned * TILE_SIZE * TILE_SIZE) / 10000,
-    };
+    const tileHectares = (TILE_SIZE * TILE_SIZE) / 10000;
+    const stats = this.cachedStats;
+    stats.active = burning + igniting + smoldering;
+    stats.burning = burning;
+    stats.igniting = igniting;
+    stats.smoldering = smoldering;
+    stats.burned = burned;
+    stats.cleared = cleared;
+    stats.burnedHectares = burnedWild * tileHectares;
+    stats.backburnHectares = (burned - burnedWild) * tileHectares;
+    stats.wildActive = wildActive;
+    return stats;
   }
 
+  /** Burning or igniting tiles of any lineage. */
   get activeFireCount(): number {
-    let count = 0;
-    for (let i = 0; i < this.state.length; i += 1) {
-      const state = this.state[i];
-      if (state === FireState.Burning || state === FireState.Igniting) count += 1;
-    }
-    return count;
+    const stats = this.stats();
+    return stats.burning + stats.igniting;
   }
 
   fuelAt(tx: number, tz: number): FuelProfile {

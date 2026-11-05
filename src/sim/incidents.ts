@@ -1,7 +1,7 @@
 import { distance } from '../core/math';
-import { tileToWorld } from '../world/constants';
+import { GRID_SIZE, tileToWorld } from '../world/constants';
 import { Fleet } from './units';
-import { Wildfire } from './fire';
+import { QUERY_BURNING, QUERY_WILD, Wildfire } from './fire';
 import { IncidentView, NotifyFn } from './types';
 
 export interface Incident extends IncidentView {
@@ -13,13 +13,20 @@ export interface Incident extends IncidentView {
 
 /** Units auto-dispatch will commit to one incident (manual orders may exceed). */
 const MAX_AUTO_UNITS = 4;
+/** An incident follows wildfire within this many tiles of its centre. */
+const TRACK_RADIUS_TILES = 18;
+/** Seconds between lookout sweeps for untracked spot fires. */
+const SPOT_SWEEP_SECONDS = 2;
 
 export class IncidentSystem {
   readonly incidents: Incident[] = [];
   autoDispatch = true;
   onResolved: ((incident: Incident) => void) | null = null;
+  /** Called when the lookout finds wildfire that no incident is tracking. */
+  onSpotDetected: ((incident: Incident) => void) | null = null;
   private nextId = 1;
   private dispatchTimer = 0.5;
+  private sweepTimer = SPOT_SWEEP_SECONDS;
 
   constructor(
     private readonly fire: Wildfire,
@@ -63,7 +70,7 @@ export class IncidentSystem {
   update(dt: number, fleet: Fleet): void {
     for (const incident of this.incidents) {
       if (incident.resolved) continue;
-      const nearest = this.fire.nearestActive(incident.x, incident.z, 18);
+      const nearest = this.fire.nearestActive(incident.x, incident.z, TRACK_RADIUS_TILES, QUERY_WILD);
       if (nearest) {
         const world = tileToWorld(nearest.x, nearest.z);
         const blend = Math.min(1, dt * 0.8);
@@ -72,7 +79,7 @@ export class IncidentSystem {
         incident.tx = nearest.x;
         incident.tz = nearest.z;
         incident.quietTimer = 0;
-        incident.severity = Math.max(1, this.fire.activeCountNear(incident.x, incident.z, 11));
+        incident.severity = Math.max(1, this.fire.activeCountNear(incident.x, incident.z, 11, QUERY_WILD));
       } else {
         incident.quietTimer += dt;
         incident.severity = 0;
@@ -81,12 +88,16 @@ export class IncidentSystem {
           continue;
         }
       }
-      incident.assigned = new Set(
-        [...incident.assigned].filter((id) => {
-          const unit = fleet.unitById(id);
-          return unit !== null && unit.incidentId === incident.id;
-        }),
-      );
+      for (const id of incident.assigned) {
+        const unit = fleet.unitById(id);
+        if (unit === null || unit.incidentId !== incident.id) incident.assigned.delete(id);
+      }
+    }
+
+    this.sweepTimer -= dt;
+    if (this.sweepTimer <= 0) {
+      this.sweepTimer = SPOT_SWEEP_SECONDS;
+      this.sweepForSpotFires();
     }
 
     if (this.autoDispatch) {
@@ -96,6 +107,29 @@ export class IncidentSystem {
         this.runAutoDispatch(fleet);
       }
     }
+  }
+
+  /**
+   * Fire lookout: open an incident for the first burning wildfire tile that
+   * no active incident is tracking (escaped spot fires, runaway backburns).
+   */
+  private sweepForSpotFires(): void {
+    const active = this.activeIncidents;
+    let foundX = -1;
+    let foundZ = -1;
+    this.fire.forEachActive((index) => {
+      if (foundX >= 0) return;
+      const tx = index % GRID_SIZE;
+      const tz = (index - tx) / GRID_SIZE;
+      for (const incident of active) {
+        if (Math.abs(incident.tx - tx) <= TRACK_RADIUS_TILES && Math.abs(incident.tz - tz) <= TRACK_RADIUS_TILES) return;
+      }
+      foundX = tx;
+      foundZ = tz;
+    }, QUERY_WILD | QUERY_BURNING);
+    if (foundX < 0) return;
+    const incident = this.createAt(foundX, foundZ, 'spot');
+    this.onSpotDetected?.(incident);
   }
 
   dispatchOne(incidentId: number, fleet: Fleet): boolean {
@@ -191,7 +225,7 @@ export class IncidentSystem {
       if (unit && unit.incidentId === incident.id) fleet.returnHome(id);
     }
     incident.assigned.clear();
-    this.notify('Incident contained. Crews are returning.', 'success');
-    this.onResolved?.(incident);
+    if (this.onResolved) this.onResolved(incident);
+    else this.notify('Incident contained. Crews are returning.', 'success');
   }
 }

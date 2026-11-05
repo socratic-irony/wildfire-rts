@@ -1589,3 +1589,487 @@ kbd {
     font-size: 18px;
   }
 }
+
+/* ---- Command layer: budget, forecast, tools, aid, grading ---- */
+
+.metric.wide {
+  min-width: 128px;
+}
+
+.metric-sub {
+  display: block;
+  margin-top: 2px;
+  min-height: 10px;
+  color: var(--muted-2);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-style: normal;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.metric-sub.danger {
+  color: #ff8f7a;
+  animation: sub-pulse 1.1s ease-in-out infinite;
+}
+
+.metric-sub.warning {
+  color: var(--amber-bright);
+  animation: sub-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes sub-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.metric strong.pulse {
+  animation: funds-pulse 700ms ease;
+}
+
+@keyframes funds-pulse {
+  30% {
+    color: #b8f0a6;
+    transform: scale(1.12);
+  }
+}
+
+.lightning-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 30%, rgba(236, 242, 255, 0.85), rgba(190, 210, 255, 0.35) 55%, rgba(160, 180, 255, 0.1));
+  opacity: 0;
+}
+
+.lightning-flash.strike {
+  animation: lightning 650ms ease-out;
+}
+
+@keyframes lightning {
+  0% {
+    opacity: 0.85;
+  }
+  12% {
+    opacity: 0.1;
+  }
+  22% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.toast.hint {
+  border-color: rgba(119, 215, 234, 0.4);
+  background: rgba(12, 24, 28, 0.95);
+  color: #c4eef7;
+  text-align: left;
+}
+
+.mode-banner b {
+  color: var(--cream);
+  font-weight: 600;
+}
+
+.mode-banner b.short {
+  color: #ff8f7a;
+}
+
+/* Incident threat line */
+
+.incident-threat {
+  display: none;
+  margin-top: 4px;
+  color: #ff9a85;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.incident-threat.visible {
+  display: block;
+  animation: sub-pulse 1.2s ease-in-out infinite;
+}
+
+/* Fleet panel grows with mutual aid; the list scrolls instead of overflowing. */
+
+.left-column .incident-panel {
+  flex: 0 1 auto;
+}
+
+.fleet-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.fleet-list {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(239, 220, 176, 0.24) transparent;
+}
+
+.fleet-row.out-of-service {
+  opacity: 0.55;
+}
+
+.fleet-row.out-of-service .unit-badge {
+  background: #8b8b80;
+}
+
+.fleet-row.heat em {
+  color: #ff9a85;
+}
+
+.fleet-row.arrived {
+  animation: row-arrive 1.4s ease;
+}
+
+@keyframes row-arrive {
+  0% {
+    background: rgba(139, 200, 124, 0.35);
+  }
+}
+
+.legend-dot.dozer {
+  background: var(--amber);
+}
+
+.legend-dot.risk {
+  border: 1.5px solid #ff5c46;
+  background: transparent;
+}
+
+.aid-panel {
+  margin: 0 8px 8px;
+  padding: 8px 8px 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 246, 218, 0.025);
+}
+
+.aid-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+}
+
+.aid-head em {
+  color: var(--muted-2);
+  font-style: normal;
+  letter-spacing: 0.02em;
+}
+
+.aid-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.aid-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--cream-dim);
+  font-size: 9px;
+  transition: 140ms ease;
+}
+
+.aid-button b {
+  color: var(--amber-bright);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.aid-button:hover:not(:disabled) {
+  border-color: rgba(241, 179, 77, 0.45);
+  background: rgba(241, 179, 77, 0.1);
+}
+
+.aid-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.aid-pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.aid-chip {
+  padding: 2px 6px;
+  border: 1px solid rgba(139, 200, 124, 0.35);
+  border-radius: 4px;
+  color: #c8edbe;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+/* Selected unit: sits right of the left column so it never covers the fleet list. */
+
+.unit-panel {
+  left: 340px;
+}
+
+.unit-panel .heat-label,
+.unit-panel .meter.heat {
+  display: none;
+}
+
+.unit-panel.show-heat .heat-label {
+  display: flex;
+  margin-top: 8px;
+}
+
+.unit-panel.show-heat .meter.heat {
+  display: block;
+}
+
+.meter.heat span {
+  background: linear-gradient(90deg, var(--amber), var(--red));
+}
+
+.flag.danger {
+  border: 1px solid rgba(226, 89, 66, 0.45);
+  background: rgba(226, 89, 66, 0.12);
+  color: #ffb6a7;
+}
+
+.flag.aid {
+  border: 1px solid rgba(139, 200, 124, 0.38);
+  background: rgba(139, 200, 124, 0.08);
+  color: #c8edbe;
+}
+
+.secondary-button.accent {
+  border-color: rgba(241, 179, 77, 0.45);
+  color: var(--amber-bright);
+}
+
+.secondary-button.wide {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.unit-tip {
+  margin: 9px 0 0;
+  color: var(--muted-2);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+/* Minimap forecast arrow */
+
+.forecast-label {
+  margin-left: 8px;
+  color: var(--muted-2);
+}
+
+.wind-arrow.forecast {
+  border-top-color: var(--amber);
+}
+
+/* Briefing difficulty picker */
+
+.difficulty-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 600px;
+  margin-top: 22px;
+}
+
+.difficulty-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(13, 18, 12, 0.6);
+  text-align: left;
+  transition: 140ms ease;
+}
+
+.difficulty-option strong {
+  color: var(--cream);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.difficulty-option span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.difficulty-option:hover {
+  border-color: var(--line-strong);
+}
+
+.difficulty-option.selected {
+  border-color: rgba(241, 179, 77, 0.6);
+  background: rgba(241, 179, 77, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(241, 179, 77, 0.25);
+}
+
+.difficulty-option.selected strong {
+  color: var(--amber-bright);
+}
+
+.start-best {
+  min-height: 14px;
+  margin: 14px 0 0;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  opacity: 0;
+}
+
+.start-best.visible {
+  opacity: 1;
+}
+
+/* End screen grade */
+
+.end-headline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  margin-top: 12px;
+  text-align: left;
+}
+
+.end-headline h1 {
+  margin: 0;
+}
+
+.end-headline .end-reason {
+  margin: 8px 0 0;
+}
+
+.grade-badge {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  border: 2px solid currentColor;
+  border-radius: 18px;
+  font-family: var(--serif);
+  font-size: 58px;
+  line-height: 1;
+  animation: grade-in 700ms cubic-bezier(0.2, 1.4, 0.4, 1) both 200ms;
+}
+
+.grade-s {
+  color: #ffd27a;
+  box-shadow: 0 0 40px rgba(255, 210, 122, 0.35);
+}
+.grade-a {
+  color: #b8f0a6;
+}
+.grade-b {
+  color: #9fdcef;
+}
+.grade-c {
+  color: #e8dcc0;
+}
+.grade-d,
+.grade-f {
+  color: #f4a290;
+}
+
+@keyframes grade-in {
+  from {
+    opacity: 0;
+    transform: scale(1.8) rotate(-8deg);
+  }
+}
+
+.end-best {
+  margin: -8px 0 16px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.end-best.new {
+  color: var(--amber-bright);
+}
+
+.end-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+@media (max-width: 1180px) {
+  .unit-panel {
+    left: 312px;
+  }
+  .metric.wide {
+    min-width: 108px;
+  }
+}
+
+@media (max-width: 880px) {
+  .unit-panel {
+    left: 14px;
+  }
+  .difficulty-picker {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .unit-panel {
+    left: 8px;
+  }
+  .end-headline {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lightning-flash.strike,
+  .grade-badge,
+  .metric-sub.danger,
+  .metric-sub.warning,
+  .incident-threat.visible {
+    animation: none;
+  }
+}
+
+.mode-banner.visible ~ .toasts {
+  top: 146px;
+}

@@ -17,13 +17,30 @@ import { CameraRig } from './core/camera';
 import { createRenderer, createScene } from './core/scene';
 import { GRID_SIZE, TILE_SIZE, tileToWorld, worldToTile } from './world/constants';
 import { World } from './world/world';
-import { FireState, Wildfire } from './sim/fire';
+import { BACKBURN_GENERATIONS, FireState, Fuel, QUERY_BURNING, QUERY_WILD, Wildfire } from './sim/fire';
+import { SoundEngine } from './audio/sound';
+import { Effects } from './fx/effects';
+import { Hints } from './ui/hints';
 import { ParticleSystem } from './sim/particles';
 import { Fleet } from './sim/units';
 import { Incident, IncidentSystem } from './sim/incidents';
 import { Scenario } from './sim/scenario';
 import { NotifyFn, NotifyTone } from './sim/types';
-import { Hud, HudState, Tool } from './ui/hud';
+import { UnitKind } from './sim/vehicleModels';
+import {
+  Budget,
+  MUTUAL_AID_COST,
+  MUTUAL_AID_ETA,
+  MUTUAL_AID_LIMIT,
+  ROAD_COST_PER_TILE,
+  TORCH_COST,
+} from './sim/budget';
+import { DIFFICULTIES, DifficultyId, parseDifficulty } from './sim/difficulty';
+import { loadJson, loadPreference, saveJson, savePreference } from './core/prefs';
+import { BestRecord, Hud, HudState, ThreatSummary, Tool, UnitAction } from './ui/hud';
+
+/** A structure is threatened when burning wildfire is within this many tiles. */
+const THREAT_RADIUS_TILES = 7;
 
 /** Fixed simulation step for scenario, incidents, units, and structures. */
 const SIM_STEP = 1 / 30;
@@ -40,6 +57,10 @@ interface TestApi {
   dispatch: (incidentId: number) => boolean;
   setSpeed: (speed: number) => void;
   getTile: (tx: number, tz: number) => unknown;
+  torch: (tx: number, tz: number) => boolean;
+  orderLine: (sx: number, sz: number, gx: number, gz: number) => boolean;
+  requestMutualAid: (kind: UnitKind) => boolean;
+  setDifficulty: (id: DifficultyId) => void;
   findBurnableNear: (tx: number, tz: number, radius: number) => { x: number; z: number } | null;
   focusTile: (tx: number, tz: number) => void;
   setView: (view: { yaw?: number; pitch?: number; viewSize?: number }) => void;
@@ -71,6 +92,20 @@ export class Game {
   private speed = 1;
   private tool: Tool = 'select';
   private roadStart: { x: number; z: number } | null = null;
+  private lineStart: { x: number; z: number } | null = null;
+  /** Tiles and cost of the road or dozer line under the cursor. */
+  private preview: { tiles: number; cost: number } | null = null;
+  private budget: Budget;
+  private difficulty: DifficultyId;
+  private readonly reinforcements: Array<{ kind: UnitKind; name: string; eta: number }> = [];
+  private mutualAidRequested = 0;
+  private readonly sound: SoundEngine;
+  private readonly effects: Effects;
+  private readonly hints: Hints;
+  private threats: ThreatSummary = { total: 0, byIncident: new Map(), buildings: new Set() };
+  private lastThreatTotal = 0;
+  private best: BestRecord | null = null;
+  private newBest = false;
   private selectedUnitId: number | null = null;
   private hudTimer = 0;
   private lastFrame = performance.now();
@@ -98,9 +133,11 @@ export class Game {
   /** True once the test API drives the clock; the frame loop then only renders. */
   private externalClock = false;
 
-  constructor(viewport: HTMLElement, seed: number) {
+  constructor(viewport: HTMLElement, seed: number, difficulty?: DifficultyId) {
     this.viewport = viewport;
     this.seed = seed;
+    this.difficulty = difficulty ?? parseDifficulty(loadPreference('difficulty')) ?? 'standard';
+    this.budget = new Budget(DIFFICULTIES[this.difficulty].startingFunds, DIFFICULTIES[this.difficulty].income);
     this.renderer = createRenderer(viewport);
     this.scene = createScene();
     this.world = new World(seed);
@@ -115,9 +152,13 @@ export class Game {
       seed: seed ^ 0x1f123bb5,
     });
 
+    this.sound = new SoundEngine(loadPreference('muted') === '1');
     this.notify = (message: string, tone: NotifyTone = 'info') => {
       this.hud?.toast(message, tone);
+      if (tone === 'danger') this.sound?.play('alert');
     };
+    this.hints = new Hints(this.notify);
+    this.best = this.loadBest();
 
     this.hud = new Hud(
       document.getElementById('ui') as HTMLElement,
@@ -125,21 +166,27 @@ export class Game {
       this.fire,
       {
         onStart: () => this.startShift(),
+        onDifficulty: (id) => this.chooseDifficulty(id),
+        onMutualAid: (kind) => {
+          this.requestMutualAid(kind);
+        },
         onTool: (tool) => this.setTool(tool),
         onSpeed: (speed) => this.setSpeed(speed),
         onPause: () => this.togglePause(),
         onAutoDispatch: (enabled) => this.setAutoDispatch(enabled),
         onIncidentFocus: (id) => this.focusIncident(id),
         onIncidentDispatch: (id) => this.dispatchIncident(id),
-        onUnitSelect: (id) => this.selectUnit(id),
+        onUnitSelect: (id) => this.onFleetRowClick(id),
         onUnitAction: (id, action) => this.unitAction(id, action),
+        onMute: () => this.toggleMute(),
         onMinimapFocus: (x, z) => this.rig.focus(x, z),
         onHelp: () => {
           this.keys.clear();
         },
-        onRestart: () => this.restart(),
+        onRestart: (sameSeed) => this.restart(sameSeed),
       },
       seed,
+      this.difficulty,
     );
 
     this.particles = new ParticleSystem(this.world.heightmap);
@@ -147,9 +194,40 @@ export class Game {
     this.fleet = new Fleet(this.world, this.fire, this.particles, this.notify);
     this.scene.add(this.fleet.group);
     this.incidents = new IncidentSystem(this.fire, this.notify);
-    this.scenario = new Scenario(this.world, this.fire, this.incidents, this.notify, seed);
-    this.incidents.onResolved = () => {
+    this.scenario = new Scenario(this.world, this.fire, this.incidents, this.notify, seed, this.difficulty);
+    this.incidents.onResolved = (incident) => {
       this.scenario.registerIncidentContained();
+      const bonus = this.scenario.difficulty.containmentBonus;
+      this.budget.earn(bonus);
+      this.notify(`Contained in ${this.world.sectorName(incident.tx, incident.tz)}. +$${bonus} budget.`, 'success');
+    };
+    this.incidents.onSpotDetected = (incident) => {
+      this.scenario.registerFireStarted();
+      this.notify(`Lookout reports a spot fire — ${this.world.sectorName(incident.tx, incident.tz)}.`, 'danger');
+    };
+    this.effects = new Effects(this.world.heightmap);
+    this.scene.add(this.effects.group);
+    this.scenario.onLightning = (tx, tz) => {
+      const world = tileToWorld(tx, tz);
+      this.effects.lightning(world.x, world.z);
+      this.hud.lightning();
+      const camera = this.rig.target;
+      const far = Math.hypot(camera.x - world.x, camera.z - world.z);
+      this.sound.play('thunder', Math.min(1.4, 0.15 + far / 120));
+    };
+    this.scenario.onWindShift = () => {
+      this.sound.play('windShift');
+    };
+    this.fleet.onEvent = (event) => {
+      if (event === 'waterDrop') this.sound.play('drop');
+      else if (event === 'retardant') {
+        this.sound.play('retardant');
+        this.effects.addShake(0.35);
+      } else if (event === 'burnover') {
+        this.sound.play('burnover');
+        this.effects.addShake(0.8);
+      } else if (event === 'lineDone') this.sound.play('contained');
+      else if (event === 'dip') this.sound.play('drop');
     };
     this.scene.add(this.markerGroup);
     this.markerGroup.name = 'incident-markers';
@@ -162,12 +240,121 @@ export class Game {
     this.hud.setTool(this.tool);
     this.bindEvents();
     this.installTestApi();
+    this.hud.setBestLine(this.bestLine());
     this.hud.update(this.hudState(), true);
     requestAnimationFrame(this.frame);
   }
 
+  private bestKey(): string {
+    return `best.${this.seed}.${this.difficulty}`;
+  }
+
+  private loadBest(): BestRecord | null {
+    return loadJson<BestRecord | null>(this.bestKey(), null);
+  }
+
+  private bestLine(): string | null {
+    return this.best ? `Your best on this map: ${this.best.score.toLocaleString()} (grade ${this.best.grade})` : null;
+  }
+
+  private toggleMute(): void {
+    this.sound.unlock();
+    this.sound.setMuted(!this.sound.muted);
+    savePreference('muted', this.sound.muted ? '1' : '0');
+    this.hud.update(this.hudState(), true);
+  }
+
+  /** Record the result once the shift ends: best score, sound, and the end screen. */
+  private onOutcome(): void {
+    const result = this.scenario.currentResult;
+    this.sound.play(result.status === 'won' ? 'win' : 'lose', 0.4);
+    if (!this.best || result.score > this.best.score) {
+      this.newBest = this.best !== null || result.score > 0;
+      this.best = { score: result.score, grade: result.grade ?? 'F' };
+      saveJson(this.bestKey(), this.best);
+    }
+  }
+
+  /** Intact structures with burning wildfire nearby, attributed to the closest incident. */
+  private computeThreats(): ThreatSummary {
+    const buildings = new Set<number>();
+    const byIncident = new Map<number, number>();
+    const active = this.incidents.activeIncidents;
+    for (const building of this.world.buildings.buildings) {
+      if (building.state === 'destroyed') continue;
+      const near =
+        building.state === 'burning' ||
+        this.fire.nearestActive(building.centerX, building.centerZ, THREAT_RADIUS_TILES, QUERY_WILD | QUERY_BURNING) !== null;
+      if (!near) continue;
+      buildings.add(building.id);
+      let closest: Incident | null = null;
+      let closestDistance = Infinity;
+      for (const incident of active) {
+        const d = Math.hypot(incident.x - building.centerX, incident.z - building.centerZ);
+        if (d < closestDistance) {
+          closestDistance = d;
+          closest = incident;
+        }
+      }
+      if (closest) byIncident.set(closest.id, (byIncident.get(closest.id) ?? 0) + 1);
+    }
+    return { total: buildings.size, byIncident, buildings };
+  }
+
+  /** Real-time bookkeeping at HUD cadence: threats, heads, ambience, coaching. */
+  private refreshSituation(): void {
+    this.threats = this.computeThreats();
+    if (this.threats.total > this.lastThreatTotal && this.started) this.sound.play('alert');
+    this.lastThreatTotal = this.threats.total;
+    this.effects.setThreatened(this.world.buildings.buildings, this.threats.buildings);
+    const heads: Array<{ x: number; z: number }> = [];
+    for (const incident of this.incidents.activeIncidents) {
+      if (incident.severity < 4) continue;
+      const head = this.fire.headTileNear(incident.x, incident.z, 30, QUERY_WILD);
+      if (head) heads.push(tileToWorld(head.x, head.z));
+    }
+    this.effects.setHeads(heads, this.scenario.windDirection, this.scenario.windSpeed);
+    const camera = this.rig.target;
+    const view = this.rig.viewSize / TILE_SIZE;
+    this.sound.setAmbience({
+      wind: this.started ? this.scenario.windSpeed : 2,
+      fire: this.started && !this.paused ? this.fire.activeCountNear(camera.x, camera.z, view * 0.8, QUERY_BURNING) : 0,
+      spraying: this.paused ? 0 : this.fleet.sprayingCount,
+    });
+    if (this.started && this.scenario.status === 'running') this.coach();
+  }
+
+  private coach(): void {
+    const time = this.scenario.time;
+    if (time > 4) this.hints.show('welcome');
+    const incidents = this.incidents.activeIncidents;
+    if (incidents.some((incident) => incident.severity >= 10)) this.hints.show('line');
+    if (incidents.some((incident) => incident.severity >= 24)) this.hints.show('backburn');
+    const next = this.scenario.nextWindShift();
+    if (next && next.time - time < 22 && time > 10) this.hints.show('forecast');
+    if (this.threats.total > 0) this.hints.show('threat');
+    if (this.fleet.units.some((unit) => unit.status === 'Driving to hydrant')) this.hints.show('hydrant');
+    if (this.budget.funds >= 420) this.hints.show('aid');
+    if (this.fleet.units.some((unit) => unit.kind === 'dozer' && unit.exposure > 0.3)) this.hints.show('heat');
+  }
+
+  private chooseDifficulty(id: DifficultyId): void {
+    if (this.started) return;
+    this.difficulty = id;
+    savePreference('difficulty', id);
+    this.scenario.setDifficulty(id);
+    const config = DIFFICULTIES[id];
+    this.budget = new Budget(config.startingFunds, config.income);
+    this.best = this.loadBest();
+    this.hud.setBestLine(this.bestLine());
+    this.hud.update(this.hudState(), true);
+  }
+
   private startShift(): void {
     if (this.started) return;
+    this.chooseDifficulty(this.difficulty);
+    this.sound.unlock();
+    this.sound.play('click');
     this.started = true;
     this.scenario.start();
     this.setTool('select');
@@ -175,14 +362,35 @@ export class Game {
     this.hud.update(this.hudState(), true);
   }
 
-  private restart(): void {
-    const nextSeed = (Math.random() * 0xffffffff) >>> 0;
-    window.location.href = `${window.location.pathname}?seed=${nextSeed}`;
+  private restart(sameSeed = false): void {
+    const nextSeed = sameSeed ? this.seed : (Math.random() * 0xffffffff) >>> 0;
+    window.location.href = `${window.location.pathname}?seed=${nextSeed}&difficulty=${this.difficulty}`;
+  }
+
+  private requestMutualAid(kind: UnitKind): boolean {
+    if (!this.started || this.scenario.status !== 'running') return false;
+    if (this.mutualAidRequested >= MUTUAL_AID_LIMIT) {
+      this.notify('Mutual aid is exhausted for this shift.', 'warning');
+      return false;
+    }
+    const cost = MUTUAL_AID_COST[kind];
+    if (!this.budget.spend(cost)) {
+      this.notify(`Mutual aid costs $${cost}. Not enough budget yet.`, 'warning');
+      return false;
+    }
+    this.mutualAidRequested += 1;
+    const name = this.fleet.reserveMutualAidName(kind);
+    this.reinforcements.push({ kind, name, eta: MUTUAL_AID_ETA });
+    this.notify(`${name} requested from mutual aid. ETA ${MUTUAL_AID_ETA} s.`, 'info');
+    this.hud.update(this.hudState(), true);
+    return true;
   }
 
   private setTool(tool: Tool): void {
     this.tool = tool;
     this.roadStart = null;
+    this.lineStart = null;
+    this.preview = null;
     this.roadPreview.visible = false;
     this.roadPreviewKey = '';
     this.hud.setTool(tool);
@@ -225,11 +433,17 @@ export class Game {
       const incident = this.incidents.incidents.find((item) => item.id === id);
       const sector = incident ? this.world.sectorName(incident.tx, incident.tz) : 'the fire';
       this.notify(`Dispatch ordered to ${sector}.`, 'info');
+      this.sound.play('dispatch');
       this.hud.update(this.hudState(), true);
     }
   }
 
-  private unitAction(id: number, action: 'home' | 'hold' | 'attack'): void {
+  private unitAction(id: number, action: UnitAction): void {
+    if (action === 'line') {
+      this.selectUnit(id);
+      this.setTool('line');
+      return;
+    }
     if (action === 'home') {
       this.fleet.returnHome(id);
       this.notify(`${this.fleet.unitById(id)?.name ?? 'Unit'} returning to base.`, 'info');
@@ -270,6 +484,7 @@ export class Game {
     this.fleet.assignToIncident(unitId, incident);
     incident.assigned.add(unitId);
     this.notify(`${unit.name} attacking ${this.world.sectorName(incident.tx, incident.tz)}.`, 'info');
+    this.sound.play('dispatch');
   }
 
   private frame = (now: number): void => {
@@ -284,13 +499,23 @@ export class Game {
     }
     this.markerTime += realDt;
     this.updateIncidentMarkers();
+    this.effects.update(realDt);
     this.hudTimer -= realDt;
     if (this.hudTimer <= 0) {
       this.hudTimer = 0.16;
+      this.refreshSituation();
       this.updateHudCamera();
       this.hud.update(this.hudState());
     }
-    this.renderer.render(this.scene, this.rig.camera);
+    const shake = this.effects.shake;
+    const camera = this.rig.camera;
+    const ox = shake > 0 ? (Math.random() - 0.5) * shake : 0;
+    const oy = shake > 0 ? (Math.random() - 0.5) * shake : 0;
+    camera.position.x += ox;
+    camera.position.y += oy;
+    this.renderer.render(this.scene, camera);
+    camera.position.x -= ox;
+    camera.position.y -= oy;
     requestAnimationFrame(this.frame);
   };
 
@@ -329,6 +554,7 @@ export class Game {
     );
     if (this.lastScenarioStatus !== this.scenario.status) {
       this.lastScenarioStatus = this.scenario.status;
+      if (this.isShiftOver()) this.onOutcome();
       this.hud.update(this.hudState(), true);
     }
   }
@@ -336,6 +562,16 @@ export class Game {
   /** One fixed step of the gameplay simulation. Visual-only updates live in simulate(). */
   private stepSimulation(dt: number): void {
     this.scenario.update(dt);
+    this.budget.update(dt);
+    for (let i = this.reinforcements.length - 1; i >= 0; i -= 1) {
+      const pending = this.reinforcements[i]!;
+      pending.eta -= dt;
+      if (pending.eta > 0) continue;
+      this.reinforcements.splice(i, 1);
+      this.fleet.addUnit(pending.kind, pending.name);
+      const where = pending.kind === 'helicopter' || pending.kind === 'tanker' ? 'the helipad' : 'the station';
+      this.notify(`${pending.name} has arrived at ${where} and is ready.`, 'success');
+    }
     this.fire.step(dt);
     this.incidents.update(dt, this.fleet);
     this.fleet.update(dt, this.incidents.viewMap());
@@ -349,6 +585,8 @@ export class Game {
         this.destroyedBuildings.add(building.id);
         this.hud.refreshMinimapBase();
         this.notify(`${labelBuilding(building.kind)} lost near ${this.world.sectorName(building.x0, building.z0)}.`, 'danger');
+        this.sound.play('collapse');
+        this.effects.addShake(0.6);
       }
     }
   }
@@ -423,10 +661,16 @@ export class Game {
         this.hud.setHelp(false);
         return;
       }
-      if (this.roadStart) {
+      if (this.roadStart || this.lineStart) {
         this.roadStart = null;
+        this.lineStart = null;
+        this.preview = null;
         this.roadPreview.visible = false;
         this.hud.update(this.hudState(), true);
+        return;
+      }
+      if (this.tool !== 'select') {
+        this.setTool('select');
         return;
       }
       if (this.selectedUnitId !== null) {
@@ -438,16 +682,29 @@ export class Game {
       this.hud.setHelp(!this.hud.isHelpOpen);
       return;
     }
+    if (key === 'm') {
+      this.toggleMute();
+      return;
+    }
     if (key === 'v') {
       this.setTool('select');
       return;
     }
-    if (key === 'i') {
-      this.setTool('ignite');
+    if (key === 't' || key === 'i') {
+      this.setTool('torch');
       return;
     }
     if (key === 'b') {
       this.setTool('road');
+      return;
+    }
+    if (key === 'l') {
+      this.setTool('line');
+      return;
+    }
+    if (key === 'tab') {
+      event.preventDefault();
+      this.cycleUnit(event.shiftKey ? -1 : 1);
       return;
     }
     if (key === ' ') {
@@ -577,12 +834,16 @@ export class Game {
     if (!this.started) return;
     if (!this.hoverTile || !this.hoverWorld) return;
     const tile = this.hoverTile;
-    if (this.tool === 'ignite') {
-      this.manualIgnite(tile.x, tile.z);
+    if (this.tool === 'torch') {
+      this.manualTorch(tile.x, tile.z);
       return;
     }
     if (this.tool === 'road') {
       this.handleRoadClick(tile);
+      return;
+    }
+    if (this.tool === 'line') {
+      this.handleLineClick(tile);
       return;
     }
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -642,6 +903,7 @@ export class Game {
     this.fleet.assignToIncident(this.selectedUnitId, incident);
     incident.assigned.add(this.selectedUnitId);
     this.notify(`${unit.name} ordered to ${this.world.sectorName(tx, tz)}.`, 'info');
+    this.sound.play('dispatch');
     this.hud.update(this.hudState(), true);
   }
 
@@ -666,6 +928,114 @@ export class Game {
     this.hud.update(this.hudState(), true);
   }
 
+  /**
+   * Drip-torch backburn: light a short strip across the wind on fuel that
+   * sits against a firebreak, ahead of an active fire. The burn stays under
+   * control for BACKBURN_GENERATIONS tiles of spread before it turns wild.
+   */
+  private manualTorch(tx: number, tz: number): boolean {
+    if (this.fire.stateAt(tx, tz) !== FireState.Unburned) {
+      this.notify('That ground has already burned or is burning.', 'warning');
+      return false;
+    }
+    if (this.fire.fuelAt(tx, tz).baseROS <= 0 || this.world.buildings.isOccupied(tx, tz)) {
+      this.notify('Nothing to burn out there.', 'warning');
+      return false;
+    }
+    if (!this.nearFirebreak(tx, tz)) {
+      this.notify('Light backburns within 2 tiles of a road, dozer line, water, or burned ground.', 'warning');
+      return false;
+    }
+    const world = tileToWorld(tx, tz);
+    const ahead = this.incidents.activeIncidents.some((incident) => Math.hypot(incident.x - world.x, incident.z - world.z) < 76);
+    if (!ahead) {
+      this.notify('Backburns only make sense ahead of an active fire.', 'warning');
+      return false;
+    }
+    if (!this.budget.canAfford(TORCH_COST)) {
+      this.notify(`A backburn costs $${TORCH_COST}. Not enough budget yet.`, 'warning');
+      return false;
+    }
+    const wind = this.fire.windVector;
+    const length = Math.hypot(wind.x, wind.z) || 1;
+    const perpX = -wind.z / length;
+    const perpZ = wind.x / length;
+    let lit = 0;
+    for (let k = -1; k <= 1; k += 1) {
+      const x = Math.round(tx + perpX * k);
+      const z = Math.round(tz + perpZ * k);
+      if (x < 0 || z < 0 || x >= GRID_SIZE || z >= GRID_SIZE) continue;
+      if (this.world.buildings.isOccupied(x, z) || !this.nearFirebreak(x, z)) continue;
+      if (this.fire.ignite(x, z, false, BACKBURN_GENERATIONS)) lit += 1;
+    }
+    if (lit === 0) {
+      this.notify('The fuel there is too wet to take a torch.', 'warning');
+      return false;
+    }
+    this.budget.spend(TORCH_COST);
+    this.sound.play('torch');
+    this.notify(`Backburn lit in ${this.world.sectorName(tx, tz)}. Starve the fire before the head arrives.`, 'info');
+    this.hud.update(this.hudState(), true);
+    return true;
+  }
+
+  /** True if a road, cleared line, water, rock, or burned ground lies within `radius` tiles. */
+  private nearFirebreak(tx: number, tz: number, radius = 2): boolean {
+    for (let dz = -radius; dz <= radius; dz += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        const x = tx + dx;
+        const z = tz + dz;
+        if (x < 0 || z < 0 || x >= GRID_SIZE || z >= GRID_SIZE) continue;
+        const index = z * GRID_SIZE + x;
+        if (this.world.roads.mask[index] === 1) return true;
+        const state = this.fire.state[index];
+        if (state === FireState.Cleared || state === FireState.Burned) return true;
+        const fuel = this.fire.fuel[index];
+        if (fuel === Fuel.Water || fuel === Fuel.Rock || fuel === Fuel.Road) return true;
+      }
+    }
+    return false;
+  }
+
+  private handleLineClick(tile: { x: number; z: number }): void {
+    if (!this.lineStart) {
+      this.lineStart = { x: tile.x, z: tile.z };
+      this.notify('Line start set. Click where the dozer line should end.', 'info');
+      this.hud.update(this.hudState(), true);
+      return;
+    }
+    const result = this.fleet.orderLine(this.selectedUnitId, this.lineStart, tile);
+    this.notify(result.message, result.ok ? 'info' : 'warning');
+    if (!result.ok) return;
+    this.setTool('select');
+    if (result.unitId !== undefined) this.selectUnit(result.unitId);
+  }
+
+  private cycleUnit(direction: number): void {
+    const units = this.fleet.units;
+    if (units.length === 0) return;
+    const current = units.findIndex((unit) => unit.id === this.selectedUnitId);
+    const next = units[(current + direction + units.length) % units.length] ?? units[0]!;
+    this.selectUnit(next.id);
+    this.rig.focus(next.x, next.z);
+  }
+
+  private onFleetRowClick(id: number): void {
+    if (this.selectedUnitId === id) {
+      const unit = this.fleet.unitById(id);
+      if (unit) this.rig.focus(unit.x, unit.z);
+      return;
+    }
+    this.selectUnit(id);
+  }
+
+  /** Planned road tiles that are not already asphalt. */
+  private newRoadTiles(path: ReadonlyArray<{ x: number; z: number }>): number {
+    let count = 0;
+    for (const tile of path) if (!this.world.roads.has(tile.x, tile.z)) count += 1;
+    return count;
+  }
+
   private handleRoadClick(tile: { x: number; z: number }): void {
     if (this.world.isReservedForRoad(tile.x, tile.z)) {
       this.notify('That tile is reserved by a structure. Choose clear ground.', 'warning');
@@ -677,10 +1047,22 @@ export class Game {
       this.hud.update(this.hudState(), true);
       return;
     }
+    const planned = this.world.findOffroadPath(this.roadStart, tile, this.activeFireMask());
+    if (!planned || planned.length < 2) {
+      this.notify('No viable road route to that tile (crews will not pave through active fire).', 'warning');
+      return;
+    }
+    const cost = this.newRoadTiles(planned) * ROAD_COST_PER_TILE;
+    if (!this.budget.canAfford(cost)) {
+      this.notify(`That road costs $${cost}. Budget available: $${Math.floor(this.budget.funds)}.`, 'warning');
+      return;
+    }
     const path = this.layRoad(this.roadStart, tile);
     if (path) {
-      this.notify(`Road laid: ${path.length} tiles.`, 'success');
+      this.budget.spend(cost);
+      this.notify(`Road laid: ${path.length} tiles for $${cost}. Hydrants follow the new asphalt.`, 'success');
       this.roadStart = null;
+      this.preview = null;
     } else {
       this.notify('No viable road route to that tile (crews will not pave through active fire).', 'warning');
     }
@@ -729,28 +1111,41 @@ export class Game {
     positions.needsUpdate = true;
     this.tileHighlight.visible = true;
     const material = this.tileHighlight.material as LineBasicMaterial;
-    material.color.setHex(this.tool === 'ignite' ? 0xff8a3a : this.tool === 'road' ? 0xffcf5e : 0xffe8a8);
+    const colors: Record<Tool, number> = { select: 0xffe8a8, torch: 0xff8a3a, road: 0xffcf5e, line: 0xe9844a };
+    material.color.setHex(colors[this.tool]);
+  }
+
+  /** Read through a method so control-flow narrowing of the status does not stick. */
+  private isShiftOver(): boolean {
+    return this.scenario.status === 'won' || this.scenario.status === 'lost';
   }
 
   private updateRoadPreview(tile: { x: number; z: number }): void {
+    const start = this.tool === 'road' ? this.roadStart : this.tool === 'line' ? this.lineStart : null;
     if (
-      this.tool !== 'road' ||
-      !this.roadStart ||
-      this.world.isReservedForRoad(this.roadStart.x, this.roadStart.z) ||
-      this.world.isReservedForRoad(tile.x, tile.z)
+      !start ||
+      (this.tool === 'road' && (this.world.isReservedForRoad(start.x, start.z) || this.world.isReservedForRoad(tile.x, tile.z)))
     ) {
       this.roadPreview.visible = false;
       this.roadPreviewKey = '';
+      this.preview = null;
       return;
     }
-    const key = `${this.roadStart.x},${this.roadStart.z}>${tile.x},${tile.z}`;
+    const key = `${this.tool}:${start.x},${start.z}>${tile.x},${tile.z}`;
     if (key === this.roadPreviewKey && this.roadPreview.visible) return;
     this.roadPreviewKey = key;
-    const path = this.world.findOffroadPath(this.roadStart, tile, this.activeFireMask());
+    const path =
+      this.tool === 'road' ? this.world.findOffroadPath(start, tile, this.activeFireMask()) : this.fleet.previewLine(start, tile);
     if (!path || path.length < 2) {
       this.roadPreview.visible = false;
+      this.preview = null;
       return;
     }
+    this.preview =
+      this.tool === 'road'
+        ? { tiles: path.length, cost: this.newRoadTiles(path) * ROAD_COST_PER_TILE }
+        : { tiles: path.length, cost: 0 };
+    (this.roadPreview.material as LineBasicMaterial).color.setHex(this.tool === 'road' ? 0xffc95c : 0xe9844a);
     const positions = this.roadPreview.geometry.getAttribute('position');
     const limit = Math.min(path.length, positions.count);
     for (let i = 0; i < limit; i += 1) {
@@ -822,6 +1217,20 @@ export class Game {
       seed: this.seed,
       tool: this.tool,
       roadStart: this.roadStart !== null,
+      lineStart: this.lineStart !== null,
+      preview: this.preview,
+      funds: this.budget.funds,
+      income: this.budget.income,
+      difficulty: this.difficulty,
+      reinforcements: this.reinforcements.map((item) => ({ name: item.name, eta: item.eta })),
+      mutualAidLeft: Math.max(0, MUTUAL_AID_LIMIT - this.mutualAidRequested),
+      nextWind: this.scenario.nextWindShift(),
+      nextStrikeIn: this.scenario.nextStrikeIn(),
+      shiftTime: this.scenario.time,
+      threats: this.threats,
+      muted: this.sound.muted,
+      best: this.best,
+      newBest: this.newBest,
     };
   }
 
@@ -842,6 +1251,9 @@ export class Game {
         paused: this.paused,
         speed: this.speed,
         tool: this.tool,
+        difficulty: this.difficulty,
+        funds: Math.floor(this.budget.funds),
+        reinforcements: this.reinforcements.map((item) => ({ name: item.name, eta: item.eta })),
         scenario: this.scenario.currentResult,
         fire: this.fire.stats(),
         units: this.fleet.snapshots(),
@@ -887,6 +1299,11 @@ export class Game {
         }
         this.hud.update(this.hudState(), true);
       },
+      torch: (tx: number, tz: number) => this.manualTorch(tx, tz),
+      orderLine: (sx: number, sz: number, gx: number, gz: number) =>
+        this.fleet.orderLine(this.selectedUnitId, { x: sx, z: sz }, { x: gx, z: gz }).ok,
+      requestMutualAid: (kind: UnitKind) => this.requestMutualAid(kind),
+      setDifficulty: (id: DifficultyId) => this.chooseDifficulty(id),
       ignite: (tx: number, tz: number) => {
         this.manualIgnite(tx, tz);
         return this.fire.stateAt(tx, tz) !== FireState.Unburned;

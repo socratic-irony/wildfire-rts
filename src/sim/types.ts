@@ -7,7 +7,7 @@ export interface IncidentView {
   resolved: boolean;
 }
 
-export type NotifyTone = 'info' | 'warning' | 'danger' | 'success';
+export type NotifyTone = 'info' | 'warning' | 'danger' | 'success' | 'hint';
 
 export type NotifyFn = (message: string, tone?: NotifyTone) => void;
 
@@ -24,4 +24,9 @@ export interface UnitSnapshot {
   incidentId: number | null;
   hydrantConnected: boolean;
   selected: boolean;
+  /** Seconds until a unit pulled out by a burnover is available again. */
+  outOfService: number;
+  /** Burnover heat stress, 0..1. */
+  exposure: number;
+  mutualAid: boolean;
 }

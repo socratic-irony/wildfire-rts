@@ -5,61 +5,115 @@ import { Terrain } from '../world/biomes';
 import { Wildfire } from './fire';
 import { IncidentSystem } from './incidents';
 import { NotifyFn } from './types';
+import { DIFFICULTIES, Difficulty, DifficultyId } from './difficulty';
 
 export type ScenarioStatus = 'briefing' | 'running' | 'won' | 'lost';
+export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F';
 
 export interface ScenarioResult {
   status: ScenarioStatus;
+  difficulty: DifficultyId;
   elapsed: number;
   remaining: number;
   structuresStanding: number;
   structuresLost: number;
   burnedHectares: number;
+  backburnHectares: number;
   incidentsContained: number;
   score: number;
+  grade: Grade | null;
   reason: string;
 }
 
-const SHIFT_SECONDS = 8 * 60;
-const IGNITION_TIMES = [26, 94, 172, 266];
-const WIND_SHIFT_TIMES = [70, 190, 310, 420];
+export interface WindShift {
+  time: number;
+  direction: number;
+  speed: number;
+}
+
+export const SHIFT_SECONDS = 8 * 60;
+/** Seconds of warning before a forecast wind shift arrives. */
+const WIND_WARNING_SECONDS = 15;
+/** Strike-distance windows (tiles from town) for successive lightning strikes. */
+const STRIKE_WINDOWS: Array<[number, number]> = [
+  [13, 25],
+  [18, 34],
+  [18, 42],
+  [24, 50],
+];
 
 export class Scenario {
   status: ScenarioStatus = 'briefing';
   time = 0;
   windDirection = Math.PI * 1.32;
   windSpeed = 5.4;
+  /** Called when a scripted lightning strike lands. */
+  onLightning: ((tx: number, tz: number) => void) | null = null;
+  /** Called when a wind shift begins blowing in. */
+  onWindShift: ((shift: WindShift) => void) | null = null;
   private windGoalDirection = Math.PI * 1.32;
   private windGoalSpeed = 5.4;
   private ignitionCursor = 0;
   private windCursor = 0;
+  private windWarned = 0;
   private containmentTimer = 0;
   private hasStartedFire = false;
   private readonly candidates: Array<{ tx: number; tz: number; score: number }> = [];
   private readonly rng: Rng;
   private containedIncidents = 0;
   private readonly result: ScenarioResult;
+  private config: Difficulty = DIFFICULTIES.standard;
+  private schedule: WindShift[] = [];
 
   constructor(
     private readonly world: World,
     private readonly fire: Wildfire,
     private readonly incidents: IncidentSystem,
     private readonly notify: NotifyFn,
-    seed: number,
+    private readonly seed: number,
+    difficulty: DifficultyId = 'standard',
   ) {
     this.rng = new Rng(seed ^ 0xa5f1e2d3);
     this.buildCandidates();
     this.result = {
       status: 'briefing',
+      difficulty,
       elapsed: 0,
       remaining: SHIFT_SECONDS,
       structuresStanding: world.buildings.intactCount,
       structuresLost: 0,
       burnedHectares: 0,
+      backburnHectares: 0,
       incidentsContained: 0,
       score: 0,
+      grade: null,
       reason: '',
     };
+    this.setDifficulty(difficulty);
+  }
+
+  get difficulty(): Difficulty {
+    return this.config;
+  }
+
+  /** Choose the preset before the shift starts; it fixes the forecast and fire behaviour. */
+  setDifficulty(id: DifficultyId): void {
+    if (this.status !== 'briefing') return;
+    this.config = DIFFICULTIES[id];
+    this.result.difficulty = id;
+    this.fire.spreadMultiplier = this.config.spreadMultiplier;
+    this.fire.spotMultiplier = this.config.spotMultiplier;
+    this.windSpeed = this.config.startWindSpeed;
+    this.windGoalSpeed = this.config.startWindSpeed;
+    this.windDirection = Math.PI * 1.32;
+    this.windGoalDirection = this.windDirection;
+    const windRng = new Rng(this.seed ^ 0x3c6ef372);
+    const [minSpeed, maxSpeed] = this.config.windSpeedRange;
+    this.schedule = this.config.windShiftTimes.map((time) => ({
+      time,
+      direction: windRng.range(0, Math.PI * 2),
+      speed: windRng.range(minSpeed, maxSpeed),
+    }));
     this.fire.setWind(this.windDirection, this.windSpeed);
   }
 
@@ -79,18 +133,36 @@ export class Scenario {
   }
 
   get ignitionsRemaining(): number {
-    return Math.max(0, IGNITION_TIMES.length - this.ignitionCursor);
+    return Math.max(0, this.config.ignitionTimes.length - this.ignitionCursor);
+  }
+
+  get windForecast(): ReadonlyArray<WindShift> {
+    return this.schedule;
+  }
+
+  /** The next wind shift that has not yet begun, if any. */
+  nextWindShift(): WindShift | null {
+    return this.schedule[this.windCursor] ?? null;
+  }
+
+  /** Seconds until the next scripted lightning strike, or null when the storm has passed. */
+  nextStrikeIn(): number | null {
+    const next = this.config.ignitionTimes[this.ignitionCursor];
+    return next === undefined ? null : Math.max(0, next - this.time);
   }
 
   get currentResult(): ScenarioResult {
+    const stats = this.fire.stats();
     this.result.status = this.status;
     this.result.elapsed = this.time;
     this.result.remaining = this.secondsRemaining;
     this.result.structuresStanding = this.world.buildings.intactCount;
     this.result.structuresLost = this.world.buildings.destroyedCount;
-    this.result.burnedHectares = this.fire.stats().burnedHectares;
+    this.result.burnedHectares = stats.burnedHectares;
+    this.result.backburnHectares = stats.backburnHectares;
     this.result.incidentsContained = this.containedIncidents;
     this.result.score = this.computeScore();
+    this.result.grade = this.status === 'won' || this.status === 'lost' ? this.computeGrade() : null;
     this.result.reason = this.result.reason || this.reasonText();
     return this.result;
   }
@@ -98,26 +170,38 @@ export class Scenario {
   update(dt: number): void {
     if (this.status !== 'running') return;
     this.time += dt;
-    this.windDirection += (this.windGoalDirection - this.windDirection) * Math.min(1, dt * 0.14);
+    this.windDirection += angleStep(this.windDirection, this.windGoalDirection, Math.min(1, dt * 0.14));
     this.windSpeed += (this.windGoalSpeed - this.windSpeed) * Math.min(1, dt * 0.2);
     this.fire.setWind(this.windDirection, this.windSpeed);
 
-    while (this.ignitionCursor < IGNITION_TIMES.length) {
-      const nextTime = IGNITION_TIMES[this.ignitionCursor];
+    const ignitions = this.config.ignitionTimes;
+    while (this.ignitionCursor < ignitions.length) {
+      const nextTime = ignitions[this.ignitionCursor];
       if (nextTime === undefined || this.time < nextTime) break;
       this.ignitionCursor += 1;
       this.startScriptedFire();
     }
 
-    while (this.windCursor < WIND_SHIFT_TIMES.length) {
-      const nextTime = WIND_SHIFT_TIMES[this.windCursor];
-      if (nextTime === undefined || this.time < nextTime) break;
+    const upcoming = this.schedule[this.windCursor];
+    if (upcoming && this.windWarned <= this.windCursor && this.time >= upcoming.time - WIND_WARNING_SECONDS) {
+      this.windWarned = this.windCursor + 1;
+      this.notify(
+        `Forecast: wind shifting to ${compass(upcoming.direction)} ${upcoming.speed.toFixed(1)} m/s in ${WIND_WARNING_SECONDS} s.`,
+        'warning',
+      );
+    }
+    while (this.windCursor < this.schedule.length) {
+      const shift = this.schedule[this.windCursor];
+      if (!shift || this.time < shift.time) break;
       this.windCursor += 1;
-      this.shiftWind();
+      this.windGoalDirection = shift.direction;
+      this.windGoalSpeed = shift.speed;
+      this.notify(`Wind shift — now ${compass(shift.direction)} at ${shift.speed.toFixed(1)} m/s.`, 'warning');
+      this.onWindShift?.(shift);
     }
 
-    const active = this.fire.activeFireCount;
-    if (this.hasStartedFire && active === 0) {
+    const stats = this.fire.stats();
+    if (this.hasStartedFire && stats.wildActive === 0) {
       this.containmentTimer += dt;
     } else {
       this.containmentTimer = 0;
@@ -125,23 +209,23 @@ export class Scenario {
 
     if (
       this.hasStartedFire &&
-      this.ignitionCursor >= IGNITION_TIMES.length &&
+      this.ignitionCursor >= ignitions.length &&
       this.containmentTimer > 7 &&
       this.incidents.unresolvedCount === 0
     ) {
       this.finish('won', 'All fires contained. The ridge holds.');
       return;
     }
-    if (this.fire.stats().burnedHectares > 1.6) {
+    if (stats.burnedHectares > this.config.burnLimitHectares) {
       this.finish('lost', 'The fire burned past containment. Too much country lost.');
       return;
     }
-    if (this.world.buildings.destroyedCount >= 10) {
+    if (this.world.buildings.destroyedCount >= this.config.structureLossLimit) {
       this.finish('lost', 'Too many structures lost. The town is overrun.');
       return;
     }
     if (this.time >= SHIFT_SECONDS) {
-      if (this.fire.activeFireCount > 0) {
+      if (stats.wildActive > 0) {
         this.finish('lost', 'The shift ended with fire still on the ridge.');
       } else {
         this.finish('won', 'Shift complete. Every fire is out.');
@@ -159,14 +243,15 @@ export class Scenario {
   }
 
   private startScriptedFire(): void {
-    const candidate = this.pickCandidate(this.ignitionCursor <= 1 ? [13, 25] : this.ignitionCursor === 2 ? [18, 34] : this.ignitionCursor === 3 ? [18, 42] : [24, 50]);
+    const window = STRIKE_WINDOWS[Math.min(this.ignitionCursor, STRIKE_WINDOWS.length) - 1] ?? [24, 50];
+    const candidate = this.pickCandidate(window);
     if (!candidate) return;
     const index = tileIndex(candidate.tx, candidate.tz);
     let lit = false;
     if (this.fire.state[index] === 0) {
       lit = this.fire.ignite(candidate.tx, candidate.tz);
     }
-    const clusterRadius = this.ignitionCursor <= 1 ? 1 : this.ignitionCursor <= 2 ? 1 : 2;
+    const clusterRadius = this.ignitionCursor <= 2 ? 1 : 2;
     for (let dz = -clusterRadius; dz <= clusterRadius; dz += 1) {
       for (let dx = -clusterRadius; dx <= clusterRadius; dx += 1) {
         if (dx === 0 && dz === 0) continue;
@@ -175,6 +260,7 @@ export class Scenario {
         if (this.fire.ignite(candidate.tx + dx, candidate.tz + dz)) lit = true;
       }
     }
+    this.onLightning?.(candidate.tx, candidate.tz);
     if (!lit && this.incidents.activeIncidents.some((incident) => Math.hypot(incident.x - (candidate.tx + 0.5) * 2, incident.z - (candidate.tz + 0.5) * 2) < 16)) return;
     this.incidents.createAt(candidate.tx, candidate.tz, 'lightning');
     this.registerFireStarted();
@@ -201,14 +287,6 @@ export class Scenario {
     return null;
   }
 
-  private shiftWind(): void {
-    const angle = this.rng.range(0, Math.PI * 2);
-    const speed = this.rng.range(4.2, 9.4);
-    this.windGoalDirection = angle;
-    this.windGoalSpeed = speed;
-    this.notify(`Wind shift — now ${this.compass(angle)} at ${speed.toFixed(1)} m/s.`, 'warning');
-  }
-
   private finish(status: 'won' | 'lost', reason: string): void {
     if (this.status !== 'running') return;
     this.status = status;
@@ -221,9 +299,22 @@ export class Scenario {
     const standing = this.world.buildings.intactCount * 120;
     const lost = this.world.buildings.destroyedCount * 240;
     const timeBonus = this.status === 'won' ? Math.round(this.secondsRemaining * 4) : 0;
-    const firePenalty = Math.round(stats.burnedHectares * 18);
+    const firePenalty = Math.round(stats.burnedHectares * 180 + stats.backburnHectares * 60);
     const incidentBonus = this.containedIncidents * 200;
-    return Math.max(0, standing - lost + timeBonus + incidentBonus - firePenalty);
+    const raw = Math.max(0, standing - lost + timeBonus + incidentBonus - firePenalty);
+    return Math.round(raw * this.config.scoreMultiplier);
+  }
+
+  private computeGrade(): Grade {
+    const lost = this.world.buildings.destroyedCount;
+    const burned = this.fire.stats().burnedHectares;
+    if (this.status === 'won') {
+      if (lost === 0 && burned < 0.4) return 'S';
+      if (lost <= 1 && burned < 0.9) return 'A';
+      if (lost <= 3) return 'B';
+      return 'C';
+    }
+    return this.time >= SHIFT_SECONDS * 0.8 ? 'D' : 'F';
   }
 
   private reasonText(): string {
@@ -257,10 +348,18 @@ export class Scenario {
     }
     this.candidates.sort((a, b) => b.score - a.score);
   }
+}
 
-  private compass(angle: number): string {
-    const normal = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-    const index = Math.round(normal / (Math.PI / 4)) % 8;
-    return ['S', 'SE', 'E', 'NE', 'N', 'NW', 'W', 'SW'][index] ?? 'S';
-  }
+/** Shortest signed rotation from `from` toward `to`, scaled by `t`. */
+function angleStep(from: number, to: number, t: number): number {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return delta * t;
+}
+
+export function compass(angle: number): string {
+  const normal = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const index = Math.round(normal / (Math.PI / 4)) % 8;
+  return ['S', 'SE', 'E', 'NE', 'N', 'NW', 'W', 'SW'][index] ?? 'S';
 }

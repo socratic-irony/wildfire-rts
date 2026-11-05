@@ -1,5 +1,6 @@
 import './style.css';
 import { Game } from './game';
+import { parseDifficulty } from './sim/difficulty';
 
 const viewport = document.getElementById('viewport') as HTMLElement | null;
 if (!viewport) throw new Error('Missing #viewport');
@@ -10,7 +11,7 @@ const parsedSeed = seedParam ? Number.parseInt(seedParam, 10) : NaN;
 const seed = Number.isFinite(parsedSeed) ? parsedSeed >>> 0 : (Math.random() * 0xffffffff) >>> 0;
 
 try {
-  new Game(viewport, seed);
+  new Game(viewport, seed, parseDifficulty(params.get('difficulty')) ?? undefined);
 } catch (error) {
   console.error(error);
   const message = document.createElement('div');

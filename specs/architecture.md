@@ -18,7 +18,11 @@ main.ts
        -> ParticleSystem
        -> Fleet
        -> IncidentSystem
-       -> Scenario
+       -> Scenario (difficulty preset, wind forecast)
+       -> Budget
+       -> Effects (lightning, threat rings, head arrows, camera shake)
+       -> SoundEngine
+       -> Hints
        -> Hud
        -> CameraRig
        -> OrthographicCamera / WebGLRenderer
@@ -30,13 +34,14 @@ main.ts
 
 1. Read camera keys and advance the camera rig (real time).
 2. If the shift is running, not paused, and the test API is not driving the clock, simulate `dt * speed`.
-3. Update incident markers.
-4. Refresh the HUD at ~6 Hz and render.
-5. On the briefing screen, slowly rotate the camera; simulation is stopped.
+3. Update incident markers and effects (real time).
+4. At ~6 Hz: refresh the situation (threatened structures, fire-head arrows, audio ambience, coaching hints) and the HUD.
+5. Render, with any camera-shake offset applied only for this frame.
+6. On the briefing screen, slowly rotate the camera; simulation is stopped.
 
 `Game.simulate(dt)` adds `dt` to an accumulator and runs `stepSimulation(SIM_STEP)` for each whole step (at most 24 per call; a larger backlog is dropped). Each step runs:
 
-1. `Scenario.update(step)`
+1. `Scenario.update(step)`, then `Budget.update(step)` and mutual-aid arrivals
 2. `Wildfire.step(step)` (the fire keeps its own 0.2 s internal tick)
 3. `IncidentSystem.update(step, fleet)`
 4. `Fleet.update(step, incidentViews)`
@@ -56,6 +61,7 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 - `camera.ts` — damped orthographic RTS rig. Spherical yaw/pitch orbit, zoom-to-cursor, ground sampling, keyboard intents.
 - `math.ts` — clamps, easing, angle wrapping, distance helpers.
 - `rng.ts` — deterministic LCG plus hash/noise functions. World generation and fire spread use hashes/LCGs, never `Math.random`.
+- `prefs.ts` — guarded local-storage helpers for remembered difficulty, mute, best scores, and seen hints. Storage failures are ignored.
 
 ### `src/world/`
 
@@ -72,17 +78,25 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 
 ### `src/sim/`
 
-- `fire.ts` — structure-of-arrays wildfire model; spread, spotting, suppression, firelines, statistics.
+- `fire.ts` — structure-of-arrays wildfire model; spread, spotting, suppression, firelines, backburn lineage, cached active-tile queries, statistics.
 - `particles.ts` — two pooled point-sprite systems (additive heat, normal-blended soft particles) for fire, smoke, water, retardant, steam, and dust.
-- `units.ts` — fleet state machines, road/off-road movement, air movement, refills, attacks, dozer lines, aircraft drops.
-- `incidents.ts` — incident tracking and auto/manual dispatch.
-- `scenario.ts` — ignition schedule, wind shifts, objectives, win/loss, scoring.
+- `units.ts` — fleet state machines, road/off-road movement, air movement, refills and lake dips, reach-aware attack positions, dozer lines, burnovers, mutual aid, aircraft drops, fleet events.
+- `incidents.ts` — incident tracking, lookout spot-fire detection, and auto/manual dispatch.
+- `scenario.ts` — difficulty preset, ignition schedule, wind forecast, objectives, win/loss, scoring, grade.
+- `difficulty.ts` — Calm / Standard / Red Flag presets.
+- `budget.ts` — command budget and tool/mutual-aid prices.
 - `types.ts` — shared incident, notification, and unit-snapshot interfaces.
 - `vehicleModels.ts` — procedural low-poly unit meshes.
 
+### `src/fx/`, `src/audio/`
+
+- `fx/effects.ts` — lightning bolts with a flash light, pulsing rings under threatened structures, downwind arrows at fire heads, camera-shake amount. Real-time only; never affects the simulation.
+- `audio/sound.ts` — procedural WebAudio beds and cues; created on the first user gesture.
+
 ### `src/ui/`
 
-- `hud.ts` — all DOM UI: top bar, incident board, fleet list, selected unit panel, toolbar, minimap, toasts, tooltips, help, briefing and end screens.
+- `hud.ts` — all DOM UI: top bar, incident board, fleet list and mutual aid, selected unit panel, toolbar, minimap, toasts, tooltips, help, briefing (difficulty, best) and graded end screens, lightning flash overlay.
+- `hints.ts` — one-time coaching toasts, rate-limited.
 - `style.css` — HUD chrome and responsive layout.
 
 ## Key data
@@ -108,14 +122,15 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 
 - Vegetation is instanced per family; particle systems are pooled and capped (4,200 heat + 3,600 soft).
 - Terrain is one non-indexed mesh; terrain tint updates at 2 Hz.
-- Fire and building scans are cheap on a 96×96 grid. Particle emission scans the grid each frame but caps output.
+- Fire queries (nearest, head, counts, centroid) walk a cached list of active tiles that is rebuilt only after the fire changes; `stats()` is cached the same way. Particle emission scans the grid each frame but caps output.
+- Road and off-road A* use a binary heap; route previews run on hover without stalls.
 - Road edits rebuild only affected systems; the initial world is built once.
 - Shadows use one 2048 directional map. Real-GPU checks run well above 60 FPS at 1440×900; headless SwiftShader is intentionally not the performance target.
 
 ## Testing
 
 - Vitest covers heightmap terrace constraints, town flatness, lake masks, biome classification, road connectivity/path blocking, hydrant spacing/rebuilds, fire lifecycle, suppression, firelines, road fuel updates, downwind spread, and determinism.
-- `src/test/harness.ts` builds a headless world, fire, and fleet (no WebGL or DOM needed). `src/sim/units.test.ts` drives units through road moves and returns at several step sizes.
+- `src/test/harness.ts` builds a headless world, fire, and fleet (no WebGL or DOM needed). `src/sim/units.test.ts` drives units through road moves and returns at several step sizes. `src/sim/mechanics.test.ts` covers backburn lineage, dozer lines, lake dips, burnovers, mutual aid, lookout detection, the wind forecast, lightning hooks, and the budget.
 - `scripts/browser.mjs` launches headless Chromium; `CHROMIUM_PATH` overrides the binary and common system installs are used when Playwright's download is missing.
 - `scripts/balance.mjs` (`npm run balance`) plays hands-off shifts across seeds, prints outcomes and a fire timeline, and fails if a unit stops moving while it still has a destination.
 - `scripts/smoke.mjs` boots the real browser build, exercises input, dispatch, road building, pause/help/speed, fast-forwards to an outcome, and checks the end screen with no console/page errors.
@@ -124,8 +139,8 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 
 ## Outstanding / not in v1
 
-- Save/load, difficulty presets, additional scenarios, audio, touch-first controls, accessibility pass.
+- Save/load, additional scenarios, touch-first controls, full accessibility pass.
 - Authored art and animation; all geometry is procedural.
 - Multi-lane traffic, collision avoidance between emergency units, and persistent traffic simulation.
-- Hand crews, crown fire, hydrant damage, and fire-aware routing.
+- Hand crews, crown fire, hydrant damage, and fire-aware engine routing.
 - Full rebinding of particle pools on live terrain dimension changes (world regeneration currently restarts the page).
