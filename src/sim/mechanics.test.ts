@@ -78,6 +78,27 @@ describe('dozer lines', () => {
     expect(fire.stateAt(start.x, start.z)).toBe(FireState.Cleared);
   });
 
+  it('a dozer stops cutting when the fire reaches the line ahead of the blade', () => {
+    const { world, fire, fleet, messages } = createHarness(12345, true);
+    const start = findTileAwayFromRoads(world, 4)!;
+    let end: { x: number; z: number } | null = null;
+    for (let dx = 14; dx >= 8 && !end; dx -= 1) {
+      const candidate = { x: start.x + dx, z: start.z };
+      if (fleet.previewLine(start, candidate)) end = candidate;
+    }
+    const result = fleet.orderLine(null, start, end!);
+    expect(result.ok).toBe(true);
+    const dozer = fleet.unitById(result.unitId!)!;
+    stepFleet(fleet, 300, 1 / 30, new Map(), () => dozer.lineTask?.phase === 'cut' && dozer.pathIndex >= 2);
+    expect(dozer.lineTask?.phase).toBe('cut');
+    const ahead = dozer.path[dozer.pathIndex + 1]!;
+    fire.state[tileIndex(ahead.x, ahead.z)] = FireState.Burning;
+    stepFleet(fleet, 2, 1 / 30);
+    expect(dozer.lineTask).toBeNull();
+    expect(dozer.state).toBe('holding');
+    expect(messages.some((message) => message.includes('fire reached the line'))).toBe(true);
+  });
+
   it('refuses a line that would run through water or buildings only', () => {
     const { world, fleet } = createHarness(12345);
     let water: { x: number; z: number } | null = null;

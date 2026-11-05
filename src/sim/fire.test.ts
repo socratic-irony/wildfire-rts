@@ -131,4 +131,18 @@ describe('Wildfire', () => {
     expect(head).not.toBeNull();
     expect(head!.x).toBeGreaterThan(40);
   });
+  it('reports wildfire pushing downwind into a cleared line', () => {
+    const { fire } = makeFire(31);
+    fire.setWind(Math.PI / 2, 8);
+    for (let tz = 30; tz < 66; tz += 1) fire.clearLine(tileToWorld(56, tz).x, tileToWorld(56, tz).z, 0.5);
+    fire.ignite(50, 48);
+    let contacts: number[] = [];
+    for (let i = 0; i < 400 && contacts.length === 0; i += 1) {
+      fire.step(0.2);
+      contacts = fire.takeBreakContacts();
+    }
+    expect(contacts.length).toBeGreaterThan(0);
+    for (const index of contacts) expect(fire.state[index]).toBe(FireState.Cleared);
+    expect(fire.takeBreakContacts().length).toBeLessThanOrEqual(64);
+  });
 });

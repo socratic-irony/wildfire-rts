@@ -91,6 +91,8 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 ### `src/fx/`, `src/audio/`
 
 - `fx/effects.ts` — lightning bolts with a flash light, pulsing rings under threatened structures, downwind arrows at fire heads, camera-shake amount. Real-time only; never affects the simulation.
+- `fx/planPreview.ts` — terrain-hugging tile overlay for planned roads and dozer lines.
+- `fx/atmosphere.ts` — sunset progression over the shift and smoke haze from burning tiles (sun, hemisphere light, sky shader, fog).
 - `audio/sound.ts` — procedural WebAudio beds and cues; created on the first user gesture.
 
 ### `src/ui/`

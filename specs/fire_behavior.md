@@ -91,6 +91,7 @@ All spatial queries walk a cached list of active (igniting, burning, smoldering)
 - `stats()` — whole-grid counts, cached until the state changes. The returned object is shared; do not mutate it.
 - `activeFireCount` — burning plus igniting tiles of any lineage.
 - `refreshRoadMask(mask)` — integration hook after road edits.
+- `takeBreakContacts()` — firebreak tiles (cleared lines, roads) that wildfire pushed against downwind since the last call, capped at 64 per drain; the game turns them into "line is holding" reports.
 
 ## Tuning
 

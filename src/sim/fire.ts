@@ -213,6 +213,7 @@ export class Wildfire {
   private accumulator = 0;
   private stepIndex = 0;
   private readonly events: IgnitionEvent[] = [];
+  private readonly breakContacts: number[] = [];
   private eventCursor = 0;
 
   constructor(
@@ -370,10 +371,17 @@ export class Wildfire {
       const nz = tz + dz;
       if (nx < 0 || nz < 0 || nx >= GRID_SIZE || nz >= GRID_SIZE) continue;
       const neighbor = tileIndex(nx, nz);
-      if (this.state[neighbor] !== FireState.Unburned) continue;
+      const neighborState = this.state[neighbor];
+      if (neighborState !== FireState.Unburned) {
+        if (neighborState === FireState.Cleared) this.noteBreakContact(index, neighbor, dx, dz, windX, windZ);
+        continue;
+      }
       const neighborFuelType = (this.fuel[neighbor] ?? Fuel.Grass) as Fuel;
       const neighborFuel = FUELS[neighborFuelType];
-      if (neighborFuel.baseROS <= 0) continue;
+      if (neighborFuel.baseROS <= 0) {
+        if (neighborFuelType === Fuel.Road) this.noteBreakContact(index, neighbor, dx, dz, windX, windZ);
+        continue;
+      }
       const directionLength = Math.hypot(dx, dz);
       const dirX = dx / directionLength;
       const dirZ = dz / directionLength;
@@ -423,6 +431,24 @@ export class Wildfire {
         fuel.spotChance * SPOT_SCALE * this.spotMultiplier * (this.heat[index] ?? 0) * (0.45 + windSpeed / 10);
       if (spotRoll < chance) this.trySpot(index, windX, windZ, windSpeed);
     }
+  }
+
+  /**
+   * Remember wildfire pushing downwind into a road or cleared line, so the
+   * game can tell the player their firebreak is holding.
+   */
+  private noteBreakContact(source: number, breakIndex: number, dx: number, dz: number, windX: number, windZ: number): void {
+    if (this.breakContacts.length >= 64) return;
+    if ((this.controlled[source] ?? 0) > 0) return;
+    if ((dx * windX + dz * windZ) / Math.hypot(dx, dz) < 0.3) return;
+    this.breakContacts.push(breakIndex);
+  }
+
+  /** Firebreak tiles wildfire pushed against since the last call. */
+  takeBreakContacts(): number[] {
+    const contacts = this.breakContacts.slice();
+    this.breakContacts.length = 0;
+    return contacts;
   }
 
   private trySpot(index: number, windX: number, windZ: number, windSpeed: number): void {

@@ -46,10 +46,9 @@ export class Effects {
   private readonly rings = new Map<number, Mesh>();
   private readonly arrowGeometry = createChevron();
   private readonly arrowMaterial = new MeshBasicMaterial({
-    color: 0xffa040,
+    color: 0xff6a24,
     transparent: true,
     opacity: 0.8,
-    blending: AdditiveBlending,
     depthWrite: false,
     side: DoubleSide,
   });
@@ -104,7 +103,7 @@ export class Effects {
     }
     const pulse = 0.5 + 0.5 * Math.sin(this.time * 4.2);
     this.ringMaterial.opacity = 0.35 + pulse * 0.5;
-    this.arrowMaterial.opacity = 0.45 + 0.35 * Math.sin(this.time * 3.1);
+    this.arrowMaterial.opacity = 0.6 + 0.25 * Math.sin(this.time * 3.1);
   }
 
   /** Show a pulsing ring under each threatened building. */
@@ -140,7 +139,7 @@ export class Effects {
     }
     const dx = Math.sin(windDirection);
     const dz = Math.cos(windDirection);
-    const scale = 1.1 + Math.min(1.4, windSpeed * 0.12);
+    const scale = 0.9 + Math.min(1, windSpeed * 0.08);
     const bob = Math.sin(this.time * 3) * 0.6;
     for (let i = 0; i < this.arrows.length; i += 1) {
       const arrow = this.arrows[i]!;

@@ -55,11 +55,11 @@ Wildfire means fire that is not a controlled backburn (see `fire_behavior.md`).
  - backburned hectares * 60) × difficulty multiplier
 ```
 
-Grade: **S** won with no losses and under 0.4 ha burned; **A** won with ≤1 loss and under 0.9 ha; **B** won with ≤3 losses; **C** any other win; **D** lost after 80% of the shift; **F** lost earlier. The best score per seed and difficulty is stored locally, shown on the briefing screen, and flagged on the end screen when beaten. The end screen offers **Replay this map** (same seed and difficulty) and **New Shift**.
+Grade: **S** won with no losses and under 0.4 ha burned; **A** won with ≤1 loss and under 0.9 ha; **B** won with ≤3 losses; **C** any other win; **D** lost after 80% of the shift; **F** lost earlier. The best score per seed and difficulty is stored locally, shown on the briefing screen, and flagged on the end screen when beaten. The end screen shows structures standing, lost, and saved, wildfire and backburned area, time, score with its multiplier, and the grade, and offers **Replay this map** (same seed and difficulty) and **New Shift**.
 
 ## Command budget
 
-`Budget` (`src/sim/budget.ts`) starts at the preset amount, accrues income every simulated second, and pays the containment bonus whenever an incident resolves.
+`Budget` (`src/sim/budget.ts`) starts at the preset amount, accrues income every simulated second, and pays the containment bonus whenever an incident resolves and $40 for every structure that was threatened and came through (no wildfire within 12 tiles).
 
 | Spend | Cost |
 | --- | --- |
@@ -85,7 +85,11 @@ Grade: **S** won with no losses and under 0.4 ha burned; **A** won with ≤1 los
 - Minimap: terrain, roads, structures (threatened ones pulse red), wildfire vs backburn colours, incidents, units, camera rectangle, current and forecast wind.
 - In the world: pulsing red rings under threatened structures and an arrow at each sizeable fire's head pointing downwind.
 - Toasts for strikes, wind forecasts and shifts, dispatches, spot fires, building losses, burnovers, budget events, and resolution. Coaching hints appear once per browser, at most one every 22 s.
-- A structure is "at risk" when burning wildfire is within 7 tiles or the structure itself is burning.
+- A structure is "at risk" when burning wildfire is within 7 tiles or the structure itself is burning. Threats, saves, and firebreak reports are computed on the simulation clock every 0.5 s (`Game.updateSituation`), so they are deterministic.
+- When wildfire pushes downwind into a dozer line or a road the player paved, a toast reports that the line is holding (at most every 25 simulated seconds) with a chime.
+- Road and dozer-line plans show a translucent overlay on exactly the tiles they will occupy (red when the road is unaffordable), plus a thin centre line.
+- The light runs from late afternoon to golden hour over the shift: the sun lowers and warms, and sky, fog, and light take on smoke as more tiles burn (`fx/atmosphere.ts`).
+- Hidden overlays (briefing, end screen, help) stop taking pointer input as soon as they start to fade, so the first map click after Start Shift is never swallowed.
 
 ## Audio
 

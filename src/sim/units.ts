@@ -122,6 +122,8 @@ interface Unit {
   /** Seconds until a unit pulled out by a burnover is available again. */
   outOfService: number;
   mutualAid: boolean;
+  /** Seconds until a dozer next checks its route for fire. */
+  hazardTimer: number;
 }
 
 /** Hose reach in world units. */
@@ -138,10 +140,16 @@ const DIP_RATE = 700;
 const DIP_ALTITUDE = 2.6;
 /** Dozer speed while cutting, relative to its travel speed. */
 const CUT_SPEED_SCALE = 0.85;
-/** Exposure gained per second on a burning tile (scaled by heat). */
-const BURNOVER_RATE = 0.85;
+/** Exposure gained per second on a burning tile, scaled by (0.4 + heat). */
+const BURNOVER_RATE = 0.6;
+/** How often a dozer looks ahead along its route for fire. */
+const HAZARD_CHECK_SECONDS = 0.5;
+/** Waypoints ahead a dozer checks for fire. */
+const HAZARD_LOOKAHEAD = 4;
 const EXPOSURE_RECOVERY = 0.3;
 const OUT_OF_SERVICE_SECONDS = 25;
+/** Simulated seconds an incident's attack positions stay cached. */
+const ATTACK_CACHE_SECONDS = 1;
 /** Longest dozer line a single order will cut, in tiles. */
 const MAX_LINE_TILES = 60;
 
@@ -166,6 +174,7 @@ export class Fleet {
   private readonly avoidMask = new Uint8Array(GRID_SIZE * GRID_SIZE);
   private readonly waterPoints: Array<{ x: number; z: number }> = [];
   private readonly mutualAidCount: Record<UnitKind, number> = { firetruck: 0, dozer: 0, helicopter: 0, tanker: 0 };
+  private readonly attackCache = new Map<string, { time: number; positions: Array<{ x: number; z: number; score: number }> }>();
 
   constructor(
     private readonly world: World,
@@ -286,6 +295,7 @@ export class Fleet {
       exposure: 0,
       outOfService: 0,
       mutualAid,
+      hazardTimer: 0,
     };
     group.position.set(x, y, z);
     group.scale.setScalar(1.3);
@@ -446,12 +456,12 @@ export class Fleet {
     if (unit.kind !== 'firetruck') return true;
     const current = this.currentRoadTile(unit);
     if (!current) return false;
-    const positions = this.attackPositions(incident.x, incident.z, null);
-    if (positions.length === 0) {
-      // Nothing burning in hose reach yet (a fresh strike): fall back to road access near the fire.
+    if (!this.fire.isActiveNear(incident.x, incident.z, 26, QUERY_WILD)) {
+      // Nothing burning yet: plain road access near the incident is enough.
       const road = this.world.roads.nearest(incident.tx, incident.tz, 6);
       return road !== null && this.world.roads.findPath(current, road) !== null;
     }
+    const positions = this.attackPositions(incident.x, incident.z, null);
     for (let i = 0; i < Math.min(3, positions.length); i += 1) {
       if (this.world.roads.findPath(current, positions[i]!)) return true;
     }
@@ -576,6 +586,7 @@ export class Fleet {
       unit.repathTimer -= dt;
       this.updateAnimations(unit, dt);
       this.updateExposure(unit, dt);
+      if (unit.kind === 'dozer') this.avoidFireAhead(unit, dt);
       if (unit.state === 'idle') this.updateIdle(unit, dt);
       else if (unit.state === 'moving') this.updateMoving(unit, dt);
       else if (unit.state === 'holding') this.updateHolding(unit, dt);
@@ -604,7 +615,7 @@ export class Fleet {
     const index = tileIndex(tile.x, tile.z);
     const state = this.fire.state[index];
     if (state === FireState.Burning || state === FireState.Igniting) {
-      unit.exposure += dt * BURNOVER_RATE * (0.5 + (this.fire.heat[index] ?? 0));
+      unit.exposure += dt * BURNOVER_RATE * (0.4 + (this.fire.heat[index] ?? 0));
     } else {
       unit.exposure = Math.max(0, unit.exposure - dt * EXPOSURE_RECOVERY);
     }
@@ -616,6 +627,48 @@ export class Fleet {
     this.onEvent?.('burnover', unit.x, unit.z);
     this.returnHome(unit.id);
     unit.status = 'Burnover — pulling out';
+  }
+
+  /** True if any of the next few waypoints is burning. */
+  private routeAheadBurning(unit: Unit, lookahead = HAZARD_LOOKAHEAD): boolean {
+    const end = Math.min(unit.path.length, unit.pathIndex + lookahead);
+    for (let i = unit.pathIndex; i < end; i += 1) {
+      const point = unit.path[i]!;
+      const state = this.fire.state[tileIndex(point.x, point.z)];
+      if (state === FireState.Burning || state === FireState.Igniting) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Dozers re-plan around fire that moves across their route, and stop
+   * cutting when the fire reaches the line ahead of the blade.
+   */
+  private avoidFireAhead(unit: Unit, dt: number): void {
+    unit.hazardTimer -= dt;
+    if (unit.hazardTimer > 0 || unit.path.length === 0) return;
+    unit.hazardTimer = HAZARD_CHECK_SECONDS;
+    const task = unit.lineTask;
+    if (unit.state === 'cutting' && task && task.phase === 'cut') {
+      if (!this.routeAheadBurning(unit, 2)) return;
+      unit.lineTask = null;
+      unit.path = [];
+      this.notify(`${unit.name} stopped cutting: the fire reached the line.`, 'warning');
+      if (task.manual) {
+        unit.state = 'holding';
+        unit.status = 'Line cut short — holding';
+      } else {
+        this.returnHome(unit.id);
+      }
+      return;
+    }
+    if (!this.routeAheadBurning(unit)) return;
+    const goal = unit.path[unit.path.length - 1]!;
+    const here = worldToTile(unit.x, unit.z);
+    const detour = this.world.findOffroadPath(here, goal, this.fireAvoidMask());
+    if (!detour) return;
+    unit.path = detour;
+    unit.pathIndex = detour.length > 1 ? 1 : 0;
   }
 
   private updateIdle(unit: Unit, dt: number): void {
@@ -672,7 +725,7 @@ export class Fleet {
       const target = unit.manualTarget;
       if (target) this.flyTo(unit, target.x, target.z, dt, true);
       unit.status = 'Holding orbit';
-    } else if (!unit.status.startsWith('Line complete')) {
+    } else if (!unit.status.startsWith('Line ')) {
       unit.status = 'Holding position';
     }
     // Ground units at station slowly top off, so holding near the station stays useful.
@@ -752,6 +805,25 @@ export class Fleet {
     centerZ: number,
     unit: Unit | null,
   ): Array<{ x: number; z: number; score: number }> {
+    const base = this.baseAttackPositions(centerX, centerZ);
+    if (!unit) return base;
+    const ranked = base.map((position) => {
+      const world = tileToWorld(position.x, position.z);
+      return { x: position.x, z: position.z, score: position.score + (distance(unit.x, unit.z, world.x, world.z) / TILE_SIZE) * 0.08 };
+    });
+    ranked.sort((a, b) => a.score - b.score);
+    return ranked;
+  }
+
+  /**
+   * Unit-independent attack positions around a point, cached for a second of
+   * simulated time: auto-dispatch asks for the same incident many times.
+   */
+  private baseAttackPositions(centerX: number, centerZ: number): Array<{ x: number; z: number; score: number }> {
+    const key = `${Math.round(centerX)},${Math.round(centerZ)}`;
+    const cached = this.attackCache.get(key);
+    if (cached && this.time - cached.time < ATTACK_CACHE_SECONDS) return cached.positions;
+    if (this.attackCache.size > 64) this.attackCache.clear();
     const reach = HOSE_RANGE / TILE_SIZE - 0.3;
     const center = worldToTile(centerX, centerZ);
     const radius = 26;
@@ -764,12 +836,12 @@ export class Fleet {
         const target = burning && burning.distance <= reach ? burning : this.fire.nearestActive(world.x, world.z, reach, QUERY_WILD);
         if (!target || target.distance > reach) continue;
         const hydrant = this.world.hydrants.findNearest(world.x, world.z, 4.2) !== null;
-        const drive = unit ? distance(unit.x, unit.z, world.x, world.z) / TILE_SIZE : 0;
-        const score = target.distance + (target === burning ? 0 : 3) + (hydrant ? -2.5 : 0) + drive * 0.08;
+        const score = target.distance + (target === burning ? 0 : 3) + (hydrant ? -2.5 : 0);
         positions.push({ x, z, score });
       }
     }
     positions.sort((a, b) => a.score - b.score);
+    this.attackCache.set(key, { time: this.time, positions });
     return positions;
   }
 

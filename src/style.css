@@ -1085,7 +1085,7 @@ kbd {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  max-width: 520px;
+  max-width: 680px;
   padding: 7px 11px;
   border: 1px solid rgba(241, 179, 77, 0.35);
   border-radius: 7px;
@@ -2072,4 +2072,14 @@ kbd {
 
 .mode-banner.visible ~ .toasts {
   top: 146px;
+}
+
+/* Overlays stop taking clicks the moment they start fading out. */
+#ui .start-screen:not(.visible),
+#ui .start-screen:not(.visible) *,
+#ui .end-screen:not(.visible),
+#ui .end-screen:not(.visible) *,
+#ui .help-overlay:not(.visible),
+#ui .help-overlay:not(.visible) * {
+  pointer-events: none;
 }

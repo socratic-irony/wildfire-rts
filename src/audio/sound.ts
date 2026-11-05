@@ -10,6 +10,7 @@ export type SoundCue =
   | 'alert'
   | 'torch'
   | 'burnover'
+  | 'hold'
   | 'win'
   | 'lose';
 
@@ -121,6 +122,10 @@ export class SoundEngine {
       case 'burnover':
         this.tone(t, 'sawtooth', 520, 0.9, 0.05, 260);
         this.burst(t, { type: 'lowpass', from: 1200, to: 200 }, 1.2, 0.4, 0.02);
+        break;
+      case 'hold':
+        this.tone(t, 'triangle', 392, 0.5, 0.06);
+        this.tone(t + 0.09, 'triangle', 587.33, 0.6, 0.06);
         break;
       case 'contained':
         [523.25, 659.25, 783.99].forEach((f, i) => this.tone(t + i * 0.11, 'triangle', f, 0.35, 0.07));

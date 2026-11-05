@@ -9,7 +9,7 @@ import { launchChromium } from './browser.mjs';
  *   npm run balance                      # default seeds, standard difficulty
  *   SEEDS=1,2,3 DIFFICULTY=redflag npm run balance
  */
-const PORT = 4178;
+const PORT = Number(process.env.PORT ?? 4178);
 const BASE = `http://localhost:${PORT}`;
 const SEEDS = (process.env.SEEDS ?? '1,42,12345,987654321,2026,7,99,31337')
   .split(',')

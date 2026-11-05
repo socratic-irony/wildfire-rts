@@ -54,6 +54,7 @@ export interface HudState {
   nextStrikeIn: number | null;
   shiftTime: number;
   threats: ThreatSummary;
+  savedStructures: number;
   muted: boolean;
   best: BestRecord | null;
   newBest: boolean;
@@ -213,9 +214,10 @@ export class Hud {
     line.classList.toggle('visible', Boolean(text));
   }
 
-  showEnd(result: ScenarioResult, best: BestRecord | null, newBest: boolean): void {
+  showEnd(result: ScenarioResult, best: BestRecord | null, newBest: boolean, saved: number): void {
     if (this.endShown) return;
     this.endShown = true;
+    this.setTooltip(null);
     const won = result.status === 'won';
     const grade = result.grade ?? (won ? 'C' : 'F');
     const difficulty = DIFFICULTIES[result.difficulty];
@@ -235,7 +237,7 @@ export class Hud {
           </div>
         </div>
         <div class="end-stats">
-          <div><span>STRUCTURES</span><strong>${result.structuresStanding} standing</strong><em>${result.structuresLost} lost</em></div>
+          <div><span>STRUCTURES</span><strong>${result.structuresStanding} standing</strong><em>${result.structuresLost} lost · ${saved} saved</em></div>
           <div><span>BURNED</span><strong>${result.burnedHectares.toFixed(2)} ha</strong><em>${result.backburnHectares > 0 ? `+${result.backburnHectares.toFixed(2)} ha backburned` : `${result.incidentsContained} incidents contained`}</em></div>
           <div><span>TIME</span><strong>${formatTime(result.elapsed)}</strong><em>${formatTime(result.remaining)} left</em></div>
           <div><span>SCORE</span><strong>${result.score.toLocaleString()}</strong><em>×${difficulty.scoreMultiplier} ${difficulty.label}</em></div>
@@ -353,7 +355,7 @@ export class Hud {
     const auto = this.root.querySelector<HTMLInputElement>('#auto-dispatch');
     if (auto) auto.checked = state.autoDispatch;
     if (state.scenario.status === 'won' || state.scenario.status === 'lost') {
-      this.showEnd(state.scenario, state.best, state.newBest);
+      this.showEnd(state.scenario, state.best, state.newBest, state.savedStructures);
     }
   }
 

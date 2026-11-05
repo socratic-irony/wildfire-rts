@@ -20,6 +20,8 @@ import { World } from './world/world';
 import { BACKBURN_GENERATIONS, FireState, Fuel, QUERY_BURNING, QUERY_WILD, Wildfire } from './sim/fire';
 import { SoundEngine } from './audio/sound';
 import { Effects } from './fx/effects';
+import { PlanPreview } from './fx/planPreview';
+import { Atmosphere } from './fx/atmosphere';
 import { Hints } from './ui/hints';
 import { ParticleSystem } from './sim/particles';
 import { Fleet } from './sim/units';
@@ -41,6 +43,14 @@ import { BestRecord, Hud, HudState, ThreatSummary, Tool, UnitAction } from './ui
 
 /** A structure is threatened when burning wildfire is within this many tiles. */
 const THREAT_RADIUS_TILES = 7;
+/** A threatened structure counts as saved once no wildfire is within this many tiles. */
+const SAVED_CLEAR_TILES = 12;
+/** Budget paid for each structure that comes through a threat. */
+const SAVE_BONUS = 40;
+/** Simulated seconds between situation updates (threats, saves, firebreak reports). */
+const SITUATION_INTERVAL = 0.5;
+/** Minimum simulated seconds between "firebreak holding" reports. */
+const HOLD_REPORT_INTERVAL = 25;
 
 /** Fixed simulation step for scenario, incidents, units, and structures. */
 const SIM_STEP = 1 / 30;
@@ -101,6 +111,14 @@ export class Game {
   private mutualAidRequested = 0;
   private readonly sound: SoundEngine;
   private readonly effects: Effects;
+  private readonly planPreview: PlanPreview;
+  private readonly atmosphere: Atmosphere;
+  private situationTimer = 0;
+  private readonly everThreatened = new Set<number>();
+  private readonly savedStructures = new Set<number>();
+  private lastHoldReport = -Infinity;
+  /** Tiles paved by the player, so "road holding" reports only credit their roads. */
+  private readonly playerRoads = new Uint8Array(GRID_SIZE * GRID_SIZE);
   private readonly hints: Hints;
   private threats: ThreatSummary = { total: 0, byIncident: new Map(), buildings: new Set() };
   private lastThreatTotal = 0;
@@ -236,6 +254,9 @@ export class Game {
     this.scene.add(this.tileHighlight);
     this.roadPreview = createRoadPreview();
     this.scene.add(this.roadPreview);
+    this.planPreview = new PlanPreview(this.world.heightmap);
+    this.scene.add(this.planPreview.mesh);
+    this.atmosphere = new Atmosphere(this.scene);
 
     this.hud.setTool(this.tool);
     this.bindEvents();
@@ -269,7 +290,7 @@ export class Game {
     const result = this.scenario.currentResult;
     this.sound.play(result.status === 'won' ? 'win' : 'lose', 0.4);
     if (!this.best || result.score > this.best.score) {
-      this.newBest = this.best !== null || result.score > 0;
+      this.newBest = this.best !== null;
       this.best = { score: result.score, grade: result.grade ?? 'F' };
       saveJson(this.bestKey(), this.best);
     }
@@ -301,9 +322,43 @@ export class Game {
     return { total: buildings.size, byIncident, buildings };
   }
 
-  /** Real-time bookkeeping at HUD cadence: threats, heads, ambience, coaching. */
-  private refreshSituation(): void {
+  /**
+   * Simulation-clock bookkeeping: which structures are threatened, which
+   * came through (saved bonus), and whether wildfire is pressing against a
+   * dozer line or a player-built road (the "line is holding" payoff).
+   */
+  private updateSituation(dt: number): void {
+    this.situationTimer -= dt;
+    if (this.situationTimer > 0) return;
+    this.situationTimer = SITUATION_INTERVAL;
     this.threats = this.computeThreats();
+    for (const id of this.threats.buildings) this.everThreatened.add(id);
+    for (const id of this.everThreatened) {
+      if (this.savedStructures.has(id) || this.threats.buildings.has(id)) continue;
+      const building = this.world.buildings.buildings.find((item) => item.id === id);
+      if (!building || building.state === 'destroyed') continue;
+      if (this.fire.isActiveNear(building.centerX, building.centerZ, SAVED_CLEAR_TILES, QUERY_WILD)) continue;
+      this.savedStructures.add(id);
+      this.budget.earn(SAVE_BONUS);
+      this.notify(`${labelBuilding(building.kind)} saved in ${this.world.sectorName(building.x0, building.z0)}. +$${SAVE_BONUS}.`, 'success');
+      this.sound.play('contained');
+    }
+    const contacts = this.fire.takeBreakContacts();
+    if (contacts.length < 2 || this.scenario.time - this.lastHoldReport < HOLD_REPORT_INTERVAL) return;
+    for (const index of contacts) {
+      const line = this.fire.state[index] === FireState.Cleared;
+      if (!line && this.playerRoads[index] !== 1) continue;
+      const tx = index % GRID_SIZE;
+      const tz = Math.floor(index / GRID_SIZE);
+      this.lastHoldReport = this.scenario.time;
+      this.notify(`${line ? 'Dozer line' : 'Your road'} is holding the fire in ${this.world.sectorName(tx, tz)}.`, 'success');
+      this.sound.play('hold');
+      return;
+    }
+  }
+
+  /** Real-time bookkeeping at HUD cadence: threat visuals, heads, ambience, coaching. */
+  private refreshSituation(): void {
     if (this.threats.total > this.lastThreatTotal && this.started) this.sound.play('alert');
     this.lastThreatTotal = this.threats.total;
     this.effects.setThreatened(this.world.buildings.buildings, this.threats.buildings);
@@ -391,7 +446,7 @@ export class Game {
     this.roadStart = null;
     this.lineStart = null;
     this.preview = null;
-    this.roadPreview.visible = false;
+    this.hidePlanPreview();
     this.roadPreviewKey = '';
     this.hud.setTool(tool);
     this.hud.update(this.hudState(), true);
@@ -500,6 +555,7 @@ export class Game {
     this.markerTime += realDt;
     this.updateIncidentMarkers();
     this.effects.update(realDt);
+    this.atmosphere.update(realDt, this.scenario.shiftProgress, this.fire.stats().burning);
     this.hudTimer -= realDt;
     if (this.hudTimer <= 0) {
       this.hudTimer = 0.16;
@@ -563,6 +619,7 @@ export class Game {
   private stepSimulation(dt: number): void {
     this.scenario.update(dt);
     this.budget.update(dt);
+    this.updateSituation(dt);
     for (let i = this.reinforcements.length - 1; i >= 0; i -= 1) {
       const pending = this.reinforcements[i]!;
       pending.eta -= dt;
@@ -639,7 +696,7 @@ export class Game {
     canvas.addEventListener('pointerleave', () => {
       this.hoverTile = null;
       this.tileHighlight.visible = false;
-      this.roadPreview.visible = false;
+      this.hidePlanPreview();
       this.roadPreviewKey = '';
       this.hud.setTooltip(null);
     });
@@ -665,7 +722,7 @@ export class Game {
         this.roadStart = null;
         this.lineStart = null;
         this.preview = null;
-        this.roadPreview.visible = false;
+        this.hidePlanPreview();
         this.hud.update(this.hudState(), true);
         return;
       }
@@ -773,6 +830,11 @@ export class Game {
   }
 
   private updateHover(event: PointerEvent): void {
+    if (this.isShiftOver()) {
+      this.hud.setTooltip(null);
+      this.tileHighlight.visible = false;
+      return;
+    }
     if (!this.hoverTile) {
       this.tileHighlight.visible = false;
     }
@@ -786,7 +848,7 @@ export class Game {
     if (!point) {
       this.hoverTile = null;
       this.tileHighlight.visible = false;
-      this.roadPreview.visible = false;
+      this.hidePlanPreview();
       this.hud.setTooltip(null);
       this.renderer.domElement.style.cursor = 'crosshair';
       return;
@@ -1066,7 +1128,7 @@ export class Game {
     } else {
       this.notify('No viable road route to that tile (crews will not pave through active fire).', 'warning');
     }
-    this.roadPreview.visible = false;
+    this.hidePlanPreview();
     this.hud.update(this.hudState(), true);
   }
 
@@ -1084,6 +1146,7 @@ export class Game {
     const revision = this.world.terrainRevision;
     const path = this.world.buildRoad(start, goal, this.activeFireMask());
     if (!path) return null;
+    for (const tile of path) this.playerRoads[tile.z * GRID_SIZE + tile.x] = 1;
     this.fire.refreshRoadMask(this.world.roads.mask);
     if (this.world.terrainRevision !== revision) this.fire.refreshTerrain(this.world.heightmap);
     this.hud.refreshMinimapBase();
@@ -1115,6 +1178,11 @@ export class Game {
     material.color.setHex(colors[this.tool]);
   }
 
+  private hidePlanPreview(): void {
+    this.roadPreview.visible = false;
+    this.planPreview.hide();
+  }
+
   /** Read through a method so control-flow narrowing of the status does not stick. */
   private isShiftOver(): boolean {
     return this.scenario.status === 'won' || this.scenario.status === 'lost';
@@ -1126,7 +1194,7 @@ export class Game {
       !start ||
       (this.tool === 'road' && (this.world.isReservedForRoad(start.x, start.z) || this.world.isReservedForRoad(tile.x, tile.z)))
     ) {
-      this.roadPreview.visible = false;
+      this.hidePlanPreview();
       this.roadPreviewKey = '';
       this.preview = null;
       return;
@@ -1137,7 +1205,7 @@ export class Game {
     const path =
       this.tool === 'road' ? this.world.findOffroadPath(start, tile, this.activeFireMask()) : this.fleet.previewLine(start, tile);
     if (!path || path.length < 2) {
-      this.roadPreview.visible = false;
+      this.hidePlanPreview();
       this.preview = null;
       return;
     }
@@ -1145,7 +1213,9 @@ export class Game {
       this.tool === 'road'
         ? { tiles: path.length, cost: this.newRoadTiles(path) * ROAD_COST_PER_TILE }
         : { tiles: path.length, cost: 0 };
-    (this.roadPreview.material as LineBasicMaterial).color.setHex(this.tool === 'road' ? 0xffc95c : 0xe9844a);
+    const color = this.tool === 'road' ? 0xffc95c : 0xe9844a;
+    (this.roadPreview.material as LineBasicMaterial).color.setHex(color);
+    this.planPreview.show(path, color, this.preview.cost <= this.budget.funds);
     const positions = this.roadPreview.geometry.getAttribute('position');
     const limit = Math.min(path.length, positions.count);
     for (let i = 0; i < limit; i += 1) {
@@ -1228,6 +1298,7 @@ export class Game {
       nextStrikeIn: this.scenario.nextStrikeIn(),
       shiftTime: this.scenario.time,
       threats: this.threats,
+      savedStructures: this.savedStructures.size,
       muted: this.sound.muted,
       best: this.best,
       newBest: this.newBest,

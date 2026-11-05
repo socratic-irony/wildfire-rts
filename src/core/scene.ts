@@ -84,10 +84,12 @@ function addSky(scene: Scene): void {
 function addLights(scene: Scene): void {
   const center = WORLD_SIZE / 2;
   const hemi = new HemisphereLight(0xd9ecff, 0x716247, 1.45);
+  hemi.name = 'hemi';
   hemi.position.set(center, 90, center);
   scene.add(hemi);
 
   const sun = new DirectionalLight(0xffe6bf, 2.5);
+  sun.name = 'sun';
   sun.position.set(center + 72, 132, center - 58);
   sun.target.position.set(center, 0, center);
   sun.castShadow = true;
