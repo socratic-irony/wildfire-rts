@@ -9,7 +9,7 @@ import {
   Vector3,
 } from 'three';
 import { angleLerp, clamp, distance } from '../core/math';
-import { GRID_SIZE, TILE_SIZE, tileIndex, tileToWorld, worldToTile } from '../world/constants';
+import { GRID_SIZE, TILE_SIZE, tileIndex, tileToWorld, WORLD_SIZE, worldToTile } from '../world/constants';
 import { WATER_LEVEL } from '../world/heightmap';
 import { Terrain } from '../world/biomes';
 import { World } from '../world/world';
@@ -43,13 +43,17 @@ export const UNIT_SPECS: Record<UnitKind, UnitSpec> = {
   tanker: { maxSpeed: 26, capacity: 6000, sprayRate: 0, refillRate: 1200, cruiseAltitude: 19 },
 };
 
-/** The station's own fleet. Parking offsets are along the station road. */
-const HOME_FLEET: Array<{ kind: UnitKind; name: string; offset: number; lane: number }> = [
-  { kind: 'firetruck', name: 'Engine 7', offset: -2.2, lane: 0.45 },
-  { kind: 'firetruck', name: 'Engine 12', offset: 0, lane: -0.45 },
-  { kind: 'dozer', name: 'Dozer 3', offset: 2.2, lane: 0 },
-  { kind: 'helicopter', name: 'Helicopter 1', offset: 0, lane: 0 },
-  { kind: 'tanker', name: 'Tanker 9', offset: 0, lane: 0 },
+/**
+ * The station's own fleet. Ground units park nose to tail along the kerb of
+ * the station street, in the lane on the station side; `offset` is along the
+ * street from the tile in front of the station.
+ */
+const HOME_FLEET: Array<{ kind: UnitKind; name: string; offset: number }> = [
+  { kind: 'firetruck', name: 'Engine 7', offset: -3.1 },
+  { kind: 'firetruck', name: 'Engine 12', offset: 0.1 },
+  { kind: 'dozer', name: 'Dozer 3', offset: 3.1 },
+  { kind: 'helicopter', name: 'Helicopter 1', offset: 0 },
+  { kind: 'tanker', name: 'Tanker 9', offset: 0 },
 ];
 
 const MUTUAL_AID_NAMES: Record<UnitKind, string[]> = {
@@ -59,15 +63,23 @@ const MUTUAL_AID_NAMES: Record<UnitKind, string[]> = {
   tanker: ['Tanker 15', 'Tanker 22', 'Tanker 30'],
 };
 
-/** Helipad parking offsets for aircraft, in order of arrival. */
-const AIR_SLOTS: Array<[number, number]> = [
-  [-3.2, 2.5],
-  [4.5, -3.4],
-  [-3.4, -3.4],
-  [4.6, 2.6],
-  [0.6, 5.2],
-  [0.6, -6],
+/**
+ * Helicopter parking, relative to the helipad centre: the first helicopter
+ * sits on the pad; later ones beside it, on the side away from the station
+ * (x is multiplied by the layout's station side).
+ */
+const HELI_SLOTS: Array<[number, number]> = [
+  [0, 0],
+  [5.6, 0],
+  [5.6, 5.6],
+  [5.6, -5.6],
 ];
+/**
+ * Air tankers are far too big for a town helipad (a 22 m wingspan), so they
+ * work from an air-tanker base just off the edge of the map, as real ones
+ * do, and are hidden while parked there.
+ */
+const TANKER_BASE_OFFSET = 18;
 
 interface LineTask {
   phase: 'toStart' | 'cut';
@@ -87,6 +99,8 @@ interface Unit {
   z: number;
   y: number;
   heading: number;
+  /** Ground units turn to this heading once parked at home. */
+  homeHeading: number;
   maxSpeed: number;
   capacity: number;
   water: number;
@@ -125,12 +139,41 @@ interface Unit {
   hazardTimer: number;
   /** Auto-dispatch may claim this unit whenever it is free. */
   auto: boolean;
+  /** Visual only: smoothed body pitch/roll and last position for banking. */
+  pitch: number;
+  roll: number;
+  lastX: number;
+  lastZ: number;
+  lastHeading: number;
+}
+
+/** Selection ring size per kind (the ring mesh has a ~2 unit radius). */
+const RING_SCALE: Record<UnitKind, number> = { firetruck: 0.8, dozer: 0.68, helicopter: 1.32, tanker: 2.1 };
+
+/** Ground vehicles ride this far above the sampled terrain. */
+const GROUND_CLEARANCE = 0.02;
+/** Helicopter skids rest on the pad surface. */
+const HELI_PAD_HEIGHT = 0.08;
+
+/** Off-map air-tanker base for a helipad position: beyond the nearest map edge. */
+export function tankerBase(padX: number, padZ: number): { x: number; z: number } {
+  const edges = [
+    { d: padX, x: -TANKER_BASE_OFFSET, z: padZ },
+    { d: WORLD_SIZE - padX, x: WORLD_SIZE + TANKER_BASE_OFFSET, z: padZ },
+    { d: padZ, x: padX, z: -TANKER_BASE_OFFSET },
+    { d: WORLD_SIZE - padZ, x: padX, z: WORLD_SIZE + TANKER_BASE_OFFSET },
+  ];
+  edges.sort((a, b) => a.d - b.d);
+  return { x: edges[0]!.x, z: edges[0]!.z };
 }
 
 /** Hose reach in world units. */
 const HOSE_RANGE = 12.5;
-/** Engines drive on the right-hand side of the road centreline. */
-const ENGINE_LANE = 0.24;
+/**
+ * Engines drive in the right-hand lane: a road tile is two lanes of one world
+ * unit each, so the lane centre is about half a unit off the centreline.
+ */
+const ENGINE_LANE = 0.48;
 /** Ground units within this distance of home are parked. */
 const HOME_RADIUS = 2.2;
 /** Seconds between retries when a route home cannot be planned. */
@@ -153,6 +196,10 @@ const OUT_OF_SERVICE_SECONDS = 25;
 const ATTACK_CACHE_SECONDS = 1;
 /** Longest dozer line a single order will cut, in tiles. */
 const MAX_LINE_TILES = 60;
+
+function airBaseName(kind: UnitKind): string {
+  return kind === 'tanker' ? 'tanker base' : 'helipad';
+}
 
 function isAirKind(kind: UnitKind): boolean {
   return kind === 'helicopter' || kind === 'tanker';
@@ -204,16 +251,16 @@ export class Fleet {
   ) {
     this.group.name = 'fleet';
     const station = world.stationRoad;
-    let airSlot = 0;
+    // The station sits on the +z side of its street tile; park in that lane.
+    const alongX = world.roads.has(station.x - 1, station.z) || world.roads.has(station.x + 1, station.z);
     for (const entry of HOME_FLEET) {
       if (isAirKind(entry.kind)) {
-        const slot = AIR_SLOTS[airSlot] ?? [0, 0];
-        airSlot += 1;
-        this.spawn(entry.kind, entry.name, world.airbase.x + slot[0], world.airbase.z + slot[1], false);
+        const home = this.airHome(entry.kind);
+        this.spawn(entry.kind, entry.name, home.x, home.z, false);
+      } else if (alongX) {
+        this.spawn(entry.kind, entry.name, station.wx + entry.offset, station.wz + ENGINE_LANE, false, Math.PI / 2);
       } else {
-        const x = station.wx + entry.offset + entry.lane;
-        const z = station.wz + (entry.lane < 0 ? 0.28 : -0.28);
-        this.spawn(entry.kind, entry.name, x, z, false);
+        this.spawn(entry.kind, entry.name, station.wx - ENGINE_LANE, station.wz + entry.offset, false, 0);
       }
     }
 
@@ -258,7 +305,7 @@ export class Fleet {
     this.group.add(this.selectionRing, this.destinationRing, this.hoseGroup);
   }
 
-  private spawn(kind: UnitKind, name: string, x: number, z: number, mutualAid: boolean): Unit {
+  private spawn(kind: UnitKind, name: string, x: number, z: number, mutualAid: boolean, heading = 0): Unit {
     const spec = UNIT_SPECS[kind];
     const id = this.units.length + 1;
     const model = createVehicleModel(kind);
@@ -271,7 +318,7 @@ export class Fleet {
     });
     const isAir = isAirKind(kind);
     const ground = this.world.heightmap.heightAt(x, z);
-    const y = isAir ? ground + (kind === 'helicopter' ? 0.12 : 0.3) : ground + 0.08;
+    const y = isAir ? ground + (kind === 'helicopter' ? HELI_PAD_HEIGHT : 0.3) : ground + GROUND_CLEARANCE;
     const unit: Unit = {
       id,
       kind,
@@ -281,7 +328,8 @@ export class Fleet {
       x,
       z,
       y,
-      heading: 0,
+      heading,
+      homeHeading: heading,
       maxSpeed: spec.maxSpeed,
       capacity: spec.capacity,
       water: spec.capacity,
@@ -289,7 +337,7 @@ export class Fleet {
       refillRate: spec.refillRate,
       cruiseAltitude: spec.cruiseAltitude,
       state: 'idle',
-      status: isAir ? 'Ready at helipad' : 'Ready at station',
+      status: kind === 'tanker' ? 'Ready at tanker base' : isAir ? 'Ready at helipad' : 'Ready at station',
       incidentId: null,
       path: [],
       pathIndex: 0,
@@ -313,9 +361,15 @@ export class Fleet {
       mutualAid,
       hazardTimer: 0,
       auto: this.autoDefault,
+      pitch: 0,
+      roll: 0,
+      lastX: x,
+      lastZ: z,
+      lastHeading: heading,
     };
     group.position.set(x, y, z);
-    group.scale.setScalar(1.3);
+    group.rotation.order = 'YXZ';
+    if (kind === 'tanker') group.visible = false;
     this.units.push(unit);
     this.group.add(group);
     return unit;
@@ -332,18 +386,27 @@ export class Fleet {
   /** Bring a mutual-aid unit into service at the station (ground) or helipad (air). */
   addUnit(kind: UnitKind, name = this.reserveMutualAidName(kind)): { id: number; name: string } {
     if (isAirKind(kind)) {
-      const airCount = this.units.filter((unit) => isAirKind(unit.kind)).length;
-      const slot = AIR_SLOTS[airCount % AIR_SLOTS.length] ?? [0, 0];
-      const unit = this.spawn(kind, name, this.world.airbase.x + slot[0], this.world.airbase.z + slot[1], true);
+      const home = this.airHome(kind);
+      const unit = this.spawn(kind, name, home.x, home.z, true);
       return { id: unit.id, name };
     }
     const home = this.freeRoadParking();
-    const unit = this.spawn(kind, name, home.x, home.z, true);
+    const unit = this.spawn(kind, name, home.x, home.z, true, home.heading);
     return { id: unit.id, name };
   }
 
-  /** A road tile near the station that no ground unit is parked on. */
-  private freeRoadParking(): { x: number; z: number } {
+  /** Parking spot for the next aircraft of a kind (see HELI_SLOTS and TANKER_BASE_OFFSET). */
+  private airHome(kind: UnitKind): { x: number; z: number } {
+    const pad = this.world.airbase;
+    if (kind === 'tanker') return tankerBase(pad.x, pad.z);
+    const count = this.units.filter((unit) => unit.kind === 'helicopter').length;
+    const slot = HELI_SLOTS[count % HELI_SLOTS.length] ?? [0, 0];
+    const side = this.world.heightmap.layout.side;
+    return { x: pad.x + slot[0] * side, z: pad.z + slot[1] };
+  }
+
+  /** A kerbside spot on a road tile near the station that no ground unit is parked on. */
+  private freeRoadParking(): { x: number; z: number; heading: number } {
     const station = this.world.stationRoad;
     const start = { x: station.x, z: station.z };
     const seen = new Uint8Array(GRID_SIZE * GRID_SIZE);
@@ -352,10 +415,14 @@ export class Fleet {
     while (queue.length > 0) {
       const tile = queue.shift()!;
       const world = tileToWorld(tile.x, tile.z);
+      const alongX = this.world.roads.has(tile.x - 1, tile.z) || this.world.roads.has(tile.x + 1, tile.z);
+      const spot = alongX
+        ? { x: world.x, z: world.z + ENGINE_LANE, heading: Math.PI / 2 }
+        : { x: world.x - ENGINE_LANE, z: world.z, heading: 0 };
       const taken = this.units.some(
-        (unit) => !isAirKind(unit.kind) && distance(unit.homeX, unit.homeZ, world.x, world.z) < 1.8,
+        (unit) => !isAirKind(unit.kind) && distance(unit.homeX, unit.homeZ, spot.x, spot.z) < 2.6,
       );
-      if (tile.depth >= 2 && !taken) return world;
+      if (tile.depth >= 2 && !taken) return spot;
       for (const next of this.world.roads.neighbors(tile.x, tile.z)) {
         const index = tileIndex(next.x, next.z);
         if (seen[index]) continue;
@@ -363,7 +430,7 @@ export class Fleet {
         queue.push({ x: next.x, z: next.z, depth: tile.depth + 1 });
       }
     }
-    return { x: station.wx, z: station.wz + 2 };
+    return { x: station.wx, z: station.wz + 2, heading: 0 };
   }
 
   snapshots(): UnitSnapshot[] {
@@ -615,7 +682,7 @@ export class Fleet {
     unit.refillTarget = null;
     unit.hydrantConnected = false;
     unit.state = 'returning';
-    unit.status = isAirKind(unit.kind) ? 'Returning to helipad' : 'Returning to station';
+    unit.status = isAirKind(unit.kind) ? `Returning to ${airBaseName(unit.kind)}` : 'Returning to station';
     if (!isAirKind(unit.kind)) {
       unit.path = [];
       unit.pathIndex = 0;
@@ -639,11 +706,11 @@ export class Fleet {
       if (unit.kind === 'helicopter') this.beginAirRefill(unit);
       else {
         unit.state = 'returning';
-        unit.status = 'Returning to helipad';
+        unit.status = `Returning to ${airBaseName(unit.kind)}`;
       }
       return {
         ok: true,
-        message: unit.refillMode === 'water' ? `${unit.name} dipping at the lake.` : `${unit.name} returning to the helipad to reload.`,
+        message: unit.refillMode === 'water' ? `${unit.name} dipping at the lake.` : `${unit.name} returning to the ${airBaseName(unit.kind)} to reload.`,
       };
     }
     this.beginRefill(unit);
@@ -762,7 +829,7 @@ export class Fleet {
   private updateIdle(unit: Unit, dt: number): void {
     if (isAirKind(unit.kind)) {
       this.flyTo(unit, unit.airBaseX, unit.airBaseZ, dt, true);
-      unit.status = unit.water >= unit.capacity ? 'Ready at helipad' : 'Refilling at helipad';
+      unit.status = unit.water >= unit.capacity ? `Ready at ${airBaseName(unit.kind)}` : `Refilling at ${airBaseName(unit.kind)}`;
       if (unit.water < unit.capacity) {
         unit.water = Math.min(unit.capacity, unit.water + unit.refillRate * dt);
       }
@@ -775,6 +842,9 @@ export class Fleet {
       if (unit.status !== 'No route home') unit.status = 'Returning to station';
     } else if (homeDist > 0.05) {
       this.driveStraight(unit, unit.homeX, unit.homeZ, unit.maxSpeed * 0.3, dt);
+    } else if (Math.abs(Math.atan2(Math.sin(unit.homeHeading - unit.heading), Math.cos(unit.homeHeading - unit.heading))) > 0.01) {
+      // Square up to the kerb.
+      unit.heading = angleLerp(unit.heading, unit.homeHeading, 1 - Math.exp(-4 * dt));
     } else if (unit.water < unit.capacity) {
       unit.water = Math.min(unit.capacity, unit.water + unit.refillRate * 0.65 * dt);
       unit.status = unit.water >= unit.capacity ? 'Ready at station' : 'Refilling at station';
@@ -839,7 +909,7 @@ export class Fleet {
         } else {
           this.dropTankerRetardant(unit, world.x, world.z);
           unit.state = 'returning';
-          unit.status = 'Returning to helipad';
+          unit.status = `Returning to ${airBaseName(unit.kind)}`;
         }
       }
       return;
@@ -1035,9 +1105,10 @@ export class Fleet {
     this.fire.applyWater(targetWorld.x, targetWorld.z, 5.2, power, dt);
     const headingX = Math.sin(unit.heading);
     const headingZ = Math.cos(unit.heading);
-    const nozzleX = unit.x + headingX * 0.9;
-    const nozzleZ = unit.z + headingZ * 0.9;
-    const nozzleY = unit.y + 0.85;
+    // Bumper turret on the front of the engine.
+    const nozzleX = unit.x + headingX * 1.4;
+    const nozzleZ = unit.z + headingZ * 1.4;
+    const nozzleY = unit.y + 0.45;
     this.particles.emitWaterSpray(nozzleX, nozzleY, nozzleZ, targetWorld.x, targetWorld.z, dt);
     if (!hydrant) {
       unit.water = Math.max(0, unit.water - unit.sprayRate * dt);
@@ -1060,13 +1131,13 @@ export class Fleet {
       const arrived = this.flyTo(unit, unit.airBaseX, unit.airBaseZ, dt, true);
       if (arrived) {
         unit.water = Math.min(unit.capacity, unit.water + unit.refillRate * dt);
-        unit.status = 'Refilling at helipad';
+        unit.status = `Refilling at ${airBaseName(unit.kind)}`;
         if (unit.water >= unit.capacity) {
           unit.water = unit.capacity;
-          this.resumeAfterRefill(unit, incidents, 'Ready at helipad');
+          this.resumeAfterRefill(unit, incidents, `Ready at ${airBaseName(unit.kind)}`);
         }
       } else {
-        unit.status = 'Returning to helipad';
+        unit.status = `Returning to ${airBaseName(unit.kind)}`;
       }
       return;
     }
@@ -1123,7 +1194,7 @@ export class Fleet {
       unit.status = isAirKind(unit.kind) ? 'Airborne to fire' : 'Driving to fire';
     } else if (isAirKind(unit.kind) && unit.dip > 0) {
       unit.state = 'returning';
-      unit.status = 'Returning to helipad';
+      unit.status = `Returning to ${airBaseName(unit.kind)}`;
     } else if (!unit.auto && !isAirKind(unit.kind) && readyStatus === 'Ready at hydrant') {
       // A manual engine stays at the hydrant for its next order.
       unit.state = 'holding';
@@ -1153,18 +1224,18 @@ export class Fleet {
     }
     if (unit.water >= unit.capacity) {
       unit.water = unit.capacity;
-      this.resumeAfterRefill(unit, incidents, 'Ready at helipad');
+      this.resumeAfterRefill(unit, incidents, `Ready at ${airBaseName(unit.kind)}`);
     }
   }
 
   private updateReturning(unit: Unit, incidents: Map<number, IncidentView>, dt: number): void {
     if (isAirKind(unit.kind)) {
       const arrived = this.flyTo(unit, unit.airBaseX, unit.airBaseZ, dt, true);
-      unit.status = 'Returning to helipad';
+      unit.status = `Returning to ${airBaseName(unit.kind)}`;
       if (arrived) {
         unit.state = 'refilling';
         unit.refillMode = 'base';
-        unit.status = 'Refilling at helipad';
+        unit.status = `Refilling at ${airBaseName(unit.kind)}`;
       }
       return;
     }
@@ -1252,6 +1323,7 @@ export class Fleet {
     if (unit) {
       const ground = this.world.heightmap.heightAt(unit.x, unit.z);
       this.selectionRing.position.set(unit.x, ground + 0.16, unit.z);
+      this.selectionRing.scale.setScalar(RING_SCALE[unit.kind]);
       this.selectionRing.visible = true;
       const last = unit.path[unit.path.length - 1];
       const destination = unit.manualTarget ?? unit.refillTarget ?? (last ? tileToWorld(last.x, last.z) : null);
@@ -1339,6 +1411,9 @@ export class Fleet {
   private updateAnimations(unit: Unit, dt: number): void {
     if (unit.model.rotor) unit.model.rotor.rotation.y += dt * 22;
     if (unit.model.tailRotor) unit.model.tailRotor.rotation.x += dt * 30;
+    for (const prop of unit.model.props) prop.rotation.z += dt * 38;
+    const spinning = isAirKind(unit.kind) && unit.parked < 0.95;
+    for (const disc of unit.model.blurDiscs) disc.visible = spinning;
     const active = unit.state === 'toIncident' || unit.state === 'attacking' || unit.state === 'cutting';
     if (unit.model.redLight) {
       unit.model.redLight.emissiveIntensity = active ? 1.4 + Math.sin(this.time * 14) * 1.1 : 0.5;
@@ -1350,15 +1425,41 @@ export class Fleet {
 
   private applyTransform(unit: Unit, dt: number): void {
     if (isAirKind(unit.kind)) {
-      // Idle/refilling aircraft settle onto the pad instead of hovering at
-      // cruise altitude; they climb back out as soon as they are tasked.
-      const atBase = distance(unit.x, unit.z, unit.airBaseX, unit.airBaseZ) < 1.5;
-      const resting = unit.state === 'idle' || (unit.state === 'refilling' && unit.refillMode === 'base');
-      const target = atBase && resting ? 1 : 0;
-      const rate = target > unit.parked ? 0.45 : 1.6;
-      unit.parked = clamp(unit.parked + Math.sign(target - unit.parked) * rate * Math.max(0, dt), 0, 1);
-      const eased = unit.parked * unit.parked * (3 - 2 * unit.parked);
-      const padY = unit.airBaseGround + (unit.kind === 'helicopter' ? 0.12 : 0.3);
+      this.applyAirTransform(unit, dt);
+      return;
+    }
+    // Sit the vehicle on the terrain: pitch from the ground under its front
+    // and back, roll from its left and right, so it climbs ramps nose-up.
+    const h = this.world.heightmap;
+    const fx = Math.sin(unit.heading);
+    const fz = Math.cos(unit.heading);
+    const half = unit.model.length / 2;
+    const side = unit.model.width / 2;
+    const front = h.heightAt(unit.x + fx * half, unit.z + fz * half);
+    const back = h.heightAt(unit.x - fx * half, unit.z - fz * half);
+    const left = h.heightAt(unit.x + fz * side, unit.z - fx * side);
+    const right = h.heightAt(unit.x - fz * side, unit.z + fx * side);
+    const targetPitch = Math.atan2(back - front, unit.model.length);
+    const targetRoll = Math.atan2(left - right, unit.model.width);
+    const blend = 1 - Math.exp(-14 * Math.max(0, dt));
+    unit.pitch += (targetPitch - unit.pitch) * blend;
+    unit.roll += (targetRoll - unit.roll) * blend;
+    const centre = h.heightAt(unit.x, unit.z);
+    const y = Math.max(centre, (front + back) / 2) + GROUND_CLEARANCE;
+    unit.group.position.set(unit.x, y, unit.z);
+    unit.group.rotation.set(unit.pitch, unit.heading, unit.roll);
+  }
+
+  /** Aircraft: settle on the pad, dip, bank into turns, and (helicopters) lean into forward flight. */
+  private applyAirTransform(unit: Unit, dt: number): void {
+    const atBase = distance(unit.x, unit.z, unit.airBaseX, unit.airBaseZ) < 1.5;
+    const resting = unit.state === 'idle' || (unit.state === 'refilling' && unit.refillMode === 'base');
+    const target = atBase && resting ? 1 : 0;
+    const rate = target > unit.parked ? 0.45 : 1.6;
+    unit.parked = clamp(unit.parked + Math.sign(target - unit.parked) * rate * Math.max(0, dt), 0, 1);
+    const eased = unit.parked * unit.parked * (3 - 2 * unit.parked);
+    if (unit.kind === 'helicopter') {
+      const padY = unit.airBaseGround + HELI_PAD_HEIGHT;
       // Helicopters sink to bucket height over open water while dipping.
       const dipping =
         unit.state === 'refilling' &&
@@ -1371,12 +1472,27 @@ export class Fleet {
       unit.y = unit.y + (dipY - unit.y) * dipEase;
       unit.y = unit.y + (padY - unit.y) * eased;
       if (unit.model.rotor) unit.model.rotor.rotation.y -= dt * 22 * eased * 0.85;
+    } else {
+      // The tanker is parked out of sight at its off-map base.
+      unit.group.visible = eased < 0.5;
     }
-    unit.group.position.set(unit.x, unit.y, unit.z);
-    unit.group.rotation.y = unit.heading;
-    if (isAirKind(unit.kind)) {
-      unit.group.position.y = unit.y + Math.sin(this.time * 2.2 + unit.id) * 0.12 * (1 - unit.parked);
-    }
+    const step = Math.max(1e-4, dt);
+    const speed = Math.hypot(unit.x - unit.lastX, unit.z - unit.lastZ) / step;
+    let turn = unit.heading - unit.lastHeading;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn)) / step;
+    unit.lastX = unit.x;
+    unit.lastZ = unit.z;
+    unit.lastHeading = unit.heading;
+    const airborne = 1 - eased;
+    const maxBank = unit.kind === 'tanker' ? 0.7 : 0.4;
+    const targetRoll = clamp(-turn * (unit.kind === 'tanker' ? 0.55 : 0.3), -maxBank, maxBank) * airborne;
+    const targetPitch = unit.kind === 'helicopter' ? clamp(speed / unit.maxSpeed, 0, 1) * 0.16 * airborne : 0;
+    const blend = 1 - Math.exp(-4 * step);
+    unit.roll += (targetRoll - unit.roll) * blend;
+    unit.pitch += (targetPitch - unit.pitch) * blend;
+    const bob = Math.sin(this.time * 2.2 + unit.id) * 0.12 * airborne;
+    unit.group.position.set(unit.x, unit.y + bob, unit.z);
+    unit.group.rotation.set(unit.pitch, unit.heading, unit.roll);
   }
 
   /**
@@ -1417,7 +1533,7 @@ export class Fleet {
     if (moved && (dirX !== 0 || dirZ !== 0)) {
       unit.heading = angleLerp(unit.heading, Math.atan2(dirX, dirZ), 1 - Math.exp(-10 * dt));
     }
-    unit.y = this.world.heightmap.heightAt(unit.x, unit.z) + 0.08;
+    unit.y = this.world.heightmap.heightAt(unit.x, unit.z) + GROUND_CLEARANCE;
     if (unit.pathIndex >= unit.path.length) {
       unit.path = [];
       unit.pathIndex = 0;
@@ -1446,8 +1562,9 @@ export class Fleet {
     }
     const length = Math.hypot(dx, dz);
     if (length < 1e-6) return target;
-    target.x += (dz / length) * ENGINE_LANE;
-    target.z -= (dx / length) * ENGINE_LANE;
+    // Right of travel direction (dx, dz) with y up is (-dz, dx).
+    target.x -= (dz / length) * ENGINE_LANE;
+    target.z += (dx / length) * ENGINE_LANE;
     return target;
   }
 
@@ -1485,7 +1602,7 @@ export class Fleet {
     unit.x += (dx / dist) * step;
     unit.z += (dz / dist) * step;
     unit.heading = angleLerp(unit.heading, Math.atan2(dx, dz), 1 - Math.exp(-8 * dt));
-    unit.y = this.world.heightmap.heightAt(unit.x, unit.z) + 0.08;
+    unit.y = this.world.heightmap.heightAt(unit.x, unit.z) + GROUND_CLEARANCE;
     return step >= dist;
   }
 
@@ -1564,7 +1681,7 @@ export class Fleet {
       return;
     }
     unit.state = 'returning';
-    unit.status = 'Returning to helipad';
+    unit.status = `Returning to ${airBaseName(unit.kind)}`;
   }
 
   nearestWater(x: number, z: number): { x: number; z: number } | null {

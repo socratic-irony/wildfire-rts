@@ -2,7 +2,11 @@
 
 ## Status
 
-Implemented: seeded map generator (open rolling hills, per-seed town/lake/road placement), terraced heightmap with road grading, biome classification with vegetated banks, generated road network and player road building, building lots with seven building types plus props (water tower, fire lookout, power poles), 13 vegetation species, hydrants, map-edge skirts, backdrop. Outstanding: saveable world edits, bridge/tunnel road operations.
+Implemented: seeded map generator (open rolling hills, per-seed town/lake/road placement), terraced heightmap with road grading, biome classification with vegetated banks, generated road network and player road building, building lots with fourteen building types (yards, driveways and parked cars) plus props (water tower, fire lookout, power poles), 13 vegetation species, hydrants with ground rings, map-edge skirts, backdrop, and a model lab page (`models.html`). Outstanding: saveable world edits, bridge/tunnel road operations.
+
+## Visual scale
+
+Props, vehicles and buildings are modelled at **1 world unit ≈ 3 m** (`METERS_PER_UNIT` in `vehicleModels.ts`). At that scale a road tile (2 units) is a 6 m two-lane road with 3 m lanes, a fire engine (8.5 m × 2.5 m) fills most of a lane, a storey is about one unit, a door about 0.7, a car about 1.5 units long, and the existing pines (10–18 m) and oaks (~9 m) already fit. The simulation keeps its own nominal units (fire spread rates, hectares, unit speeds); only the art is held to this scale. Hydrants are drawn slightly over size (1.2 m) so they read at RTS zoom.
 
 ## Grid and coordinate system
 
@@ -52,14 +56,20 @@ Building footprint tiles are forced to urban fuel by `BuildingSystem`, so struct
 
 ## Buildings
 
-- `BuildingSystem` reserves a helipad and places the fire station beside the layout's crossroads (side chosen per seed), then fills road frontage lots: houses, two-storey farmhouses, ranch houses, false-front stores (up to three, near the centre), one chapel, barns (with silo or hay bales) and log cabins (outskirts).
+- `BuildingSystem` reserves a helipad and places the fire station beside the layout's crossroads (side chosen per seed), then fills road frontage lots. The mix depends on distance from the town centre (`pickKind`): main street (under 12 tiles) gets stores, a chapel, a schoolhouse, farmhouses, ranch houses and houses; the edge of town (12–21 tiles) gets a motel, a gas station, barns, mobile homes, workshops and homes; the woods beyond get log cabins, A-frames, mobile homes, workshops and barns. Rare kinds are capped per map (`KIND_LIMIT`: one chapel, school, gas station and motel; up to three stores, mobile homes, workshops, A-frames and barns) and landmarks get a score bonus (`KIND_BONUS`) so a town reliably has them.
+- Fourteen kinds (`buildingModels.ts`): house, two-storey farmhouse, ranch house, barn, log cabin, false-front store, chapel, fire station, A-frame cabin, mobile home, gas station, schoolhouse, motel, workshop. Frontage is two or three tiles (`LOT_FRONTAGE`); depth is two.
 - Lots are axis-aligned; `front` determines which face points at the road. Footprints are odd dimensions so the anchor tile is the center.
 - Placement rejects water, rock, roads, non-flat footprints, and a one-tile clearance ring. Clearance is tracked in `occupied`.
-- Visuals are procedural low-poly groups: per-building wall/roof/trim materials (they char as the building burns) plus shared detail materials for framed windows, doors, foundations, porches, picket fences, mailboxes, chimneys, dormers, awnings and painted signs. Houses step back from the road so porches stay inside the lot.
-- Props: a water tower at the helipad, a fire lookout tower beside the highest out-of-town road, and instanced power poles along rural straights (rebuilt with the road network).
-- Fire state: `intact → burning` while any footprint tile is igniting/burning, `→ destroyed` at 100 damage. Suppression lets damage decay and returns the structure to intact. Destroyed structures swap to charred rubble.
+- Models are built with `ModelBuilder` (`src/core/modelBuilder.ts`) in lot space, street toward +z, and merged into one vertex-coloured body mesh plus glass and glow meshes per building (and a plane per painted sign), instead of dozens of meshes each. Details: framed and mullioned windows with sills (some with shutters), panelled doors, porches with posts and rails, chimneys with caps, dormers, gable, hip and gambrel roofs with soffits, brick wainscot, garage and bay doors with panel lines, awnings, boardwalks, lawns, shrubs, driveways, mailboxes, fences, parked sedans and pickups, a silo or hay bales, a hose tower and flagpole at the station, gas pumps under a lit canopy, a motel sign, a playground, a propane tank and satellite dish.
+- Only the body material is per building: it darkens with damage and glows while the structure burns. Window glass is shared and lights up at dusk (`setWindowGlow`, driven by `Atmosphere`).
+- Props: a water tower beside the helipad on the station side, a fire lookout tower (with stairs and bracing) beside the highest out-of-town road, and instanced power poles along rural straights (rebuilt with the road network). The water tower and lookout are merged models too.
+- Fire state: `intact → burning` while any footprint tile is igniting/burning, `→ destroyed` at 100 damage. Suppression lets damage decay and returns the structure to intact. Destroyed structures swap to a charred slab with scattered beams and, for homes, a standing chimney.
 - `computeStructureScore` equivalent: +10 per standing structure, −25 per destroyed (surfaced through `BuildingSystem.score`).
-- The helipad is the air-unit home; the road tile in front of the station is the ground-unit home.
+- The helipad is the helicopter's home (the first one parks on the pad, later ones beside it away from the station). The air tanker works from an off-map air-tanker base (see `units_dispatch.md`). The road tile in front of the station is the ground-unit home.
+
+### Model lab
+
+`models.html` (`src/tools/modelLab.ts`) lays every vehicle and building kind along a stretch of road with hydrants, trees and 1.8 m people for scale, under the game's lights and an orthographic camera with orbit controls. Query parameters: `view=all|vehicles|buildings|ruins`, `seed` (building variation), `yaw`, `pitch`, `size`, `x`, `z`, `dusk` (window glow), `blur=1` (rotor discs), `labels=0`. `npm run models` (`scripts/models.mjs`) screenshots a set of views to `docs/screenshots/` (`OUT`, `VIEWS`, `PORT` override).
 
 ## Vegetation
 
@@ -70,7 +80,8 @@ Building footprint tiles are forced to urban fuel by `BuildingSystem`, so struct
 
 ## Hydrants
 
-- Auto-placed on road tiles with a minimum 5-tile spacing, offset 1.18 world units to alternating sides.
+- Auto-placed on road tiles with a minimum 5-tile spacing, offset 1.18 world units to alternating sides (on the shoulder).
+- Drawn as one instanced, vertex-coloured mesh (red post, white bonnet and outlets) plus an instanced cyan ground ring; `HydrantSystem.setHighlight` brightens the rings while an engine is selected or running low.
 - Rebuilt whenever the road mask changes.
 - Queries: nearest active source, proximity check.
 - Ground units within 4.6 m while attacking receive an unlimited hydrant feed (no tank drain, 1.15× suppression power), shown by the HUD and a cyan link.
@@ -83,5 +94,5 @@ Building footprint tiles are forced to urban fuel by `BuildingSystem`, so struct
 ## Outing / next
 
 - Terraforming during play, bridges, tunnels, road removal, building placement, and authored meshes are not in v1.
-- Building lots do not currently render driveway ribbons or update frontage after new roads are built.
+- Building lots do not update their frontage after new roads are built.
 - Hydrant damage/pressure and manual hydrant placement are future work.

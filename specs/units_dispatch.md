@@ -14,7 +14,22 @@ Implemented: five-unit home fleet plus up to three mutual-aid units, road moveme
 | Helicopter 1 | helicopter | 18 m/s | 1,400 L | Water drop at downwind head, lake dips |
 | Tanker 9 | tanker | 26 m/s | 6,000 L | Perpendicular retardant line |
 
-Per-kind numbers live in `UNIT_SPECS` (`src/sim/units.ts`). Ground units spawn on the station road. Air units spawn above the helipad. All units start full and become available to dispatch when idle.
+Per-kind numbers live in `UNIT_SPECS` (`src/sim/units.ts`). Ground units park nose to tail along the kerb of the station street, in the lane on the station side, and square up to the kerb once home (`homeHeading`). The first helicopter sits on the helipad; later ones park beside it, away from the station. The air tanker is too large for a town helipad (22 m wingspan), so it works from an **air-tanker base just past the nearest map edge** (`tankerBase`, 18 units out) and is hidden while parked there; its statuses read "tanker base". All units start full and become available to dispatch when idle.
+
+### Models
+
+Vehicles are modelled at the world prop scale (1 unit ≈ 3 m, see `world.md`) with `ModelBuilder`, one merged vertex-coloured mesh per vehicle plus glass/glow layers, separate meshes only for parts that move or flash:
+
+- **Engine**: Type 3 wildland engine on a conventional 4×4 crew cab: hood and grille, bumper turret, white cab roof, windscreen and door glass, mirrors, chrome pump panel, compartment body with roll-up doors, reflective stripe, hose bed, ladder, rear hose reel, chevrons, head/tail lamps, and flashing red/blue light bars front and rear. 8.5 m × 2.5 m.
+- **Dozer**: crawler tracks with grousers, rollers and a raised sprocket, engine hood with grille and stack, ROPS cab, angled blade on push arms with lift cylinders, rear ripper, amber beacon.
+- **Helicopter**: medium utility helicopter on skids: lofted fuselage and tail boom, cockpit glazing, cabin windows, cowling and exhausts, belly tank with snorkel, fin, stabiliser, nav lights; four-blade main rotor and tail rotor spin, with a faint rotor disc in flight. 16 m rotor.
+- **Air tanker**: twin-turboprop high-wing tanker: lofted fuselage, cockpit and cabin windows, red cheat line, belly retardant tank with door seams, tapered wing with dihedral and red tips, nacelles with spinners and four-blade propellers (spinning, with prop discs), main and nose gear, swept fin and tailplane, nav lights. 22 m span.
+- Each vehicle has an invisible pick box so the smaller, true-scale models stay easy to click; the selection ring scales per kind.
+
+### Attitude
+
+- Ground vehicles sit on the terrain: pitch comes from the ground height under the front and back of the vehicle and roll from its left and right (`applyTransform`), eased so terrace edges do not jitter. They climb ramps nose-up and lean on cross-slopes, and ride on whichever of the centre or the axle average is higher so wheels never sink at crests.
+- Aircraft bank into turns (the tanker up to 0.7 rad, the helicopter 0.4) from their heading rate, and helicopters pitch nose-down with forward speed. Visual only.
 
 ### Mutual aid
 
@@ -34,7 +49,7 @@ The fleet panel offers mutual-aid units for budget (`MUTUAL_AID_COST`: engine $3
 
 ## Ground movement
 
-- Fire engines use the road graph (`RoadNetwork.findPath`) and a right-side lane offset of 0.24 world units. The lane offset of each waypoint comes from the path segment that leads into it, never from the unit's position.
+- Fire engines use the road graph (`RoadNetwork.findPath`) and drive in the right-hand lane, 0.48 world units right of the centreline (a road tile is two one-unit lanes). Earlier code offset to the left of travel; fixed. The lane offset of each waypoint comes from the path segment that leads into it, never from the unit's position.
 - Each step spends the unit's full travel distance (`speed * dt`) and passes through as many waypoints as it covers, so arrival is exact at any step size. (An earlier rule advanced only within 0.18 units of a position-dependent target, which trapped engines orbiting a waypoint at 2×/4× speed.)
 - Dozers use an off-road A* plan (`World.findOffroadPath`) that avoids water, buildings, and burning tiles when a clear route exists. While moving off-road on a manual order they clear a narrow line under themselves.
 - Returns route to the unit's spawn/home point. Engines use the road graph; dozers plan off-road home, avoiding burning tiles when possible. Planning starts from the nearest dry tile if the unit is standing in water. If no route exists, the unit shows "No route home" and retries every 2 s.
@@ -51,7 +66,7 @@ The fleet panel offers mutual-aid units for budget (`MUTUAL_AID_COST`: engine $3
 - Aircraft target the incident's downwind wildfire head, not just the nearest flame.
 - Helicopter: one drop per sortie, 6.6-tile radius water application. After the drop it refills at the nearest open water if that is closer than 90% of the helipad distance: it flies there, sinks to 2.6 m above the lake, and fills at 700 L/s before re-attacking.
 - Tanker: lays a 24-tile long, 5.2-world-unit wide retardant line perpendicular to wind through the head.
-- Both return to the helipad, refill, and re-attack if the incident is still unresolved.
+- Both return to base (helipad, or the off-map tanker base), refill, and re-attack if the incident is still unresolved.
 
 ## Dozer lines
 

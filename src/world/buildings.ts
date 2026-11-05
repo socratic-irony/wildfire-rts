@@ -1,12 +1,8 @@
 import {
   BoxGeometry,
-  BufferGeometry,
-  Color,
   CanvasTexture,
   CircleGeometry,
-  ConeGeometry,
   CylinderGeometry,
-  Float32BufferAttribute,
   Group,
   InstancedMesh,
   Material,
@@ -15,18 +11,20 @@ import {
   MeshStandardMaterial,
   Object3D,
   PlaneGeometry,
-  SphereGeometry,
   SRGBColorSpace,
   Texture,
 } from 'three';
-import { hash2, Rng } from '../core/rng';
+import { Rng } from '../core/rng';
 import { clamp } from '../core/math';
+import { ModelBuilder } from '../core/modelBuilder';
+import { buildModel, MODEL_BODY } from '../core/modelMaterials';
+import { BuildingKind, buildBuildingModel, LOT_FRONTAGE } from './buildingModels';
 import { GRID_SIZE, TILE_SIZE, tileIndex, tileToWorld } from './constants';
 import { Heightmap } from './heightmap';
 import { BiomeMap, Terrain } from './biomes';
 import { RoadNetwork } from './roads';
 
-export type BuildingKind = 'house' | 'twostory' | 'ranch' | 'barn' | 'cabin' | 'store' | 'chapel' | 'station';
+export type { BuildingKind } from './buildingModels';
 export type FrontDirection = 'north' | 'south' | 'east' | 'west';
 export type BuildingState = 'intact' | 'burning' | 'destroyed';
 
@@ -64,27 +62,61 @@ interface LotCandidate {
 
 const BUILDING_TARGET = 19;
 
-const FRONT_YARD: Record<BuildingKind, number> = {
-  house: 1,
-  twostory: 1.05,
-  ranch: 1,
-  barn: 0,
-  cabin: 0.95,
-  store: 1.1,
-  chapel: 0.6,
-  station: 0,
+/** Unique or rare kinds: at most this many per map. */
+const KIND_LIMIT: Partial<Record<BuildingKind, number>> = {
+  chapel: 1,
+  school: 1,
+  gas: 1,
+  motel: 1,
+  store: 3,
+  trailer: 3,
+  shop: 3,
+  aframe: 3,
+  barn: 3,
 };
 
-const WALL_HEIGHT: Record<BuildingKind, number> = {
-  house: 2.35,
-  twostory: 3.4,
-  ranch: 2.1,
-  barn: 3.15,
-  cabin: 2.35,
-  store: 2.7,
-  chapel: 2.9,
-  station: 3.3,
+/** Score bonus so a town reliably gets its landmarks. */
+const KIND_BONUS: Partial<Record<BuildingKind, number>> = {
+  house: 4,
+  twostory: 4,
+  store: 6,
+  chapel: 5,
+  school: 6,
+  gas: 5,
+  motel: 4,
 };
+
+/**
+ * Building mix by distance from the town centre (in tiles): main street in
+ * the middle, highway businesses and farms on the edge, cabins in the woods.
+ */
+function pickKind(distanceToTown: number, roll: number): BuildingKind {
+  if (distanceToTown < 12) {
+    if (roll < 0.07) return 'chapel';
+    if (roll < 0.13) return 'school';
+    if (roll < 0.4) return 'store';
+    if (roll < 0.58) return 'twostory';
+    if (roll < 0.74) return 'ranch';
+    return 'house';
+  }
+  if (distanceToTown <= 21) {
+    if (roll < 0.07) return 'motel';
+    if (roll < 0.13) return 'gas';
+    if (roll < 0.26) return 'barn';
+    if (roll < 0.36) return 'trailer';
+    if (roll < 0.45) return 'shop';
+    if (roll < 0.6) return 'twostory';
+    if (roll < 0.76) return 'ranch';
+    return 'house';
+  }
+  if (roll < 0.34) return 'cabin';
+  if (roll < 0.5) return 'aframe';
+  if (roll < 0.62) return 'trailer';
+  if (roll < 0.72) return 'shop';
+  if (roll < 0.86) return 'barn';
+  return 'house';
+}
+
 export const HELIPAD_SIZE = 3;
 
 /** Helipad centre tile for a seeded layout: beside the main street, station side. */
@@ -236,8 +268,8 @@ export class BuildingSystem {
     for (const candidate of candidates) {
       if (this.buildings.length >= BUILDING_TARGET) break;
       if (!this.fits(candidate)) continue;
-      if (candidate.kind === 'chapel' && chosen.some((c) => c.kind === 'chapel')) continue;
-      if (candidate.kind === 'store' && chosen.filter((c) => c.kind === 'store').length >= 3) continue;
+      const limit = KIND_LIMIT[candidate.kind];
+      if (limit !== undefined && chosen.filter((c) => c.kind === candidate.kind).length >= limit) continue;
       let tooClose = false;
       for (const other of chosen) {
         if (Math.abs(other.x0 + other.worldW / 2 - (candidate.x0 + candidate.worldW / 2)) < 4.2) {
@@ -263,14 +295,8 @@ export class BuildingSystem {
   ): void {
     const town = this.heightmap.layout.town;
     const distanceToTown = Math.hypot(roadX - town.x, roadZ - town.z);
-    const roll = rng.next();
-    let kind: BuildingKind = 'house';
-    if (distanceToTown > 21 && roll < 0.52) kind = 'cabin';
-    else if (distanceToTown < 12 && roll < 0.45) kind = roll < 0.08 ? 'chapel' : 'store';
-    else if (distanceToTown > 12 && roll < 0.2) kind = 'barn';
-    else if (roll < 0.36) kind = 'twostory';
-    else if (roll < 0.52) kind = 'ranch';
-    const facadeW = kind === 'barn' || kind === 'ranch' ? 3 : 2;
+    const kind = pickKind(distanceToTown, rng.next());
+    const facadeW = LOT_FRONTAGE[kind];
     const depth = 2;
     let x0: number;
     let z0: number;
@@ -308,10 +334,8 @@ export class BuildingSystem {
         break;
     }
     const terrainType = this.biomes.types[tileIndex(roadX, roadZ)] ?? Terrain.Grass;
-    let score = rng.range(0, 12) + (kind === 'house' || kind === 'twostory' ? 4 : 0);
-    if (kind === 'store') score += 6;
-    if (kind === 'chapel') score += 5;
-    if (kind === 'cabin') {
+    let score = rng.range(0, 12) + (KIND_BONUS[kind] ?? 0);
+    if (kind === 'cabin' || kind === 'aframe') {
       score += terrainType === Terrain.Forest ? 10 : -6;
       score += distanceToTown > 13 ? 5 : -4;
     } else {
@@ -414,7 +438,16 @@ export class BuildingSystem {
 
   private createVisuals(): void {
     for (const building of this.buildings) {
-      building.visual = new BuildingVisual(building, this.heightmap, this.seed + building.id * 97);
+      const visual = new BuildingVisual(
+        building.kind,
+        building.facadeW * TILE_SIZE,
+        building.depth * TILE_SIZE,
+        this.seed + building.id * 97,
+      );
+      visual.group.name = `building-${building.id}`;
+      visual.group.position.set(building.centerX, this.heightmap.tileHeight(building.x0, building.z0), building.centerZ);
+      visual.group.rotation.y = building.rotation;
+      building.visual = visual;
       this.group.add(building.visual.group);
     }
     this.group.add(createHelipad(this.heightmap));
@@ -440,33 +473,6 @@ function standard(color: number, roughness = 0.88): MeshStandardMaterial {
   return new MeshStandardMaterial({ color, roughness, metalness: 0, flatShading: true });
 }
 
-// Shared detail materials. Only wall/roof/trim are per-building (they char as
-// the building burns); everything here is static and safe to share.
-const WINDOW = new MeshStandardMaterial({
-  color: 0x364a57,
-  emissive: 0x283b44,
-  emissiveIntensity: 0.25,
-  roughness: 0.32,
-  metalness: 0.05,
-});
-const DOOR = standard(0x6b4a33, 0.8);
-const BRICK = standard(0x8e4b3a, 0.95);
-const STONE = standard(0x8a857b, 0.95);
-const CONCRETE = standard(0xa8a49a, 0.95);
-const WOOD = standard(0x8a6844, 0.9);
-const LOG = standard(0x6e4c30, 0.92);
-const PICKET = standard(0xece6d6, 0.85);
-const GARAGE = standard(0xd8d2c2, 0.8);
-const MAILBOX = standard(0x4e5b63, 0.6);
-const GOLD = standard(0xc9a548, 0.5);
-const BELFRY = standard(0x2d2a28, 0.9);
-const SILO = standard(0xb7bcbc, 0.55);
-const SILO_CAP = standard(0x8a9192, 0.5);
-const HAY = standard(0xd2b064, 0.95);
-const AWNINGS = [standard(0x9c3b31), standard(0x2f6a5c), standard(0x3d5a8a), standard(0xb88a2e)];
-const SIGN_COLORS = ['#7c2f27', '#2f4a3a', '#2d3f5c', '#5c3a22'];
-const PICKET_GEOMETRY = new BoxGeometry(0.06, 0.6, 0.06);
-const LOG_GEOMETRY = new CylinderGeometry(0.07, 0.07, 1, 5);
 const signCache = new Map<string, MeshStandardMaterial>();
 
 function signMaterial(text: string, background: string): MeshStandardMaterial {
@@ -490,70 +496,31 @@ function disposeTree(root: Object3D): void {
   });
 }
 
-class BuildingVisual {
+/**
+ * A building's meshes: the intact model (one merged body mesh plus glass,
+ * glow and any painted signs) and its rubble. The body material is the only
+ * per-building material; it darkens and glows as the structure burns.
+ */
+export class BuildingVisual {
   readonly group = new Group();
-  private readonly intact = new Group();
-  private readonly destroyed = new Group();
-  private readonly wallMaterial: MeshStandardMaterial;
-  private readonly roofMaterial: MeshStandardMaterial;
-  private readonly trimMaterial: MeshStandardMaterial;
-  private readonly wallBase: Color;
-  private readonly roofBase: Color;
-  private readonly baseHeight: number;
+  private readonly intact: Group;
+  private readonly destroyed: Group;
+  private readonly bodyMaterial: MeshStandardMaterial;
   private glow = 0;
+  private lastBurn = -1;
 
-  constructor(
-    private readonly building: Building,
-    heightmap: Heightmap,
-    seed: number,
-  ) {
-    this.baseHeight = heightmap.tileHeight(building.x0, building.z0);
-    this.group.name = `building-${building.id}`;
-    this.group.position.set(building.centerX, this.baseHeight, building.centerZ);
-    this.group.rotation.y = building.rotation;
-
-    const palette = paletteFor(building.kind, seed);
-    this.wallBase = new Color(palette.wall);
-    this.roofBase = new Color(palette.roof);
-    this.wallMaterial = standard(palette.wall);
-    this.roofMaterial = standard(palette.roof, 0.9);
-    this.trimMaterial = standard(palette.trim, 0.8);
-
-    const width = building.facadeW * TILE_SIZE;
-    // Lots sit flush against the road tile, so houses step back a metre to
-    // keep porches, boardwalks and mailboxes inside their own lot.
-    const frontYard = FRONT_YARD[building.kind];
-    const depth = building.depth * TILE_SIZE - frontYard;
-    this.intact.position.z = -frontYard / 2;
-    this.destroyed.position.z = -frontYard / 2;
-    const wallHeight = WALL_HEIGHT[building.kind];
-    const rng = new Rng(seed ^ 0x2545f491);
-    switch (building.kind) {
-      case 'station':
-        this.buildStation(width, depth, wallHeight);
-        break;
-      case 'barn':
-        this.buildBarn(width, depth, wallHeight, rng);
-        break;
-      case 'cabin':
-        this.buildCabin(width, depth, wallHeight, rng);
-        break;
-      case 'twostory':
-        this.buildTwoStory(width, depth, wallHeight, rng);
-        break;
-      case 'ranch':
-        this.buildRanch(width, depth, wallHeight, rng);
-        break;
-      case 'store':
-        this.buildStore(width, depth, wallHeight, rng);
-        break;
-      case 'chapel':
-        this.buildChapel(width, depth, wallHeight);
-        break;
-      default:
-        this.buildHouse(width, depth, wallHeight, rng);
+  constructor(kind: BuildingKind, width: number, depth: number, seed: number) {
+    const model = buildBuildingModel(kind, width, depth, seed);
+    this.bodyMaterial = MODEL_BODY.clone();
+    this.intact = buildModel(model.intact, { body: this.bodyMaterial });
+    for (const sign of model.signs) {
+      const mesh = new Mesh(new PlaneGeometry(sign.w, sign.h), signMaterial(sign.text, sign.background));
+      mesh.position.set(sign.x, sign.y, sign.z);
+      mesh.rotation.y = sign.rotation;
+      mesh.name = 'sign';
+      this.intact.add(mesh);
     }
-    this.buildRubble(width, depth, wallHeight);
+    this.destroyed = buildModel(model.rubble);
     this.destroyed.visible = false;
     this.group.add(this.intact, this.destroyed);
   }
@@ -564,492 +531,19 @@ class BuildingVisual {
     const burn = clamp(damage / 100, 0, 1);
     const glowTarget = state === 'burning' ? 0.18 + Math.min(0.5, heat * 0.4) : 0;
     this.glow += (glowTarget - this.glow) * 0.12;
-    this.wallMaterial.color.copy(this.wallBase).multiplyScalar(1 - burn * 0.62);
-    this.roofMaterial.color.copy(this.roofBase).multiplyScalar(1 - burn * 0.68);
-    this.wallMaterial.emissive.setRGB(this.glow, this.glow * 0.34, this.glow * 0.06);
-    this.roofMaterial.emissive.setRGB(this.glow * 0.8, this.glow * 0.22, 0);
-  }
-
-  private buildHouse(width: number, depth: number, wallHeight: number, rng: Rng): void {
-    const body = new Mesh(new BoxGeometry(width, wallHeight, depth), this.wallMaterial);
-    body.position.y = wallHeight / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    this.intact.add(body);
-
-    const roof = new Mesh(gableRoofGeometry(width + 0.55, depth + 0.55, 1.5), this.roofMaterial);
-    roof.position.y = wallHeight;
-    roof.castShadow = true;
-    this.intact.add(roof);
-
-    const frontZ = depth / 2 + 0.012;
-    const door = new Mesh(new BoxGeometry(0.72, 1.25, 0.08), this.trimMaterial);
-    door.position.set(0, 0.63, frontZ);
-    this.intact.add(door);
-    for (const side of [-1, 1]) {
-      const window = new Mesh(new BoxGeometry(0.62, 0.58, 0.08), WINDOW);
-      window.position.set(side * (width * 0.29), 1.45, frontZ);
-      this.intact.add(window);
-      const sideWindow = new Mesh(new BoxGeometry(0.08, 0.55, 0.62), WINDOW);
-      sideWindow.position.set(side * (width / 2 + 0.01), 1.4, 0.1);
-      this.intact.add(sideWindow);
+    if (Math.abs(burn - this.lastBurn) > 0.002) {
+      this.lastBurn = burn;
+      this.bodyMaterial.color.setScalar(1 - burn * 0.65);
     }
-    const chimney = new Mesh(new BoxGeometry(0.36, 1.0, 0.36), BRICK);
-    chimney.position.set(width * 0.3, wallHeight + 0.9, -depth * 0.2);
-    chimney.castShadow = true;
-    this.intact.add(chimney);
-    this.addFoundation(width, depth);
-    if (rng.next() < 0.6) this.addPorch(width, depth, 0.9, rng);
-    if (rng.next() < 0.55) this.addFence(width, depth, rng);
-    this.addMailbox(width, depth);
-  }
-
-  /** Two-storey farmhouse: tall body, steep gable, front dormer and porch. */
-  private buildTwoStory(width: number, depth: number, wallHeight: number, rng: Rng): void {
-    this.addBody(width, depth, wallHeight);
-    const roof = new Mesh(gableRoofGeometry(width + 0.45, depth + 0.45, 1.7), this.roofMaterial);
-    roof.position.y = wallHeight;
-    roof.castShadow = true;
-    this.intact.add(roof);
-    const frontZ = depth / 2 + 0.012;
-    const band = new Mesh(new BoxGeometry(width + 0.04, 0.12, depth + 0.04), this.trimMaterial);
-    band.position.y = wallHeight * 0.5;
-    this.intact.add(band);
-    for (const side of [-1, 1]) {
-      this.addWindow(side * width * 0.27, 1.0, frontZ, 0.5, 0.62, 'z');
-      this.addWindow(side * width * 0.27, 2.55, frontZ, 0.5, 0.62, 'z');
-      this.addWindow(side * (width / 2 + 0.01), 2.5, 0, 0.55, 0.6, 'x');
-    }
-    this.addDoor(0, frontZ, 0.66, 1.25);
-    const dormer = new Mesh(new BoxGeometry(0.8, 0.7, 0.7), this.wallMaterial);
-    dormer.position.set(0, wallHeight + 0.55, depth * 0.34);
-    this.intact.add(dormer);
-    const dormerRoof = new Mesh(gableRoofGeometry(0.95, 0.85, 0.42), this.roofMaterial);
-    dormerRoof.position.set(0, wallHeight + 0.9, depth * 0.34);
-    this.intact.add(dormerRoof);
-    this.addWindow(0, wallHeight + 0.55, depth * 0.34 + 0.36, 0.38, 0.4, 'z');
-    const chimney = new Mesh(new BoxGeometry(0.34, 1.3, 0.34), BRICK);
-    chimney.position.set(-width * 0.32, wallHeight + 1.15, -depth * 0.15);
-    chimney.castShadow = true;
-    this.intact.add(chimney);
-    this.addFoundation(width, depth);
-    this.addPorch(width, depth, 1.0, rng);
-    if (rng.next() < 0.5) this.addFence(width, depth, rng);
-    this.addMailbox(width, depth);
-  }
-
-  /** Low ranch house: wide hip roof, attached garage door, picture window. */
-  private buildRanch(width: number, depth: number, wallHeight: number, rng: Rng): void {
-    this.addBody(width, depth, wallHeight);
-    const roof = new Mesh(hipRoofGeometry(width + 0.6, depth + 0.6, 1.0), this.roofMaterial);
-    roof.position.y = wallHeight;
-    roof.castShadow = true;
-    this.intact.add(roof);
-    const frontZ = depth / 2 + 0.012;
-    const garage = new Mesh(new BoxGeometry(width * 0.32, 1.55, 0.08), GARAGE);
-    garage.position.set(width * 0.3, 0.78, frontZ);
-    this.intact.add(garage);
-    for (let i = 0; i < 3; i += 1) {
-      const groove = new Mesh(new BoxGeometry(width * 0.3, 0.04, 0.1), this.trimMaterial);
-      groove.position.set(width * 0.3, 0.4 + i * 0.4, frontZ + 0.01);
-      this.intact.add(groove);
-    }
-    const driveway = new Mesh(new BoxGeometry(width * 0.34, 0.04, 1.0), CONCRETE);
-    driveway.position.set(width * 0.3, 0.02, depth / 2 + 0.5);
-    driveway.receiveShadow = true;
-    this.intact.add(driveway);
-    this.addWindow(-width * 0.22, 1.2, frontZ, 1.2, 0.7, 'z');
-    this.addDoor(0, frontZ, 0.62, 1.2);
-    this.addWindow(-(width / 2 + 0.01), 1.25, 0, 0.6, 0.55, 'x');
-    this.addFoundation(width, depth);
-    if (rng.next() < 0.65) this.addFence(width, depth, rng);
-    this.addMailbox(width, depth);
-  }
-
-  /** Western false-front store with an awning, boardwalk and painted sign. */
-  private buildStore(width: number, depth: number, wallHeight: number, rng: Rng): void {
-    this.addBody(width, depth, wallHeight);
-    const roof = new Mesh(new BoxGeometry(width + 0.1, 0.18, depth + 0.1), this.roofMaterial);
-    roof.position.y = wallHeight + 0.09;
-    this.intact.add(roof);
-    const frontZ = depth / 2 + 0.012;
-    const parapet = new Mesh(new BoxGeometry(width + 0.2, 1.15, 0.16), this.wallMaterial);
-    parapet.position.set(0, wallHeight + 0.5, frontZ - 0.06);
-    parapet.castShadow = true;
-    this.intact.add(parapet);
-    const cap = new Mesh(new BoxGeometry(width + 0.34, 0.1, 0.26), this.trimMaterial);
-    cap.position.set(0, wallHeight + 1.1, frontZ - 0.06);
-    this.intact.add(cap);
-    const names = ['GENERAL STORE', 'CAFE', 'HARDWARE', 'FEED & SUPPLY', 'POST OFFICE', 'DINER'];
-    const sign = new Mesh(new PlaneGeometry(width * 0.86, 0.46), signMaterial(rng.pick(names), rng.pick(SIGN_COLORS)));
-    sign.position.set(0, wallHeight + 0.55, frontZ + 0.03);
-    this.intact.add(sign);
-    const awning = new Mesh(new BoxGeometry(width + 0.1, 0.08, 1.0), rng.pick(AWNINGS));
-    awning.position.set(0, 2.05, frontZ + 0.48);
-    awning.rotation.x = 0.18;
-    awning.castShadow = true;
-    this.intact.add(awning);
-    const boardwalk = new Mesh(new BoxGeometry(width + 0.1, 0.12, 1.05), WOOD);
-    boardwalk.position.set(0, 0.06, frontZ + 0.5);
-    boardwalk.receiveShadow = true;
-    this.intact.add(boardwalk);
-    for (const side of [-1, 1]) {
-      const post = new Mesh(new BoxGeometry(0.09, 2.0, 0.09), this.trimMaterial);
-      post.position.set(side * (width / 2 - 0.05), 1.0, frontZ + 0.95);
-      this.intact.add(post);
-      this.addWindow(side * width * 0.26, 1.15, frontZ, 0.62, 0.95, 'z');
-    }
-    this.addDoor(0, frontZ, 0.6, 1.45);
-    const barrel = new Mesh(new CylinderGeometry(0.17, 0.17, 0.42, 8), WOOD);
-    barrel.position.set(width * 0.42, 0.33, frontZ + 0.75);
-    this.intact.add(barrel);
-  }
-
-  /** Small white chapel with a steeple and tall side windows. */
-  private buildChapel(width: number, depth: number, wallHeight: number): void {
-    this.addBody(width, depth, wallHeight);
-    const roof = new Mesh(gableRoofGeometry(width + 0.45, depth + 0.45, 1.6), this.roofMaterial);
-    roof.position.y = wallHeight;
-    roof.castShadow = true;
-    this.intact.add(roof);
-    const frontZ = depth / 2 + 0.012;
-    const tower = new Mesh(new BoxGeometry(0.9, 1.3, 0.9), this.wallMaterial);
-    tower.position.set(0, wallHeight + 0.95, depth * 0.3);
-    tower.castShadow = true;
-    this.intact.add(tower);
-    const belfry = new Mesh(new BoxGeometry(0.6, 0.4, 0.92), BELFRY);
-    belfry.position.set(0, wallHeight + 1.25, depth * 0.3);
-    this.intact.add(belfry);
-    const spire = new Mesh(new ConeGeometry(0.66, 1.9, 4), this.roofMaterial);
-    spire.rotation.y = Math.PI / 4;
-    spire.position.set(0, wallHeight + 2.55, depth * 0.3);
-    spire.castShadow = true;
-    this.intact.add(spire);
-    const crossV = new Mesh(new BoxGeometry(0.06, 0.42, 0.06), GOLD);
-    crossV.position.set(0, wallHeight + 3.7, depth * 0.3);
-    const crossH = new Mesh(new BoxGeometry(0.26, 0.06, 0.06), GOLD);
-    crossH.position.set(0, wallHeight + 3.78, depth * 0.3);
-    this.intact.add(crossV, crossH);
-    this.addDoor(0, frontZ, 0.7, 1.55);
-    for (const side of [-1, 1]) {
-      for (const z of [-0.45, 0.45]) this.addWindow(side * (width / 2 + 0.01), 1.45, z * depth * 0.5, 0.35, 0.9, 'x');
-    }
-    this.addFoundation(width, depth);
-  }
-
-  // ---- shared details -------------------------------------------------
-
-  private addBody(width: number, depth: number, wallHeight: number): void {
-    const body = new Mesh(new BoxGeometry(width, wallHeight, depth), this.wallMaterial);
-    body.position.y = wallHeight / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    this.intact.add(body);
-  }
-
-  private addFoundation(width: number, depth: number): void {
-    const footing = new Mesh(new BoxGeometry(width + 0.08, 0.22, depth + 0.08), CONCRETE);
-    footing.position.y = 0.09;
-    footing.receiveShadow = true;
-    this.intact.add(footing);
-  }
-
-  /** A framed, mullioned window on the +z face ('z') or an x face ('x'). */
-  private addWindow(x: number, y: number, z: number, w: number, h: number, face: 'x' | 'z'): void {
-    const frame = new Mesh(
-      face === 'z' ? new BoxGeometry(w + 0.12, h + 0.12, 0.06) : new BoxGeometry(0.06, h + 0.12, w + 0.12),
-      this.trimMaterial,
-    );
-    frame.position.set(x, y, z);
-    const glass = new Mesh(face === 'z' ? new BoxGeometry(w, h, 0.08) : new BoxGeometry(0.08, h, w), WINDOW);
-    glass.position.set(x, y, z);
-    const mullion = new Mesh(face === 'z' ? new BoxGeometry(0.04, h, 0.1) : new BoxGeometry(0.1, h, 0.04), this.trimMaterial);
-    mullion.position.set(x, y, z);
-    this.intact.add(frame, glass, mullion);
-  }
-
-  private addDoor(x: number, z: number, w: number, h: number): void {
-    const frame = new Mesh(new BoxGeometry(w + 0.14, h + 0.08, 0.06), this.trimMaterial);
-    frame.position.set(x, h / 2 + 0.2, z);
-    const door = new Mesh(new BoxGeometry(w, h, 0.08), DOOR);
-    door.position.set(x, h / 2 + 0.2, z);
-    const knob = new Mesh(new BoxGeometry(0.06, 0.06, 0.12), GOLD);
-    knob.position.set(x + w * 0.32, h * 0.5 + 0.2, z + 0.02);
-    this.intact.add(frame, door, knob);
-  }
-
-  private addPorch(width: number, depth: number, porchDepth: number, rng: Rng): void {
-    const frontZ = depth / 2;
-    const deck = new Mesh(new BoxGeometry(width * 0.9, 0.16, porchDepth), WOOD);
-    deck.position.set(0, 0.16, frontZ + porchDepth / 2);
-    deck.receiveShadow = true;
-    this.intact.add(deck);
-    const roof = new Mesh(new BoxGeometry(width * 0.94, 0.08, porchDepth + 0.15), this.roofMaterial);
-    roof.position.set(0, 1.95, frontZ + porchDepth / 2);
-    roof.rotation.x = 0.14;
-    roof.castShadow = true;
-    this.intact.add(roof);
-    for (const side of [-1, 1]) {
-      const post = new Mesh(new BoxGeometry(0.08, 1.8, 0.08), this.trimMaterial);
-      post.position.set(side * width * 0.42, 1.05, frontZ + porchDepth - 0.06);
-      this.intact.add(post);
-    }
-    const rail = new Mesh(new BoxGeometry(width * 0.86, 0.06, 0.05), this.trimMaterial);
-    rail.position.set(0, 0.62, frontZ + porchDepth - 0.06);
-    this.intact.add(rail);
-    if (rng.next() < 0.5) {
-      const chair = new Mesh(new BoxGeometry(0.3, 0.4, 0.3), WOOD);
-      chair.position.set(width * 0.24, 0.44, frontZ + porchDepth * 0.5);
-      this.intact.add(chair);
-    }
-  }
-
-  /** Picket or rail fence round the back yard, inside the lot's clearance ring. */
-  private addFence(width: number, depth: number, rng: Rng): void {
-    const material = rng.next() < 0.6 ? PICKET : WOOD;
-    const hw = width / 2 + 0.7;
-    const back = -depth / 2 - 0.75;
-    const front = depth / 2 - 0.2;
-    const runs: Array<[number, number, number, number]> = [
-      [-hw, back, hw, back],
-      [-hw, back, -hw, front],
-      [hw, back, hw, front],
-    ];
-    for (const [ax, az, bx, bz] of runs) {
-      const length = Math.hypot(bx - ax, bz - az);
-      const alongX = Math.abs(bx - ax) > Math.abs(bz - az);
-      const rail = new Mesh(alongX ? new BoxGeometry(length, 0.06, 0.05) : new BoxGeometry(0.05, 0.06, length), material);
-      rail.position.set((ax + bx) / 2, 0.42, (az + bz) / 2);
-      this.intact.add(rail);
-      const posts = Math.max(2, Math.round(length / 0.45));
-      for (let i = 0; i <= posts; i += 1) {
-        const t = i / posts;
-        const picket = new Mesh(PICKET_GEOMETRY, material);
-        picket.position.set(ax + (bx - ax) * t, 0.3, az + (bz - az) * t);
-        this.intact.add(picket);
-      }
-    }
-  }
-
-  private addMailbox(width: number, depth: number): void {
-    const post = new Mesh(new BoxGeometry(0.06, 0.8, 0.06), WOOD);
-    post.position.set(width / 2 + 0.25, 0.4, depth / 2 + 0.75);
-    const box = new Mesh(new BoxGeometry(0.16, 0.16, 0.32), MAILBOX);
-    box.position.set(width / 2 + 0.25, 0.86, depth / 2 + 0.75);
-    this.intact.add(post, box);
-  }
-
-
-  private buildBarn(width: number, depth: number, wallHeight: number, rng: Rng): void {
-    const body = new Mesh(new BoxGeometry(width, wallHeight, depth), this.wallMaterial);
-    body.position.y = wallHeight / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    this.intact.add(body);
-
-    const roof = new Mesh(gableRoofGeometry(width + 0.75, depth + 0.7, 1.85), this.roofMaterial);
-    roof.position.y = wallHeight;
-    roof.castShadow = true;
-    this.intact.add(roof);
-
-    const frontZ = depth / 2 + 0.012;
-    const door = new Mesh(new BoxGeometry(width * 0.52, wallHeight * 0.72, 0.09), this.trimMaterial);
-    door.position.set(0, wallHeight * 0.37, frontZ);
-    this.intact.add(door);
-    for (const side of [-1, 1]) {
-      const brace = new Mesh(new BoxGeometry(0.09, wallHeight * 0.68, 0.1), this.roofMaterial);
-      brace.rotation.z = side * 0.5;
-      brace.position.set(side * width * 0.16, wallHeight * 0.37, frontZ + 0.02);
-      this.intact.add(brace);
-    }
-    const loft = new Mesh(new BoxGeometry(0.62, 0.62, 0.08), WINDOW);
-    loft.position.set(0, wallHeight * 0.82, frontZ);
-    this.intact.add(loft);
-    const doorHeader = new Mesh(new BoxGeometry(width * 0.56, 0.1, 0.11), this.trimMaterial);
-    doorHeader.position.set(0, wallHeight * 0.73, frontZ + 0.02);
-    this.intact.add(doorHeader);
-    if (rng.next() < 0.6) {
-      // Grain silo with a domed cap.
-      const silo = new Mesh(new CylinderGeometry(0.62, 0.62, wallHeight + 1.6, 12), SILO);
-      silo.position.set(-width / 2 - 0.55, (wallHeight + 1.6) / 2, -depth * 0.15);
-      silo.castShadow = true;
-      const dome = new Mesh(new SphereGeometry(0.63, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), SILO_CAP);
-      dome.position.set(-width / 2 - 0.55, wallHeight + 1.6, -depth * 0.15);
-      this.intact.add(silo, dome);
-    } else {
-      for (let i = 0; i < 3; i += 1) {
-        const bale = new Mesh(new CylinderGeometry(0.32, 0.32, 0.5, 10), HAY);
-        bale.rotation.z = Math.PI / 2;
-        bale.position.set(width / 2 + 0.45, 0.32, -depth * 0.3 + i * 0.66);
-        bale.castShadow = true;
-        this.intact.add(bale);
-      }
-    }
-  }
-
-
-  private buildCabin(width: number, depth: number, wallHeight: number, rng: Rng): void {
-    const body = new Mesh(new BoxGeometry(width, wallHeight, depth), this.wallMaterial);
-    body.position.y = wallHeight / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    this.intact.add(body);
-
-    const roof = new Mesh(gableRoofGeometry(width + 0.65, depth + 0.8, 1.35), this.roofMaterial);
-    roof.position.y = wallHeight;
-    roof.castShadow = true;
-    this.intact.add(roof);
-
-    const deck = new Mesh(new BoxGeometry(width * 0.82, 0.18, 0.9), this.trimMaterial);
-    deck.position.set(0, 0.09, depth / 2 + 0.45);
-    deck.castShadow = true;
-    deck.receiveShadow = true;
-    this.intact.add(deck);
-    const frontZ = depth / 2 + 0.012;
-    const door = new Mesh(new BoxGeometry(0.66, 1.2, 0.08), this.trimMaterial);
-    door.position.set(0, 0.72, frontZ);
-    this.intact.add(door);
-    for (const side of [-1, 1]) {
-      const post = new Mesh(new BoxGeometry(0.1, 2.15, 0.1), this.trimMaterial);
-      post.position.set(side * (width * 0.32), 1.08, depth / 2 + 0.86);
-      this.intact.add(post);
-    }
-    const window = new Mesh(new BoxGeometry(0.55, 0.5, 0.08), WINDOW);
-    window.position.set(0, 1.5, frontZ);
-    this.intact.add(window);
-    // Log courses along the sides, a stone chimney, maybe a woodpile.
-    for (let i = 1; i < 6; i += 1) {
-      for (const side of [-1, 1]) {
-        const log = new Mesh(LOG_GEOMETRY, LOG);
-        log.scale.y = depth + 0.2;
-        log.rotation.x = Math.PI / 2;
-        log.position.set(side * (width / 2 + 0.03), (i * wallHeight) / 6, 0);
-        this.intact.add(log);
-      }
-    }
-    const chimney = new Mesh(new BoxGeometry(0.5, wallHeight + 1.5, 0.5), STONE);
-    chimney.position.set(width / 2 + 0.2, (wallHeight + 1.5) / 2, -depth * 0.15);
-    chimney.castShadow = true;
-    this.intact.add(chimney);
-    if (rng.next() < 0.6) {
-      const woodpile = new Mesh(new BoxGeometry(0.9, 0.45, 0.4), LOG);
-      woodpile.position.set(-width / 2 - 0.4, 0.23, -depth * 0.2);
-      this.intact.add(woodpile);
-    }
-  }
-
-
-  private buildStation(width: number, depth: number, wallHeight: number): void {
-    const body = new Mesh(new BoxGeometry(width, wallHeight, depth), this.wallMaterial);
-    body.position.y = wallHeight / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    this.intact.add(body);
-
-    const roof = new Mesh(new BoxGeometry(width + 0.45, 0.3, depth + 0.45), this.roofMaterial);
-    roof.position.y = wallHeight + 0.15;
-    roof.castShadow = true;
-    this.intact.add(roof);
-
-    const frontZ = depth / 2 + 0.012;
-    for (const side of [-1, 1]) {
-      const bay = new Mesh(new BoxGeometry(1.08, 2.3, 0.09), this.roofMaterial);
-      bay.position.set(side * 0.68, 1.15, frontZ);
-      this.intact.add(bay);
-      const bayTrim = new Mesh(new BoxGeometry(1.2, 0.09, 0.11), this.trimMaterial);
-      bayTrim.position.set(side * 0.68, 2.33, frontZ + 0.03);
-      this.intact.add(bayTrim);
-    }
-    const lamp = new Mesh(new BoxGeometry(0.36, 0.14, 0.12), new MeshStandardMaterial({
-      color: 0xffd27a,
-      emissive: 0xff9c2c,
-      emissiveIntensity: 1.1,
-      roughness: 0.4,
-    }));
-    lamp.position.set(0, wallHeight * 0.72, frontZ + 0.09);
-    this.intact.add(lamp);
-
-    const signTexture = makeSignTexture('STATION 7');
-    const signMaterial = new MeshStandardMaterial({ map: signTexture, transparent: true, roughness: 0.8 });
-    const sign = new Mesh(new PlaneGeometry(2.5, 0.52), signMaterial);
-    sign.position.set(0, wallHeight + 0.52, frontZ);
-    this.intact.add(sign);
-
-    const flagPole = new Mesh(new BoxGeometry(0.08, 2.2, 0.08), this.trimMaterial);
-    flagPole.position.set(-width / 2 + 0.35, 1.1, -depth / 2 + 0.25);
-    this.intact.add(flagPole);
-    const flag = new Mesh(new BoxGeometry(0.72, 0.42, 0.04), this.trimMaterial);
-    flag.position.set(-width / 2 + 0.72, 1.95, -depth / 2 + 0.25);
-    this.intact.add(flag);
-  }
-
-  private buildRubble(width: number, depth: number, wallHeight: number): void {
-    const charred = new MeshStandardMaterial({ color: 0x2a2622, roughness: 1, flatShading: true });
-    const pile = new Mesh(new BoxGeometry(width * 0.92, 0.42, depth * 0.9), charred);
-    pile.position.y = 0.21;
-    pile.castShadow = true;
-    this.destroyed.add(pile);
-    for (let i = 0; i < 4; i += 1) {
-      const x = ((hash2(i, this.building.id, this.building.id * 7 + 1) / 0xffffffff) - 0.5) * width * 0.7;
-      const z = ((hash2(i + 11, this.building.id, this.building.id * 13 + 3) / 0xffffffff) - 0.5) * depth * 0.7;
-      const beam = new Mesh(new BoxGeometry(0.16, wallHeight * 0.22, 0.16), charred);
-      beam.position.set(x, 0.35, z);
-      beam.rotation.set(i * 0.4, i * 1.1, i * 0.3);
-      this.destroyed.add(beam);
-    }
+    this.bodyMaterial.emissive.setRGB(this.glow, this.glow * 0.3, this.glow * 0.05);
   }
 }
 
-function paletteFor(kind: BuildingKind, seed: number): { wall: number; roof: number; trim: number } {
-  const shift = hash2(seed, kind.length, seed ^ 0x99) % 3;
-  if (kind === 'station') return { wall: 0xd9d3bd, roof: 0x7c2f27, trim: 0xf0e6cc };
-  if (kind === 'barn') return { wall: 0x8e3f31, roof: 0x4a312b, trim: 0xe8dcc1 };
-  if (kind === 'cabin') return { wall: 0x7a5638, roof: 0x3e332c, trim: 0xa9855e };
-  if (kind === 'chapel') return { wall: 0xeee8da, roof: 0x55606a, trim: 0xfaf6ec };
-  if (kind === 'store') {
-    const fronts = [0xb8865a, 0x8f6b4a, 0xc9b28a, 0x7f8f88, 0xa9654b];
-    return { wall: fronts[shift % fronts.length] as number, roof: 0x4b4743, trim: 0xefe4ca };
-  }
-  const walls = [0xb9a47c, 0xc4a883, 0xa8b09b, 0xc79b7b, 0x9fafb2];
-  const roofs = [0x5b4438, 0x6e3f36, 0x4e4e4e, 0x75593f];
-  return {
-    wall: walls[shift % walls.length] as number,
-    roof: roofs[(shift + 1) % roofs.length] as number,
-    trim: 0xe4dbc6,
-  };
-}
-
-function gableRoofGeometry(width: number, depth: number, height: number): BufferGeometry {
-  const hw = width / 2;
-  const hd = depth / 2;
-  const positions: number[] = [];
-  const push = (x: number, y: number, z: number) => positions.push(x, y, z);
-  // Front slope
-  push(-hw, 0, hd);
-  push(hw, 0, hd);
-  push(hw, height, 0);
-  push(-hw, 0, hd);
-  push(hw, height, 0);
-  push(-hw, height, 0);
-  // Back slope
-  push(hw, 0, -hd);
-  push(-hw, 0, -hd);
-  push(-hw, height, 0);
-  push(hw, 0, -hd);
-  push(-hw, height, 0);
-  push(hw, height, 0);
-  // Left gable
-  push(-hw, 0, -hd);
-  push(-hw, 0, hd);
-  push(-hw, height, 0);
-  // Right gable
-  push(hw, 0, hd);
-  push(hw, 0, -hd);
-  push(hw, height, 0);
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
-  geometry.computeVertexNormals();
-  return geometry;
+/** Standalone building model for the model lab (lot-centred, street toward +z). */
+export function createBuildingPreview(kind: BuildingKind, seed: number, destroyed = false): Group {
+  const visual = new BuildingVisual(kind, LOT_FRONTAGE[kind] * TILE_SIZE, 2 * TILE_SIZE, seed);
+  visual.update(destroyed ? 'destroyed' : 'intact', destroyed ? 100 : 0, 0);
+  return visual.group;
 }
 
 function makeSignTexture(text: string, background = '#7c2f27'): Texture {
@@ -1117,53 +611,28 @@ function createHelipad(heightmap: Heightmap): Group {
   cross.position.set(center.x, y + 0.09, center.z);
   group.add(cross);
 
-  // Water tower serving the helipad: four splayed legs, banded tank, cone cap.
-  const tower = new Group();
-  // Clear of both aircraft parking spots (helicopter -x/+z, tanker +x/-z).
-  tower.position.set(center.x - 4.2, y, center.z - 3.2);
-  const steel = standard(0x6f7d78, 0.6);
+  // Water tower serving the helipad, on the station side, clear of the pad.
+  const side = heightmap.layout.side;
+  const tower = new ModelBuilder();
+  const steel = 0x6f7d78;
+  tower.push(center.x - side * 4.4, y, center.z - 3.4);
   for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
-    const leg = new Mesh(new BoxGeometry(0.09, 3.2, 0.09), steel);
-    leg.position.set(sx * 0.48, 1.6, sz * 0.48);
-    leg.rotation.set(sz * 0.08, 0, -sx * 0.08);
-    tower.add(leg);
+    tower.box(0.09, 3.3, 0.09, steel, sx * 0.5, 1.6, sz * 0.5, { x: sz * 0.08, z: -sx * 0.08 });
   }
-  const tankBody = new Mesh(new CylinderGeometry(0.8, 0.8, 1.3, 12), standard(0x8c9a93, 0.5));
-  tankBody.position.y = 3.75;
-  tankBody.castShadow = true;
-  const band = new Mesh(new CylinderGeometry(0.82, 0.82, 0.1, 12), steel);
-  band.position.y = 3.5;
-  const cap = new Mesh(new ConeGeometry(0.88, 0.55, 12), steel);
-  cap.position.y = 4.67;
-  cap.castShadow = true;
-  tower.add(tankBody, band, cap);
-  group.add(tower);
+  for (const yy of [1.1, 2.2]) {
+    for (const [w, d, ox, oz] of [[0.95, 0.04, 0, 0.42], [0.95, 0.04, 0, -0.42], [0.04, 0.95, 0.42, 0], [0.04, 0.95, -0.42, 0]] as const) {
+      tower.box(w * (1 - yy / 14), 0.04, d * (1 - yy / 14), steel, ox * (1 - yy / 14), yy, oz * (1 - yy / 14));
+    }
+  }
+  tower.cylinder(0.82, 1.35, 0x8c9a93, 0, 3.8, 0, undefined, 14);
+  tower.cylinder(0.84, 0.08, steel, 0, 3.4, 0, undefined, 14);
+  tower.cylinder(0.84, 0.06, steel, 0, 4.2, 0, undefined, 14);
+  tower.cone(0.9, 0.55, steel, 0, 4.75, 0, undefined, 14);
+  tower.cylinder(0.6, 0.12, 0x5d6a64, 0, 3.08, 0, undefined, 12);
+  tower.box(0.04, 3.0, 0.04, 0x4a524e, 0.86, 2.0, 0);
+  tower.pop();
+  group.add(buildModel(tower));
   return group;
-}
-
-/** Four-sided hip roof: ridge along x, inset from the gable ends. */
-function hipRoofGeometry(width: number, depth: number, height: number): BufferGeometry {
-  const hw = width / 2;
-  const hd = depth / 2;
-  const ridge = Math.max(0.05, hw - hd);
-  const positions: number[] = [];
-  const tri = (a: number[], b: number[], c: number[]) => positions.push(...a, ...b, ...c);
-  const fl = [-hw, 0, hd];
-  const fr = [hw, 0, hd];
-  const bl = [-hw, 0, -hd];
-  const br = [hw, 0, -hd];
-  const rl = [-ridge, height, 0];
-  const rr = [ridge, height, 0];
-  tri(fl, fr, rr);
-  tri(fl, rr, rl);
-  tri(br, bl, rl);
-  tri(br, rl, rr);
-  tri(bl, fl, rl);
-  tri(fr, br, rr);
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
-  geometry.computeVertexNormals();
-  return geometry;
 }
 
 /** Wooden power poles along the rural (out-of-town) stretches of road. */
@@ -1226,6 +695,8 @@ function createPowerPoles(heightmap: Heightmap, roads: RoadNetwork, occupied: Ui
   return group;
 }
 
+const darkTimber = 0x5e4430;
+
 /** A fire lookout tower beside the highest stretch of road outside town. */
 function createLookout(heightmap: Heightmap, roads: RoadNetwork, occupied: Uint8Array): Group | null {
   const { town } = heightmap.layout;
@@ -1254,45 +725,34 @@ function createLookout(heightmap: Heightmap, roads: RoadNetwork, occupied: Uint8
   if (!site) return null;
   occupied[tileIndex(site.x, site.z)] = 1;
   const center = tileToWorld(site.x, site.z);
-  const group = new Group();
-  group.name = 'fire-lookout';
-  group.position.set(center.x, heightmap.tileMinHeight(site.x, site.z), center.z);
-  const timber = standard(0x7a5a3c, 0.9);
+  const b = new ModelBuilder();
+  const timber = 0x7a5a3c;
   const legHeight = 6.2;
   for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
-    const leg = new Mesh(new BoxGeometry(0.14, legHeight + 0.3, 0.14), timber);
-    leg.position.set(sx * 0.62, legHeight / 2, sz * 0.62);
-    leg.rotation.set(sz * 0.07, 0, -sx * 0.07);
-    leg.castShadow = true;
-    group.add(leg);
+    b.box(0.14, legHeight + 0.3, 0.14, timber, sx * 0.62, legHeight / 2, sz * 0.62, { x: sz * 0.07, z: -sx * 0.07 });
   }
   for (const y of [1.6, 3.3, 5.0]) {
+    const k = 1 - y / 30;
     for (const [w, d, ox, oz] of [[1.3, 0.06, 0, 0.6], [1.3, 0.06, 0, -0.6], [0.06, 1.3, 0.6, 0], [0.06, 1.3, -0.6, 0]] as const) {
-      const brace = new Mesh(new BoxGeometry(w * (1 - y / 30), 0.07, d * (1 - y / 30)), timber);
-      brace.position.set(ox * (1 - y / 30), y, oz * (1 - y / 30));
-      group.add(brace);
+      b.box(w * k, 0.07, d * k, timber, ox * k, y, oz * k);
     }
+    // Cross bracing between levels.
+    for (const sz of [-1, 1]) b.box(1.3 * k, 0.05, 0.05, darkTimber, 0, y + 0.85, sz * 0.6 * k, { z: 0.9 });
   }
-  const deck = new Mesh(new BoxGeometry(2.2, 0.12, 2.2), timber);
-  deck.position.y = legHeight;
-  deck.castShadow = true;
-  const cab = new Mesh(new BoxGeometry(1.5, 1.15, 1.5), standard(0xd9cfb4));
-  cab.position.y = legHeight + 0.64;
-  cab.castShadow = true;
-  const glass = new Mesh(new BoxGeometry(1.54, 0.5, 1.54), WINDOW);
-  glass.position.y = legHeight + 0.82;
-  const roof = new Mesh(new ConeGeometry(1.3, 0.75, 4), standard(0x5b3b2e));
-  roof.rotation.y = Math.PI / 4;
-  roof.position.y = legHeight + 1.58;
-  roof.castShadow = true;
+  // Switchback stair up one side.
+  for (let i = 0; i < 6; i += 1) b.box(0.42, 0.05, 0.2, timber, 0.95, 0.6 + i * 1.0, -0.4 + (i % 2) * 0.8, { x: (i % 2 ? 1 : -1) * 0.6 });
+  b.box(2.2, 0.12, 2.2, timber, 0, legHeight, 0);
+  b.box(1.5, 1.15, 1.5, 0xd9cfb4, 0, legHeight + 0.64, 0);
+  b.cone(1.3, 0.75, 0x5b3b2e, 0, legHeight + 1.58, 0, { y: Math.PI / 4 }, 4);
   for (const [w, d, ox, oz] of [[2.2, 0.05, 0, 1.08], [2.2, 0.05, 0, -1.08], [0.05, 2.2, 1.08, 0], [0.05, 2.2, -1.08, 0]] as const) {
-    const rail = new Mesh(new BoxGeometry(w, 0.05, d), timber);
-    rail.position.set(ox, legHeight + 0.5, oz);
-    group.add(rail);
+    b.box(w, 0.05, d, timber, ox, legHeight + 0.5, oz);
   }
-  group.add(deck, cab, glass, roof);
-  const antenna = new Mesh(new CylinderGeometry(0.02, 0.02, 1.1, 4), standard(0x3a3a3a, 0.5));
-  antenna.position.set(0.3, legHeight + 2.3, 0.3);
-  group.add(antenna);
+  b.cylinder(0.02, 1.1, 0x3a3a3a, 0.3, legHeight + 2.3, 0.3, undefined, 4);
+  b.use('glass');
+  b.box(1.54, 0.5, 1.54, 0x34505e, 0, legHeight + 0.82, 0);
+  b.use('body');
+  const group = buildModel(b);
+  group.name = 'fire-lookout';
+  group.position.set(center.x, heightmap.tileMinHeight(site.x, site.z), center.z);
   return group;
 }

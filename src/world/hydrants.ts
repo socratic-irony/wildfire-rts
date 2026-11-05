@@ -1,14 +1,14 @@
 import {
-  ConeGeometry,
-  CylinderGeometry,
+  BufferGeometry,
   DoubleSide,
   Group,
   InstancedMesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   Object3D,
   RingGeometry,
 } from 'three';
+import { ModelBuilder } from '../core/modelBuilder';
+import { MODEL_BODY } from '../core/modelMaterials';
 import { TILE_SIZE } from './constants';
 import { Heightmap } from './heightmap';
 import { RoadNetwork } from './roads';
@@ -26,7 +26,6 @@ export class HydrantSystem {
   readonly hydrants: Hydrant[] = [];
   readonly group = new Group();
   private bodyMesh: InstancedMesh | null = null;
-  private capMesh: InstancedMesh | null = null;
   private ringMesh: InstancedMesh | null = null;
   private readonly ringGeometry = new RingGeometry(0.42, 0.6, 20).rotateX(-Math.PI / 2);
   /** Cyan ground ring under every hydrant so refill points read at a glance. */
@@ -39,20 +38,7 @@ export class HydrantSystem {
     toneMapped: false,
   });
   private highlight = 0;
-  private readonly bodyGeometry = new CylinderGeometry(0.15, 0.18, 0.62, 7);
-  private readonly capGeometry = new ConeGeometry(0.16, 0.18, 7);
-  private readonly bodyMaterial = new MeshStandardMaterial({
-    color: 0xc84832,
-    roughness: 0.62,
-    metalness: 0.18,
-    flatShading: true,
-  });
-  private readonly capMaterial = new MeshStandardMaterial({
-    color: 0xe0d8c4,
-    roughness: 0.52,
-    metalness: 0.25,
-    flatShading: true,
-  });
+  private readonly bodyGeometry = createHydrantGeometry();
 
   constructor(
     private readonly heightmap: Heightmap,
@@ -143,56 +129,64 @@ export class HydrantSystem {
 
   private buildMeshes(): void {
     if (this.hydrants.length === 0) return;
-    this.bodyMesh = new InstancedMesh(this.bodyGeometry, this.bodyMaterial, this.hydrants.length);
-    this.capMesh = new InstancedMesh(this.capGeometry, this.capMaterial, this.hydrants.length);
+    this.bodyMesh = new InstancedMesh(this.bodyGeometry, MODEL_BODY, this.hydrants.length);
     this.ringMesh = new InstancedMesh(this.ringGeometry, this.ringMaterial, this.hydrants.length);
     this.ringMesh.name = 'hydrant-rings';
     this.ringMesh.renderOrder = 6;
-    this.bodyMesh.name = 'hydrant-bodies';
-    this.capMesh.name = 'hydrant-caps';
+    this.bodyMesh.name = 'hydrants';
     this.bodyMesh.castShadow = true;
-    this.capMesh.castShadow = false;
     const dummy = new Object3D();
     this.hydrants.forEach((hydrant, i) => {
       const y = this.heightmap.heightAt(hydrant.x, hydrant.z);
-      dummy.position.set(hydrant.x, y + 0.31, hydrant.z);
+      dummy.position.set(hydrant.x, y, hydrant.z);
       dummy.rotation.y = i * 0.7;
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
       this.bodyMesh?.setMatrixAt(i, dummy.matrix);
-      dummy.position.y = y + 0.71;
-      dummy.updateMatrix();
-      this.capMesh?.setMatrixAt(i, dummy.matrix);
       dummy.position.y = y + 0.07;
       dummy.rotation.y = 0;
       dummy.updateMatrix();
       this.ringMesh?.setMatrixAt(i, dummy.matrix);
     });
     this.bodyMesh.instanceMatrix.needsUpdate = true;
-    this.capMesh.instanceMatrix.needsUpdate = true;
+    this.bodyMesh.computeBoundingSphere();
     this.ringMesh.instanceMatrix.needsUpdate = true;
     this.ringMesh.computeBoundingSphere();
-    this.group.add(this.bodyMesh, this.capMesh, this.ringMesh);
+    this.group.add(this.bodyMesh, this.ringMesh);
   }
 
   private disposeMeshes(): void {
-    for (const mesh of [this.bodyMesh, this.capMesh, this.ringMesh]) {
+    for (const mesh of [this.bodyMesh, this.ringMesh]) {
       if (!mesh) continue;
       this.group.remove(mesh);
       mesh.dispose();
     }
     this.bodyMesh = null;
-    this.capMesh = null;
     this.ringMesh = null;
   }
 
   dispose(): void {
     this.disposeMeshes();
     this.bodyGeometry.dispose();
-    this.capGeometry.dispose();
-    this.bodyMaterial.dispose();
-    this.capMaterial.dispose();
     this.ringGeometry.dispose();
     this.ringMaterial.dispose();
   }
+}
+
+/**
+ * Post hydrant, about 1.2 m tall: drawn a little over real size (0.4 units)
+ * so it reads at RTS zoom, with a white bonnet and side outlets.
+ */
+export function createHydrantGeometry(): BufferGeometry {
+  const b = new ModelBuilder();
+  const red = 0xc63c2c;
+  const cap = 0xece4cf;
+  b.cylinder(0.11, 0.05, 0x6f7472, 0, 0.025, 0, undefined, 8);
+  b.cylinder(0.075, 0.26, red, 0, 0.17, 0, undefined, 8, 0.92);
+  b.cylinder(0.085, 0.03, cap, 0, 0.3, 0, undefined, 8);
+  b.sphere(0.075, 0.06, 0.075, cap, 0, 0.32, 0, 8, true);
+  b.cylinder(0.015, 0.04, cap, 0, 0.39, 0, undefined, 5);
+  for (const side of [-1, 1]) b.cylinder(0.035, 0.08, cap, side * 0.09, 0.2, 0, { z: Math.PI / 2 }, 6);
+  b.cylinder(0.045, 0.07, cap, 0, 0.2, 0.09, { x: Math.PI / 2 }, 6);
+  return b.build().get('body')!;
 }

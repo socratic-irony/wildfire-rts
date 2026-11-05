@@ -17,6 +17,7 @@ import { CameraRig } from './core/camera';
 import { createRenderer, createScene } from './core/scene';
 import { GRID_SIZE, TILE_SIZE, tileToWorld, worldToTile } from './world/constants';
 import { World } from './world/world';
+import { BUILDING_LABELS, BuildingKind } from './world/buildingModels';
 import { BACKBURN_GENERATIONS, FireState, Fuel, QUERY_BURNING, QUERY_WILD, Wildfire } from './sim/fire';
 import { SoundEngine } from './audio/sound';
 import { Effects } from './fx/effects';
@@ -1631,16 +1632,6 @@ function fireStateLabel(state: number): string {
   }
 }
 
-const BUILDING_LABELS: Record<string, string> = {
-  barn: 'Barn',
-  cabin: 'Cabin',
-  station: 'Fire station',
-  store: 'Storefront',
-  chapel: 'Chapel',
-  ranch: 'Ranch house',
-  twostory: 'Farmhouse',
-};
-
-function labelBuilding(kind: string): string {
+function labelBuilding(kind: BuildingKind): string {
   return BUILDING_LABELS[kind] ?? 'House';
 }

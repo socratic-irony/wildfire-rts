@@ -357,7 +357,7 @@ const trs = (
   sz = 1,
 ) => new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromEuler(new Euler(rx, ry, rz)), new Vector3(sx, sy, sz));
 
-function speciesGeometry(species: Species): BufferGeometry {
+export function speciesGeometry(species: Species): BufferGeometry {
   switch (species) {
     case 'pine':
       // Ponderosa: tall bare trunk, stacked irregular whorls, slightly lopsided.

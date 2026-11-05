@@ -1,6 +1,7 @@
 import { Color, DirectionalLight, FogExp2, HemisphereLight, Mesh, Scene, ShaderMaterial } from 'three';
 import { clamp, smoothstep } from '../core/math';
 import { WORLD_SIZE } from '../world/constants';
+import { setWindowGlow } from '../core/modelMaterials';
 
 const DAY = {
   sun: new Color(0xffe6bf),
@@ -70,5 +71,7 @@ export class Atmosphere {
       this.fog.density = 0.0024 + 0.0016 * s;
     }
     this.background?.copy(this.scratch);
+    // Lamps come on in windows as the light goes.
+    setWindowGlow(smoothstep(0.35, 1, d) + s * 0.3);
   }
 }

@@ -552,7 +552,7 @@ export class Hud {
             <div><kbd>W A S D</kbd><span>Pan the camera. <kbd>Q / E</kbd> rotate, <kbd>R / F</kbd> tilt, wheel zooms.</span></div>
             <div><kbd>Space</kbd><span>Pause. <kbd>1 / 2 / 4</kbd> set speed. <kbd>M</kbd> mutes sound.</span></div>
           </div>
-          <p class="help-note">Read the wind forecast in the top bar: the fire's head runs downwind, and shifts swing it toward new targets. Engines need roads and water; parked beside a hydrant they never run dry. Helicopters dip from the lake when it is closer than the helipad. Dozers caught in the flames suffer a burnover and are out of service for a while. Containing an incident pays a budget bonus; spend it on roads, backburns, or mutual-aid units from the fleet panel.</p>
+          <p class="help-note">Read the wind forecast in the top bar: the fire's head runs downwind, and shifts swing it toward new targets. Engines need roads and water; parked beside a hydrant they never run dry. Helicopters dip from the lake when it is closer than the helipad; the air tanker reloads at its base past the map edge. Dozers caught in the flames suffer a burnover and are out of service for a while. Containing an incident pays a budget bonus; spend it on roads, backburns, or mutual-aid units from the fleet panel.</p>
         </div>
       </div>
 
@@ -1293,7 +1293,7 @@ function unitTip(kind: string): string {
     case 'helicopter':
       return 'Drops on the downwind head, then dips from the lake if it is closer than the helipad.';
     default:
-      return 'Lays a long retardant line across the wind ahead of the head. Slow to reload.';
+      return 'Flies in from an air-tanker base past the map edge and lays a long retardant line across the wind ahead of the head. Slow to reload.';
   }
 }
 

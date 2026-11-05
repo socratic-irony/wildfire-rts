@@ -14,7 +14,8 @@
     "check": "npm run typecheck && npm test && npm run build",
     "smoke": "node scripts/smoke.mjs",
     "stability": "node scripts/stability.mjs",
-    "balance": "node scripts/balance.mjs"
+    "balance": "node scripts/balance.mjs",
+    "models": "node scripts/models.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
