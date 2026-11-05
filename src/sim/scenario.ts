@@ -2,7 +2,7 @@ import { Rng } from '../core/rng';
 import { GRID_SIZE, tileIndex } from '../world/constants';
 import { World } from '../world/world';
 import { Terrain } from '../world/biomes';
-import { Wildfire } from './fire';
+import { QUERY_BURNING, QUERY_WILD, Wildfire } from './fire';
 import { IncidentSystem } from './incidents';
 import { NotifyFn } from './types';
 import { DIFFICULTIES, Difficulty, DifficultyId } from './difficulty';
@@ -63,6 +63,8 @@ export class Scenario {
   private containedIncidents = 0;
   private readonly result: ScenarioResult;
   private config: Difficulty = DIFFICULTIES.standard;
+  /** Won at the bell with a small fire left for the night crew. */
+  private corralled = false;
   private schedule: WindShift[] = [];
 
   constructor(
@@ -225,10 +227,13 @@ export class Scenario {
       return;
     }
     if (this.time >= SHIFT_SECONDS) {
-      if (stats.wildActive > 0) {
-        this.finish('lost', 'The shift ended with fire still on the ridge.');
-      } else {
+      if (stats.wildActive === 0) {
         this.finish('won', 'Shift complete. Every fire is out.');
+      } else if (stats.wildActive <= this.config.corralledTiles && !this.structuresThreatened()) {
+        this.corralled = true;
+        this.finish('won', 'Shift over. The fire is corralled and the night crew will mop up.');
+      } else {
+        this.finish('lost', 'The shift ended with fire still on the ridge.');
       }
     }
   }
@@ -305,9 +310,20 @@ export class Scenario {
     return Math.round(raw * this.config.scoreMultiplier);
   }
 
+  /** Any standing structure burning, or with burning wildfire within 7 tiles. */
+  private structuresThreatened(): boolean {
+    for (const building of this.world.buildings.buildings) {
+      if (building.state === 'destroyed') continue;
+      if (building.state === 'burning') return true;
+      if (this.fire.nearestActive(building.centerX, building.centerZ, 7, QUERY_WILD | QUERY_BURNING)) return true;
+    }
+    return false;
+  }
+
   private computeGrade(): Grade {
     const lost = this.world.buildings.destroyedCount;
     const burned = this.fire.stats().burnedHectares;
+    if (this.status === 'won' && this.corralled) return lost <= 3 ? 'B' : 'C';
     if (this.status === 'won') {
       if (lost === 0 && burned < 0.4) return 'S';
       if (lost <= 1 && burned < 0.9) return 'A';

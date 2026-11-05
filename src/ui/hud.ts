@@ -129,6 +129,8 @@ export class Hud {
   private unitPanelId: number | null = null;
   private unitPanelKind = '';
   private lastFunds = 0;
+  private readonly seed: number;
+  private lastResultDifficulty: DifficultyId = 'standard';
   private threatened = new Set<number>();
   private readonly fleetRows = new Map<
     number,
@@ -155,6 +157,7 @@ export class Hud {
     difficulty: DifficultyId,
   ) {
     this.root = root;
+    this.seed = seed;
     this.world = world;
     this.fire = fire;
     this.callbacks = callbacks;
@@ -217,6 +220,7 @@ export class Hud {
   showEnd(result: ScenarioResult, best: BestRecord | null, newBest: boolean, saved: number): void {
     if (this.endShown) return;
     this.endShown = true;
+    this.lastResultDifficulty = result.difficulty;
     this.setTooltip(null);
     const won = result.status === 'won';
     const grade = result.grade ?? (won ? 'C' : 'F');
@@ -244,6 +248,7 @@ export class Hud {
         </div>
         ${bestLine}
         <div class="end-actions">
+          <button type="button" class="secondary-button wide" data-action="copy-link">Copy map link</button>
           <button type="button" class="secondary-button wide" data-action="replay">Replay this map</button>
           <button type="button" class="primary-button" data-action="restart">New Shift</button>
         </div>
@@ -265,6 +270,20 @@ export class Hud {
       },
       tone === 'hint' ? 8000 : 4600,
     );
+  }
+
+  private copyMapLink(): void {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.searchParams.set('seed', String(this.seed));
+    url.searchParams.set('difficulty', this.lastResultDifficulty);
+    const text = url.toString();
+    const done = () => this.toast('Map link copied. Challenge someone to beat your score.', 'success');
+    try {
+      void navigator.clipboard.writeText(text).then(done, () => this.toast(text, 'info'));
+    } catch {
+      this.toast(text, 'info');
+    }
   }
 
   /** Brief white-blue flash over the whole screen for a lightning strike. */
@@ -524,6 +543,7 @@ export class Hud {
           </div>
           <div class="start-actions">
             <button type="button" class="primary-button" data-action="start">Start Shift</button>
+            ${dailyLink(seed)}
             <span class="start-hint">WASD pan · Q/E rotate · wheel zoom · H manual</span>
           </div>
           <p class="start-best" data-best></p>
@@ -547,6 +567,8 @@ export class Hud {
           this.callbacks.onRestart(false);
         } else if (action === 'replay') {
           this.callbacks.onRestart(true);
+        } else if (action === 'copy-link') {
+          this.copyMapLink();
         } else if (action === 'pause') {
           this.callbacks.onPause();
         } else if (action === 'mute') {
@@ -746,23 +768,33 @@ export class Hud {
   }
 
   private renderAid(state: HudState): void {
+    if (!this.aidPanel.dataset.built) {
+      const buttons = AID_OPTIONS.map(
+        ({ kind, label }) =>
+          `<button type="button" class="aid-button" data-aid="${kind}">+ ${label}<b>$${MUTUAL_AID_COST[kind]}</b></button>`,
+      ).join('');
+      this.aidPanel.innerHTML = `
+        <div class="aid-head"><span>MUTUAL AID</span><em data-aid-left></em></div>
+        <div class="aid-buttons">${buttons}</div>
+        <div class="aid-pending"></div>
+      `;
+      this.aidPanel.dataset.built = '1';
+    }
     const running = state.scenario.status === 'running';
-    const pending = state.reinforcements
-      .map((item) => `<span class="aid-chip">${item.name} · ${Math.ceil(item.eta)}s</span>`)
-      .join('');
-    const buttons = AID_OPTIONS.map(({ kind, label }) => {
-      const cost = MUTUAL_AID_COST[kind];
-      const disabled = !running || state.mutualAidLeft <= 0 || state.funds < cost;
-      return `<button type="button" class="aid-button" data-aid="${kind}" ${disabled ? 'disabled' : ''}>+ ${label}<b>$${cost}</b></button>`;
-    }).join('');
-    const html = `
-      <div class="aid-head"><span>MUTUAL AID</span><em>${state.mutualAidLeft} of 3 left · arrives in 20 s</em></div>
-      <div class="aid-buttons">${buttons}</div>
-      ${pending ? `<div class="aid-pending">${pending}</div>` : ''}
-    `;
-    if (this.aidPanel.dataset.html !== html) {
-      this.aidPanel.innerHTML = html;
-      this.aidPanel.dataset.html = html;
+    const left = this.aidPanel.querySelector('[data-aid-left]');
+    const leftText = `${state.mutualAidLeft} of 3 left · arrives in 20 s`;
+    if (left && left.textContent !== leftText) left.textContent = leftText;
+    for (const button of this.aidPanel.querySelectorAll<HTMLButtonElement>('[data-aid]')) {
+      const cost = MUTUAL_AID_COST[button.dataset.aid as UnitKind];
+      button.disabled = !running || state.mutualAidLeft <= 0 || state.funds < cost;
+    }
+    const pending = this.aidPanel.querySelector<HTMLElement>('.aid-pending');
+    if (pending) {
+      const html = state.reinforcements
+        .map((item) => `<span class="aid-chip">${item.name} · ${Math.ceil(item.eta)}s</span>`)
+        .join('');
+      if (pending.innerHTML !== html) pending.innerHTML = html;
+      pending.style.display = html ? 'flex' : 'none';
     }
   }
 
@@ -982,6 +1014,17 @@ function unitTip(kind: string): string {
     default:
       return 'Lays a long retardant line across the wind ahead of the head. Slow to reload.';
   }
+}
+
+/** Everyone gets the same map on the same calendar day. */
+export function dailySeed(date = new Date()): number {
+  return date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
+}
+
+function dailyLink(seed: number): string {
+  const daily = dailySeed();
+  if (seed === daily) return '<span class="daily-link current">Today\'s map</span>';
+  return `<a class="daily-link" href="?seed=${daily}">Today's map: ${regionName(daily)}</a>`;
 }
 
 function numberWord(n: number): string {

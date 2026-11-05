@@ -514,6 +514,10 @@ export class Game {
   private attackNearest(unitId: number): void {
     const unit = this.fleet.unitById(unitId);
     if (!unit) return;
+    if (unit.outOfService > 0) {
+      this.notify(`${unit.name} is out of service after a burnover.`, 'warning');
+      return;
+    }
     let best: Incident | null = null;
     let bestDistance = Infinity;
     for (const incident of this.incidents.activeIncidents) {
@@ -956,6 +960,10 @@ export class Game {
     if (this.selectedUnitId === null) return;
     const unit = this.fleet.unitById(this.selectedUnitId);
     if (!unit) return;
+    if (unit.outOfService > 0) {
+      this.notify(`${unit.name} is out of service after a burnover.`, 'warning');
+      return;
+    }
     // Direct orders are never capped: the player may commit the whole fleet.
     const incident = this.incidents.createAt(tx, tz, 'manual');
     if (unit.kind === 'firetruck' && !this.fleet.canReach(this.selectedUnitId, incident)) {

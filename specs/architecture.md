@@ -126,6 +126,9 @@ The first `__cinderline.advanceTime(ms)` call hands the clock to the test API: t
 - Terrain is one non-indexed mesh; terrain tint updates at 2 Hz.
 - Fire queries (nearest, head, counts, centroid) walk a cached list of active tiles that is rebuilt only after the fire changes; `stats()` is cached the same way. Particle emission scans the grid each frame but caps output.
 - Road and off-road A* use a binary heap; route previews run on hover without stalls.
+- `RoadNetwork.connected(a, b)` answers road reachability from connected-component labels recomputed only after the road mask changes; dispatch eligibility uses it instead of running A*.
+- Incidents re-track their fire at 5 Hz, not every step. Engine attack positions scan only the small box within hose reach of each road tile and are cached per incident (bucketed position) for a simulated second.
+- A headless profile of a full Red Flag shift (seed 12345, ~900 burning tiles at peak) costs about 5 ms of CPU per simulated second for scenario, fire, incidents, and fleet together.
 - Road edits rebuild only affected systems; the initial world is built once.
 - Shadows use one 2048 directional map. Real-GPU checks run well above 60 FPS at 1440×900; headless SwiftShader is intentionally not the performance target.
 

@@ -249,3 +249,23 @@ describe('budget', () => {
     expect(budget.earned).toBe(50);
   });
 });
+
+describe('end of shift', () => {
+  it('a small fire threatening nothing at the bell counts as corralled, capped at grade B', () => {
+    const { world, fire } = createHarness(12345, true);
+    const scenario = new Scenario(world, fire, new IncidentSystem(fire, () => undefined), () => undefined, 12345, 'standard');
+    scenario.start();
+    (scenario as unknown as { ignitionCursor: number }).ignitionCursor = 99;
+    const tile = burnableTile(12345, 12);
+    fire.ignite(tile.x, tile.z);
+    scenario.registerFireStarted();
+    for (let i = 0; i < 6; i += 1) fire.step(0.2);
+    expect(fire.stats().wildActive).toBeGreaterThan(0);
+    expect(fire.stats().wildActive).toBeLessThanOrEqual(15);
+    scenario.time = 8 * 60 - 0.01;
+    scenario.update(0.05);
+    expect(scenario.status).toBe('won');
+    expect(scenario.currentResult.reason).toContain('corralled');
+    expect(['B', 'C']).toContain(scenario.currentResult.grade);
+  });
+});

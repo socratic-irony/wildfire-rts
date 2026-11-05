@@ -22,7 +22,8 @@ Presets live in `src/sim/difficulty.ts`.
 | Start wind / shift range (m/s) | 4.2 / 3.2–6.6 | 5.4 / 4.2–9.4 | 7.2 / 6.2–11.2 |
 | Spread × / spotting × | 0.82 / 0.6 | 1 / 1 | 1.12 / 1.45 |
 | Budget start / income / containment bonus | $450 / 2.2/s / $150 | $320 / 1.6/s / $120 | $260 / 1.3/s / $110 |
-| Loss: burned area / structures lost | 2.2 ha / 12 | 1.6 ha / 10 | 1.6 ha / 8 |
+| Loss: burned area / structures lost | 2.2 ha / 12 | 1.6 ha / 10 | 1.4 ha / 8 |
+| Corralled at the bell (burning tiles) | 40 | 15 | 6 |
 | Score multiplier | ×0.8 | ×1 | ×1.5 |
 
 ## Ignition schedule
@@ -41,6 +42,7 @@ Wildfire means fire that is not a controlled backburn (see `fire_behavior.md`).
 
 - **Win**: all scheduled strikes have occurred, all incidents are resolved, and no wildfire has been burning or igniting for 7 seconds.
 - **Win at time**: the shift timer expires with no wildfire burning.
+- **Corralled at time**: the timer expires with no more wildfire tiles burning than the preset allows (Calm 40, Standard 15, Red Flag 6) and no standing structure burning or within 7 tiles of burning wildfire. The night crew mops up; the grade is capped at B (C with more than three losses).
 - **Lose**: the preset's structure-loss limit is reached; wildfire-burned area exceeds the preset's limit; or the timer expires with wildfire burning.
 - Structures count as standing until destroyed.
 
@@ -55,7 +57,7 @@ Wildfire means fire that is not a controlled backburn (see `fire_behavior.md`).
  - backburned hectares * 60) × difficulty multiplier
 ```
 
-Grade: **S** won with no losses and under 0.4 ha burned; **A** won with ≤1 loss and under 0.9 ha; **B** won with ≤3 losses; **C** any other win; **D** lost after 80% of the shift; **F** lost earlier. The best score per seed and difficulty is stored locally, shown on the briefing screen, and flagged on the end screen when beaten. The end screen shows structures standing, lost, and saved, wildfire and backburned area, time, score with its multiplier, and the grade, and offers **Replay this map** (same seed and difficulty) and **New Shift**.
+Grade (corralled wins excepted, see above): **S** won with no losses and under 0.4 ha burned; **A** won with ≤1 loss and under 0.9 ha; **B** won with ≤3 losses; **C** any other win; **D** lost after 80% of the shift; **F** lost earlier. The best score per seed and difficulty is stored locally, shown on the briefing screen, and flagged on the end screen when beaten. The end screen shows structures standing, lost, and saved, wildfire and backburned area, time, score with its multiplier, and the grade, and offers **Replay this map** (same seed and difficulty) and **New Shift**.
 
 ## Command budget
 

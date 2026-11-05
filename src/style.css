@@ -2083,3 +2083,49 @@ kbd {
 #ui .help-overlay:not(.visible) * {
   pointer-events: none;
 }
+
+.daily-link {
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(241, 179, 77, 0.5);
+  pointer-events: auto;
+}
+
+.daily-link:hover {
+  color: var(--amber-bright);
+}
+
+.daily-link.current {
+  border-bottom: 0;
+  color: var(--green);
+}
+
+/* Narrower desktops: keep the top bar on one row. */
+@media (max-width: 1280px) {
+  .topbar {
+    grid-template-columns: auto minmax(120px, 1fr) auto auto;
+    gap: 10px;
+  }
+  .brand-sub {
+    display: none;
+  }
+  .metric {
+    min-width: 58px;
+    padding: 5px 6px 4px;
+  }
+  .metric.wide {
+    min-width: 104px;
+  }
+}
+
+@media (max-width: 880px) {
+  .fleet-panel {
+    display: none;
+  }
+  .topbar {
+    grid-template-columns: auto 1fr auto;
+  }
+}

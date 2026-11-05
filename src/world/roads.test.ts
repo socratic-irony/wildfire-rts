@@ -96,4 +96,16 @@ describe('planRoadPath', () => {
     expect(lake).not.toBeNull();
     expect(planRoadPath(map, biomes, { x: 40, z: 37 }, lake!)).toBeNull();
   });
+  it('reports road connectivity consistently with path finding, and updates after edits', () => {
+    const network = new RoadNetwork();
+    network.addLine({ x: 10, z: 10 }, { x: 20, z: 10 });
+    network.addLine({ x: 30, z: 30 }, { x: 30, z: 40 });
+    expect(network.connected({ x: 10, z: 10 }, { x: 20, z: 10 })).toBe(true);
+    expect(network.connected({ x: 10, z: 10 }, { x: 30, z: 35 })).toBe(false);
+    expect(network.findPath({ x: 10, z: 10 }, { x: 30, z: 35 })).toBeNull();
+    network.addLine({ x: 20, z: 10 }, { x: 30, z: 10 });
+    network.addLine({ x: 30, z: 10 }, { x: 30, z: 30 });
+    expect(network.connected({ x: 10, z: 10 }, { x: 30, z: 35 })).toBe(true);
+    expect(network.findPath({ x: 10, z: 10 }, { x: 30, z: 35 })).not.toBeNull();
+  });
 });

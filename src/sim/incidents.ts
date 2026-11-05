@@ -15,6 +15,8 @@ export interface Incident extends IncidentView {
 const MAX_AUTO_UNITS = 4;
 /** An incident follows wildfire within this many tiles of its centre. */
 const TRACK_RADIUS_TILES = 18;
+/** Seconds between incident tracking passes (centre, severity, quiet timer). */
+const TRACK_INTERVAL = 0.2;
 /** Seconds between lookout sweeps for untracked spot fires. */
 const SPOT_SWEEP_SECONDS = 2;
 
@@ -27,6 +29,7 @@ export class IncidentSystem {
   private nextId = 1;
   private dispatchTimer = 0.5;
   private sweepTimer = SPOT_SWEEP_SECONDS;
+  private trackTimer = 0;
 
   constructor(
     private readonly fire: Wildfire,
@@ -68,6 +71,30 @@ export class IncidentSystem {
   }
 
   update(dt: number, fleet: Fleet): void {
+    this.trackTimer += dt;
+    if (this.trackTimer >= TRACK_INTERVAL) {
+      const elapsed = this.trackTimer;
+      this.trackTimer = 0;
+      this.track(elapsed, fleet);
+    }
+
+    this.sweepTimer -= dt;
+    if (this.sweepTimer <= 0) {
+      this.sweepTimer = SPOT_SWEEP_SECONDS;
+      this.sweepForSpotFires();
+    }
+
+    if (this.autoDispatch) {
+      this.dispatchTimer -= dt;
+      if (this.dispatchTimer <= 0) {
+        this.dispatchTimer = 1.15;
+        this.runAutoDispatch(fleet);
+      }
+    }
+  }
+
+  /** Follow each incident's fire, update severity, and resolve quiet ones. */
+  private track(dt: number, fleet: Fleet): void {
     for (const incident of this.incidents) {
       if (incident.resolved) continue;
       const nearest = this.fire.nearestActive(incident.x, incident.z, TRACK_RADIUS_TILES, QUERY_WILD);
@@ -91,20 +118,6 @@ export class IncidentSystem {
       for (const id of incident.assigned) {
         const unit = fleet.unitById(id);
         if (unit === null || unit.incidentId !== incident.id) incident.assigned.delete(id);
-      }
-    }
-
-    this.sweepTimer -= dt;
-    if (this.sweepTimer <= 0) {
-      this.sweepTimer = SPOT_SWEEP_SECONDS;
-      this.sweepForSpotFires();
-    }
-
-    if (this.autoDispatch) {
-      this.dispatchTimer -= dt;
-      if (this.dispatchTimer <= 0) {
-        this.dispatchTimer = 1.15;
-        this.runAutoDispatch(fleet);
       }
     }
   }
@@ -198,6 +211,22 @@ export class IncidentSystem {
       }
       if (assigned < 3 && incident.severity >= 28 && !kinds.has('dozer')) {
         if (fleet.assignBest(incident, 'dozer')) this.registerAssignment(incident, fleet);
+      }
+      // Nothing on the roads can reach this fire: it is air and dozer work.
+      if (!fleet.assignedKinds(incident.id).has('firetruck') && fleet.bestIdle(incident, 'ground') === null) {
+        const airborne = fleet.units.filter(
+          (unit) => unit.incidentId === incident.id && unit.state !== 'idle' && (unit.kind === 'helicopter' || unit.kind === 'tanker'),
+        ).length;
+        if (airborne < 2 && incident.severity >= 3 && fleet.assignedCount(incident.id) < MAX_AUTO_UNITS) {
+          if (fleet.assignBest(incident, 'air')) this.registerAssignment(incident, fleet);
+        }
+        if (
+          incident.severity >= 10 &&
+          !fleet.assignedKinds(incident.id).has('dozer') &&
+          fleet.assignedCount(incident.id) < MAX_AUTO_UNITS
+        ) {
+          if (fleet.assignBest(incident, 'dozer')) this.registerAssignment(incident, fleet);
+        }
       }
       // A large fire gets a second engine once the first wave is committed.
       if (

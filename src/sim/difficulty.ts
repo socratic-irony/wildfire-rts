@@ -20,6 +20,8 @@ export interface Difficulty {
   containmentBonus: number;
   burnLimitHectares: number;
   structureLossLimit: number;
+  /** At the final bell, a fire this small (burning tiles) that threatens nothing counts as corralled. */
+  corralledTiles: number;
   scoreMultiplier: number;
 }
 
@@ -39,6 +41,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     containmentBonus: 150,
     burnLimitHectares: 2.2,
     structureLossLimit: 12,
+    corralledTiles: 40,
     scoreMultiplier: 0.8,
   },
   standard: {
@@ -56,6 +59,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     containmentBonus: 120,
     burnLimitHectares: 1.6,
     structureLossLimit: 10,
+    corralledTiles: 15,
     scoreMultiplier: 1,
   },
   redflag: {
@@ -71,8 +75,9 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     startingFunds: 260,
     income: 1.3,
     containmentBonus: 110,
-    burnLimitHectares: 1.6,
+    burnLimitHectares: 1.4,
     structureLossLimit: 8,
+    corralledTiles: 6,
     scoreMultiplier: 1.5,
   },
 };

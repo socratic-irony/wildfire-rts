@@ -459,13 +459,10 @@ export class Fleet {
     if (!this.fire.isActiveNear(incident.x, incident.z, 26, QUERY_WILD)) {
       // Nothing burning yet: plain road access near the incident is enough.
       const road = this.world.roads.nearest(incident.tx, incident.tz, 6);
-      return road !== null && this.world.roads.findPath(current, road) !== null;
+      return road !== null && this.world.roads.connected(current, road);
     }
     const positions = this.attackPositions(incident.x, incident.z, null);
-    for (let i = 0; i < Math.min(3, positions.length); i += 1) {
-      if (this.world.roads.findPath(current, positions[i]!)) return true;
-    }
-    return false;
+    return positions.some((position) => this.world.roads.connected(current, position));
   }
 
   orderMove(unitId: number, wx: number, wz: number): { ok: boolean; message?: string } {
@@ -820,23 +817,25 @@ export class Fleet {
    * simulated time: auto-dispatch asks for the same incident many times.
    */
   private baseAttackPositions(centerX: number, centerZ: number): Array<{ x: number; z: number; score: number }> {
-    const key = `${Math.round(centerX)},${Math.round(centerZ)}`;
+    // Incident centres drift a little every step; bucket them so the cache hits.
+    const key = `${Math.round(centerX / 4)},${Math.round(centerZ / 4)}`;
     const cached = this.attackCache.get(key);
     if (cached && this.time - cached.time < ATTACK_CACHE_SECONDS) return cached.positions;
     if (this.attackCache.size > 64) this.attackCache.clear();
     const reach = HOSE_RANGE / TILE_SIZE - 0.3;
     const center = worldToTile(centerX, centerZ);
+    const head = this.fire.headTileNear(centerX, centerZ, 30, QUERY_WILD);
     const radius = 26;
     const positions: Array<{ x: number; z: number; score: number }> = [];
     for (let z = Math.max(0, center.z - radius); z <= Math.min(GRID_SIZE - 1, center.z + radius); z += 1) {
       for (let x = Math.max(0, center.x - radius); x <= Math.min(GRID_SIZE - 1, center.x + radius); x += 1) {
         if (!this.world.roads.has(x, z)) continue;
+        const target = this.nearestWildInReach(x, z, reach);
+        if (!target) continue;
         const world = tileToWorld(x, z);
-        const burning = this.fire.nearestActive(world.x, world.z, reach, QUERY_WILD | QUERY_BURNING);
-        const target = burning && burning.distance <= reach ? burning : this.fire.nearestActive(world.x, world.z, reach, QUERY_WILD);
-        if (!target || target.distance > reach) continue;
         const hydrant = this.world.hydrants.findNearest(world.x, world.z, 4.2) !== null;
-        const score = target.distance + (target === burning ? 0 : 3) + (hydrant ? -2.5 : 0);
+        const atHead = head !== null && Math.hypot(target.x - head.x, target.z - head.z) < 6;
+        const score = target.distance + (target.burning ? 0 : 3) + (hydrant ? -2.5 : 0) + (atHead ? -1.5 : 0);
         positions.push({ x, z, score });
       }
     }
@@ -845,14 +844,66 @@ export class Fleet {
     return positions;
   }
 
+  /**
+   * Nearest wildfire tile within `reach` tiles of a road tile, burning
+   * preferred over smoldering. Scans only the small box around the tile, so
+   * the cost does not grow with the size of the fire.
+   */
+  private nearestWildInReach(
+    x: number,
+    z: number,
+    reach: number,
+  ): { x: number; z: number; distance: number; burning: boolean } | null {
+    const r = Math.ceil(reach);
+    let burningDistance = Infinity;
+    let burningIndex = -1;
+    let smolderDistance = Infinity;
+    let smolderIndex = -1;
+    for (let dz = -r; dz <= r; dz += 1) {
+      const fz = z + dz;
+      if (fz < 0 || fz >= GRID_SIZE) continue;
+      for (let dx = -r; dx <= r; dx += 1) {
+        const fx = x + dx;
+        if (fx < 0 || fx >= GRID_SIZE) continue;
+        const d = Math.hypot(dx, dz);
+        if (d > reach) continue;
+        const index = fz * GRID_SIZE + fx;
+        const state = this.fire.state[index];
+        if (state !== FireState.Burning && state !== FireState.Igniting && state !== FireState.Smoldering) continue;
+        if ((this.fire.controlled[index] ?? 0) > 0) continue;
+        if (state === FireState.Smoldering) {
+          if (d < smolderDistance) {
+            smolderDistance = d;
+            smolderIndex = index;
+          }
+        } else if (d < burningDistance) {
+          burningDistance = d;
+          burningIndex = index;
+        }
+      }
+    }
+    const index = burningIndex >= 0 ? burningIndex : smolderIndex;
+    if (index < 0) return null;
+    return {
+      x: index % GRID_SIZE,
+      z: Math.floor(index / GRID_SIZE),
+      distance: burningIndex >= 0 ? burningDistance : smolderDistance,
+      burning: burningIndex >= 0,
+    };
+  }
+
   /** Road route to the best reachable attack position, or null if the fire is out of reach. */
   private planAttackRoute(unit: Unit, incident: IncidentView): Array<{ x: number; z: number }> | null {
     const current = this.currentRoadTile(unit);
     if (!current) return null;
     const positions = this.attackPositions(incident.x, incident.z, unit);
-    for (let i = 0; i < Math.min(5, positions.length); i += 1) {
-      const path = this.world.roads.findPath(current, positions[i]!);
+    let tries = 0;
+    for (const position of positions) {
+      if (!this.world.roads.connected(current, position)) continue;
+      const path = this.world.roads.findPath(current, position);
       if (path) return path;
+      tries += 1;
+      if (tries >= 3) break;
     }
     return null;
   }

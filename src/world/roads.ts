@@ -79,9 +79,56 @@ export class RoadNetwork {
   readonly size = GRID_SIZE;
   readonly mask = new Uint8Array(GRID_SIZE * GRID_SIZE);
   private revisionValue = 0;
+  private components: Int32Array | null = null;
+  private componentRevision = -1;
 
   get revision(): number {
     return this.revisionValue;
+  }
+
+  /**
+   * True if two tiles are joined by road (4-neighbour connectivity, the same
+   * rule as findPath). Off-road endpoints snap to the nearest road tile the
+   * way findPath does. Labels are recomputed only after the road mask changes.
+   */
+  connected(start: TilePoint, goal: TilePoint): boolean {
+    const from = this.has(start.x, start.z) ? start : this.nearest(start.x, start.z, 12);
+    const to = this.has(goal.x, goal.z) ? goal : this.nearest(goal.x, goal.z, 12);
+    if (!from || !to) return false;
+    const labels = this.componentLabels();
+    const a = labels[tileIndex(from.x, from.z)] ?? -1;
+    return a >= 0 && a === labels[tileIndex(to.x, to.z)];
+  }
+
+  private componentLabels(): Int32Array {
+    if (this.components && this.componentRevision === this.revisionValue) return this.components;
+    const labels = this.components ?? new Int32Array(this.mask.length);
+    labels.fill(-1);
+    const stack: number[] = [];
+    let next = 0;
+    for (let i = 0; i < this.mask.length; i += 1) {
+      if (this.mask[i] !== 1 || labels[i] !== -1) continue;
+      labels[i] = next;
+      stack.push(i);
+      while (stack.length > 0) {
+        const index = stack.pop()!;
+        const x = index % GRID_SIZE;
+        const z = (index - x) / GRID_SIZE;
+        for (const [dx, dz] of NEIGHBOR_4) {
+          const nx = x + dx;
+          const nz = z + dz;
+          if (!inGrid(nx, nz)) continue;
+          const n = tileIndex(nx, nz);
+          if (this.mask[n] !== 1 || labels[n] !== -1) continue;
+          labels[n] = next;
+          stack.push(n);
+        }
+      }
+      next += 1;
+    }
+    this.components = labels;
+    this.componentRevision = this.revisionValue;
+    return labels;
   }
 
   has(tx: number, tz: number): boolean {

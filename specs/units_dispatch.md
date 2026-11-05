@@ -43,7 +43,7 @@ The fleet panel offers mutual-aid units for budget (`MUTUAL_AID_COST`: engine $3
 
 ### Engine attack positions
 
-`attackPositions` scans road tiles within 26 tiles of the incident. A tile qualifies if wildfire lies within hose reach (`HOSE_RANGE = 12.5` world units, measured from the tile centre with a small lane margin). Candidates are ranked by distance to the flames, burning before smoldering, a hydrant alongside (−2.5), and drive distance. The engine routes to the best reachable candidate and switches to `attacking` as soon as wildfire is within hose reach. If no road tile reaches the fire, the engine reports "no road within hose reach" and returns home. `canReach` uses the same test, so auto-dispatch does not send engines to fires they cannot touch (falling back to plain road access within 6 tiles before anything is burning in reach).
+`attackPositions` scans road tiles within 26 tiles of the incident. A tile qualifies if wildfire lies within hose reach (`HOSE_RANGE = 12.5` world units, measured from the tile centre with a small lane margin). Candidates are ranked by distance to the flames, burning before smoldering (+3 for smoldering), a hydrant alongside (−2.5), flames within 6 tiles of the downwind head (−1.5), and drive distance (×0.08 per tile). The unit-independent ranking is cached per incident for one simulated second. The engine routes to the best reachable candidate and switches to `attacking` as soon as wildfire is within hose reach. If no road tile reaches the fire, the engine reports "no road within hose reach" and returns home. `canReach` uses the same test, so auto-dispatch does not send engines to fires they cannot touch (falling back to plain road access within 6 tiles only while nothing is burning near the incident).
 
 ## Air movement
 
@@ -74,7 +74,7 @@ Ground units standing on a burning or igniting tile accumulate `exposure` at `0.
 ## Incidents
 
 - `IncidentSystem.createAt(tx, tz, source)` merges ignitions within 16 world units. Sources: `lightning`, `manual`, `spot`.
-- Active incidents track the nearest burning or smoldering wildfire within 18 tiles (controlled backburns are ignored), severity (`activeCountNear(..., 11, QUERY_WILD)`), assigned ids, and a quiet timer.
+- Five times a second, active incidents track the nearest burning or smoldering wildfire within 18 tiles (controlled backburns are ignored), severity (`activeCountNear(..., 11, QUERY_WILD)`), assigned ids, and a quiet timer.
 - An incident resolves after 6 s with no wildfire within 18 tiles, then releases its assigned units and calls `onResolved` (the game pays the containment bonus and names the sector).
 - **Lookout:** every 2 s the system looks for a burning wildfire tile that no active incident is within 18 tiles of, and opens a `spot` incident there (`onSpotDetected`). This catches escaped embers and backburns that ran past their control budget.
 - Manual ignition and scripted lightning create incidents. Direct attack orders reuse or create an incident.
@@ -89,9 +89,10 @@ Auto dispatch runs every 1.15 s while enabled:
 3. No engine on a severity ≥ 6 incident: try to add one.
 4. No aircraft on a severity ≥ 12 incident: try to add one.
 5. No dozer on a severity ≥ 28 incident: try to add one.
-6. Cap at four units per incident.
+6. No engine assigned and none can reach the fire by road: add aircraft until two are on it (severity ≥ 3), and the dozer at severity ≥ 10. These fires are air and dozer work.
+7. Cap at four units per incident.
 
-Eligibility: idle, in service, sufficient payload, and (for engines) a road route to a tile within hose reach of the fire. Manual dispatch forces the same best-available policy. Direct orders bypass auto dispatch until the incident resolves or the unit is recalled.
+Eligibility: idle, in service, sufficient payload, and (for engines) a road connection (`RoadNetwork.connected`) to a tile within hose reach of the fire. Manual dispatch forces the same best-available policy. Direct orders bypass auto dispatch until the incident resolves or the unit is recalled.
 
 ## UI actions
 
