@@ -25,8 +25,9 @@ export class PlanPreview {
     this.material = new MeshBasicMaterial({
       color: 0xffc95c,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.62,
       depthWrite: false,
+      toneMapped: false,
       side: DoubleSide,
       polygonOffset: true,
       polygonOffsetFactor: -2,
@@ -66,5 +67,10 @@ export class PlanPreview {
 
   hide(): void {
     this.mesh.visible = false;
+  }
+
+  /** Gentle pulse so the planned tiles stand out from cleared ground. */
+  update(time: number): void {
+    if (this.mesh.visible) this.material.opacity = 0.5 + 0.18 * (0.5 + 0.5 * Math.sin(time * 5));
   }
 }

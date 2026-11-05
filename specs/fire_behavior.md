@@ -15,7 +15,15 @@ Implemented: tile ignition/spread, wind and slope, moisture, wetness/retardant, 
 - `env: { windDirRad, windSpeed, humidity }`
 - `simTime`, step counter, hashed seed
 
-Balance note: terrace banks now carry fuel (they used to be classed as rock and acted as free firebreaks), so `SPREAD_SCALE = 0.35` and `SPOT_SCALE = 0.3` trim spread and ember spotting. The difficulty preset multiplies both through `spreadMultiplier` and `spotMultiplier` (Calm 0.82/0.6, Standard 1/1, Red Flag 1.12/1.45). `npm run balance` reports hands-off outcomes per seed; active play (lines, roads, backburns, manual orders) is expected to make the difference.
+Balance note: terrace banks now carry fuel (they used to be classed as rock and acted as free firebreaks), so `SPREAD_SCALE = 0.35` and `SPOT_SCALE = 0.3` trim spread and ember spotting. The difficulty preset multiplies both through `spreadMultiplier` and `spotMultiplier` (Calm 0.82/0.6, Standard 1/1, Red Flag 1.25/1.7). `npm run balance` reports hands-off outcomes per seed; active play (lines, roads, backburns, manual orders) is expected to make the difference. Hands-off results on the eight default seeds at the time of writing:
+
+| Preset | Won | Structures lost (all seeds) | Typical loss |
+| --- | --- | --- | --- |
+| Calm | 5 / 8 | 2 | fire still burning at the bell |
+| Standard | 3 / 8 | 0 | fire still burning at the bell |
+| Red Flag | 2 / 8 | 14 | burn limit, structures, or the bell |
+
+Buying mutual aid alone (`ASSIST=1`) does not change the Standard win count; it trims burned area on most seeds.
 
 Fire ticks at 5 Hz (`FIXED_STEP = 0.2`) from the frame-driven accumulator, capped at 12 steps per call.
 

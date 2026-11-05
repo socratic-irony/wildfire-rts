@@ -559,6 +559,7 @@ export class Game {
     this.markerTime += realDt;
     this.updateIncidentMarkers();
     this.effects.update(realDt);
+    this.planPreview.update(this.markerTime);
     this.atmosphere.update(realDt, this.scenario.shiftProgress, this.fire.stats().burning);
     this.hudTimer -= realDt;
     if (this.hudTimer <= 0) {
@@ -1221,7 +1222,7 @@ export class Game {
       this.tool === 'road'
         ? { tiles: path.length, cost: this.newRoadTiles(path) * ROAD_COST_PER_TILE }
         : { tiles: path.length, cost: 0 };
-    const color = this.tool === 'road' ? 0xffc95c : 0xe9844a;
+    const color = this.tool === 'road' ? 0xffd24a : 0xff7a24;
     (this.roadPreview.material as LineBasicMaterial).color.setHex(color);
     this.planPreview.show(path, color, this.preview.cost <= this.budget.funds);
     const positions = this.roadPreview.geometry.getAttribute('position');
@@ -1333,6 +1334,11 @@ export class Game {
         difficulty: this.difficulty,
         funds: Math.floor(this.budget.funds),
         reinforcements: this.reinforcements.map((item) => ({ name: item.name, eta: item.eta })),
+        plan: {
+          tiles: this.preview?.tiles ?? 0,
+          overlayVisible: this.planPreview.mesh.visible,
+          lineVisible: this.roadPreview.visible,
+        },
         scenario: this.scenario.currentResult,
         fire: this.fire.stats(),
         units: this.fleet.snapshots(),
@@ -1469,7 +1475,7 @@ function createTileHighlight(): LineLoop {
   const geometry = new BufferGeometry();
   const positions = new Float32BufferAttribute(new Float32Array(5 * 3), 3);
   geometry.setAttribute('position', positions);
-  const material = new LineBasicMaterial({ color: 0xffe8a8, transparent: true, opacity: 0.95 });
+  const material = new LineBasicMaterial({ color: 0xffe8a8, transparent: true, opacity: 0.95, toneMapped: false });
   const loop = new LineLoop(geometry, material);
   loop.visible = false;
   loop.renderOrder = 10;
@@ -1481,7 +1487,7 @@ function createRoadPreview(): Line {
   const geometry = new BufferGeometry();
   const positions = new Float32BufferAttribute(new Float32Array(400 * 3), 3);
   geometry.setAttribute('position', positions);
-  const material = new LineBasicMaterial({ color: 0xffc95c, transparent: true, opacity: 0.9 });
+  const material = new LineBasicMaterial({ color: 0xffc95c, transparent: true, opacity: 0.9, toneMapped: false });
   const line = new Line(geometry, material);
   line.visible = false;
   line.renderOrder = 10;

@@ -102,6 +102,59 @@ try {
   assert(roadLength > 1, 'road planning failed');
   assert((await page.evaluate(() => window.__cinderline.roadFuelMismatches())) === 0, 'new roads did not become fire breaks');
 
+  // Command layer: plan overlay, dozer line, backburn, mutual aid.
+  await page.evaluate(() => window.__cinderline.focusTile(48, 45));
+  await page.waitForTimeout(400);
+  await page.keyboard.press('b');
+  const roadA = await page.evaluate(() => window.__cinderline.screenPosition(46, 40));
+  const roadB = await page.evaluate(() => window.__cinderline.screenPosition(52, 40));
+  await page.mouse.click(roadA.x, roadA.y);
+  await page.mouse.move(roadB.x, roadB.y, { steps: 4 });
+  state = await page.evaluate(() => window.__cinderline.getState());
+  assert(state.tool === 'road' && state.plan.overlayVisible && state.plan.tiles > 1, 'road plan overlay did not appear');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+
+  const lineOrdered = await page.evaluate(() => {
+    const api = window.__cinderline;
+    const spot = api.findBurnableNear(70, 70, 20);
+    if (!spot) return false;
+    for (const [dx, dz] of [[6, 0], [0, 6], [-6, 0], [0, -6]]) {
+      if (api.orderLine(spot.x, spot.z, spot.x + dx, spot.z + dz)) return true;
+    }
+    return false;
+  });
+  assert(lineOrdered, 'dozer line order was refused everywhere');
+  state = await page.evaluate(() => window.__cinderline.getState());
+  assert(state.units.some((unit) => unit.kind === 'dozer' && unit.state === 'cutting'), 'dozer did not take the line order');
+
+  const torchLit = await page.evaluate(() => {
+    const api = window.__cinderline;
+    const incident = api.getState().incidents.find((item) => !item.resolved);
+    if (!incident) return false;
+    const cx = Math.floor(incident.x / 2);
+    const cz = Math.floor(incident.z / 2);
+    for (let r = 3; r < 30; r += 1) {
+      for (let dz = -r; dz <= r; dz += 1) {
+        for (let dx = -r; dx <= r; dx += 1) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const tile = api.getTile(cx + dx, cz + dz);
+          if (tile.road || tile.building || tile.state !== 0) continue;
+          if (api.torch(cx + dx, cz + dz)) return true;
+        }
+      }
+    }
+    return false;
+  });
+  assert(torchLit, 'no backburn could be lit near the incident');
+
+  const fundsBefore = (await page.evaluate(() => window.__cinderline.getState())).funds;
+  assert(await page.evaluate(() => window.__cinderline.requestMutualAid('dozer')), 'mutual aid request failed');
+  await page.evaluate(() => window.__cinderline.advanceTime(21000));
+  state = await page.evaluate(() => window.__cinderline.getState());
+  assert(state.units.length === 6, 'mutual-aid unit did not arrive');
+  assert(state.funds < fundsBefore + 100, 'mutual aid was not charged');
+
   await page.locator('[data-action="pause"]').click();
   state = await page.evaluate(() => window.__cinderline.getState());
   assert(state.paused, 'pause button did not pause');
@@ -118,6 +171,7 @@ try {
   await page.waitForTimeout(700);
   state = await page.evaluate(() => window.__cinderline.getState());
   assert(state.scenario.status === 'won' || state.scenario.status === 'lost', 'scenario never reached an outcome');
+  assert(typeof state.scenario.grade === 'string', 'result has no grade');
   assert(await page.locator('#end-screen').evaluate((el) => el.classList.contains('visible')), 'end screen did not show');
   assert(errors.length === 0, `browser errors:\n${errors.join('\n')}`);
 

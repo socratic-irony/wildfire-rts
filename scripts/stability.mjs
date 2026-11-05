@@ -95,7 +95,8 @@ try {
       !['won', 'lost'].includes(row.status) ||
       !row.finite ||
       row.errors.length > 0 ||
-      (row.status === 'won' && row.unresolved > 0),
+      // Early wins require every incident resolved; a win at the bell may leave a corralled fire open.
+      (row.status === 'won' && row.elapsed < 479.9 && row.unresolved > 0),
   );
   if (bad.length > 0) {
     console.error('Unstable runs:', bad);

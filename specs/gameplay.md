@@ -20,7 +20,7 @@ Presets live in `src/sim/difficulty.ts`.
 | Lightning strikes (s) | 30, 120, 230 | 26, 94, 172, 266 | 20, 72, 128, 190, 255, 325 |
 | Wind shifts (s) | 90, 210, 340 | 70, 190, 310, 420 | 60, 150, 240, 330, 410 |
 | Start wind / shift range (m/s) | 4.2 / 3.2–6.6 | 5.4 / 4.2–9.4 | 7.2 / 6.2–11.2 |
-| Spread × / spotting × | 0.82 / 0.6 | 1 / 1 | 1.12 / 1.45 |
+| Spread × / spotting × | 0.82 / 0.6 | 1 / 1 | 1.25 / 1.7 |
 | Budget start / income / containment bonus | $450 / 2.2/s / $150 | $320 / 1.6/s / $120 | $260 / 1.3/s / $110 |
 | Loss: burned area / structures lost | 2.2 ha / 12 | 1.6 ha / 10 | 1.4 ha / 8 |
 | Corralled at the bell (burning tiles) | 40 | 15 | 6 |
@@ -114,7 +114,9 @@ Grade (corralled wins excepted, see above): **S** won with no losses and under 0
 - `screenPosition()`, `unitScreenPosition()`, `debugPick()`.
 - `roadFuelMismatches()` — integration assertion for road firebreaks.
 
-These helpers are used by `scripts/smoke.mjs`, `scripts/stability.mjs`, and `scripts/balance.mjs`.
+- `getState().plan` — tile count and visibility of the road/dozer-line plan overlay.
+
+These helpers are used by `scripts/smoke.mjs`, `scripts/stability.mjs`, and `scripts/balance.mjs`. The smoke test also plans a road through real mouse input (and checks the overlay), orders a dozer line, lights a backburn, buys a mutual-aid dozer and waits for it to arrive, and checks the result has a grade.
 
 ## Acceptance criteria
 

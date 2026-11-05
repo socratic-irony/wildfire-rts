@@ -8,6 +8,7 @@ import { launchChromium } from './browser.mjs';
  *
  *   npm run balance                      # default seeds, standard difficulty
  *   SEEDS=1,2,3 DIFFICULTY=redflag npm run balance
+ *   ASSIST=1 npm run balance             # also buy mutual aid whenever affordable
  */
 const PORT = Number(process.env.PORT ?? 4178);
 const BASE = `http://localhost:${PORT}`;
@@ -16,6 +17,7 @@ const SEEDS = (process.env.SEEDS ?? '1,42,12345,987654321,2026,7,99,31337')
   .map((value) => Number.parseInt(value, 10))
   .filter(Number.isFinite);
 const DIFFICULTY = process.env.DIFFICULTY ?? '';
+const ASSIST = process.env.ASSIST === '1';
 const SAMPLE_SECONDS = 30;
 const MOVING_STATES = new Set(['moving', 'toIncident', 'returning', 'refilling', 'cutting']);
 
@@ -59,10 +61,16 @@ try {
     const samples = [];
     let state;
     for (let t = 0; t < 600; t += SAMPLE_SECONDS) {
-      state = await page.evaluate((ms) => {
-        window.__cinderline.advanceTime(ms);
-        return window.__cinderline.getState();
-      }, SAMPLE_SECONDS * 1000);
+      state = await page.evaluate(
+        ({ ms, assist }) => {
+          if (assist) {
+            for (const kind of ['firetruck', 'helicopter', 'dozer']) window.__cinderline.requestMutualAid(kind);
+          }
+          window.__cinderline.advanceTime(ms);
+          return window.__cinderline.getState();
+        },
+        { ms: SAMPLE_SECONDS * 1000, assist: ASSIST },
+      );
       samples.push(state);
       if (state.scenario.status !== 'running') break;
     }
@@ -90,7 +98,8 @@ try {
     if (stuck.size || errors.length) failures += 1;
     await page.close();
   }
-  console.log(`\n${tally.won ?? 0} won / ${tally.lost ?? 0} lost across ${SEEDS.length} seeds${DIFFICULTY ? ` (${DIFFICULTY})` : ''}.`);
+  const label = [DIFFICULTY, ASSIST ? 'assisted' : ''].filter(Boolean).join(', ');
+  console.log(`\n${tally.won ?? 0} won / ${tally.lost ?? 0} lost across ${SEEDS.length} seeds${label ? ` (${label})` : ''}.`);
   if (failures) {
     console.error(`${failures} run(s) had stuck units or browser errors.`);
     process.exitCode = 1;

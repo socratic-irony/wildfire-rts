@@ -85,9 +85,9 @@ npm run stability   # five-seed full shift, plus a determinism replay
 npm run balance     # hands-off outcomes per seed; fails on stuck units
 ```
 
-`npm run balance` accepts `SEEDS=1,2,3`, `DIFFICULTY=calm|standard|redflag`, and `PORT=4178`.
+`npm run balance` accepts `SEEDS=1,2,3`, `DIFFICULTY=calm|standard|redflag`, `ASSIST=1` (buy mutual aid whenever affordable), and `PORT=4178`.
 
-The smoke test boots the game, starts a shift, ignites a fire, selects and moves an engine, builds a road, checks firebreak integration, verifies pause/help/speed controls, fast-forwards to an outcome, and asserts the end screen appears without browser errors.
+The smoke test boots the game, starts a shift, ignites a fire, selects and moves an engine, builds a road, checks firebreak integration, plans a road through the mouse and checks the overlay, orders a dozer line, lights a backburn, buys mutual aid, verifies pause/help/speed controls, fast-forwards to an outcome, and asserts the graded end screen appears without browser errors.
 
 Browser scripts use Playwright's Chromium when it is installed (`npx playwright install chromium`). Otherwise they fall back to a system Chrome or Chromium, or to the binary named in `CHROMIUM_PATH`.
 
